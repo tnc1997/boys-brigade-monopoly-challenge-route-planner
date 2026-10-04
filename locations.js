@@ -217,6 +217,19 @@ export function locationPoints(record, pointsPerLocation) {
 }
 
 /**
+ * Works out what every row of the location list is worth.
+ *
+ * @param {LocationRecord[]} records The rows.
+ * @param {number} pointsPerLocation What a location is worth unless its row says otherwise.
+ * @returns {Map<string, number>} Each row's points by its id.
+ * @example
+ * pointsById([{ id: 'a', text: 'A', points: 20 }, { id: 'b', text: 'B' }], 10); // Map { 'a' => 20, 'b' => 10 }
+ */
+export function pointsById(records, pointsPerLocation) {
+  return new Map(records.map((record) => [record.id, locationPoints(record, pointsPerLocation)]));
+}
+
+/**
  * Whether scores vary, so points are worth showing: when any row has its
  * own points. Until then, every location is worth the same, so the route
  * looks as it does without points.

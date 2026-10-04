@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, isScored, locationPoints, newLocationId, parsePoints, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, isScored, newLocationId, parsePoints, pointsById, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -847,7 +847,7 @@ function currentPoints() {
   if (!isScored(state.locations)) {
     return null;
   }
-  return new Map(state.locations.map((record) => [record.id, locationPoints(record, state.event.pointsPerLocation)]));
+  return pointsById(state.locations, state.event.pointsPerLocation);
 }
 
 /**

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, cleanRecords, isPoints, isScored, locationPoints, newLocationId, parsePoints, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from '../locations.js';
+import { FINISH_KEY, START_KEY, cleanRecords, isPoints, isScored, locationPoints, newLocationId, parsePoints, pointsById, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from '../locations.js';
 import { searchKey } from '../search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
@@ -137,12 +137,16 @@ describe('parsePoints', () => {
   });
 });
 
-describe('locationPoints and isScored', () => {
+describe('locationPoints, pointsById and isScored', () => {
   test("uses a row's own points, or Points per location", () => {
     assert.equal(locationPoints({ id: 'a', text: 'A', points: 20 }, 10), 20);
     assert.equal(locationPoints({ id: 'a', text: 'A', points: 0 }, 10), 0);
     assert.equal(locationPoints({ id: 'a', text: 'A' }, 10), 10);
     assert.equal(locationPoints(undefined, 10), 10);
+  });
+
+  test("works out every row's points by its id", () => {
+    assert.deepEqual(pointsById([{ id: 'a', text: 'A', points: 20 }, { id: 'b', text: 'B' }], 10), new Map([['a', 20], ['b', 10]]));
   });
 
   test('says scores vary once any row has its own points, even if it equals the default', () => {

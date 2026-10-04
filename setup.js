@@ -1,4 +1,4 @@
-import { FINISH_KEY, START_KEY, locationPoints, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, pointsById, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
 import { SPEED_RANGE } from './settings.js';
 
@@ -147,11 +147,11 @@ export function planFromSetup({ event, locations, settings, now, from = null, se
   // Only locations still to visit can be must-visit, since a ticked-off one
   // has already been visited.
   const mustVisitKeys = new Set(locations.filter(({ isMustVisit }) => isMustVisit).map(({ id }) => id));
-  const records = new Map(locations.map((record) => [record.id, record]));
+  const pointsByKey = pointsById(locations, event.pointsPerLocation);
   const result = plan({
     start: start.location,
     points: remaining.map(({ point }) => point),
-    scores: remaining.map(({ point }) => locationPoints(records.get(point.key), event.pointsPerLocation)),
+    scores: remaining.map(({ point }) => pointsByKey.get(point.key)),
     mustVisit: remaining.flatMap(({ point }, index) => (mustVisitKeys.has(point.key) ? [index] : [])),
     finish: finish?.location ?? null,
     startTime,
