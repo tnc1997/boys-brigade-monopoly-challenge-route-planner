@@ -97,12 +97,6 @@ const temporaryFailures = new Map();
 /** The text of rows and fields the team has just finished, whose result is announced to screen readers, by search key. */
 const announcedLookups = new Map();
 
-/** Tries failed lookups again after a while. */
-let retryTimer;
-
-/** How long to wait before trying failed lookups again, in milliseconds. */
-const RETRY_DELAY_MS = 30000;
-
 /** The map, created the first time the Map tab is shown, because Leaflet needs a visible container. */
 let routeMap = null;
 
@@ -377,9 +371,10 @@ function lookUp(query) {
         temporaryFailures.delete(key);
         saveState(state);
       } else {
-        temporaryFailures.set(key, "Couldn't search, which usually means there's no signal. It'll try again soon.");
-        clearTimeout(retryTimer);
-        retryTimer = setTimeout(retryLookups, RETRY_DELAY_MS);
+        // Not retried on a timer, which could keep sending requests while
+        // Nominatim is busy or blocking them, but when the phone is back
+        // online or Plan route is pressed.
+        temporaryFailures.set(key, "Couldn't search, which usually means there's no signal. It'll try again when you're back online, or when you press Plan route.");
       }
       showRows();
       announceLookup(key);
@@ -392,7 +387,6 @@ function lookUp(query) {
 
 /** Looks up anything still to look up whose last lookup failed for a reason that may pass. */
 function retryLookups() {
-  clearTimeout(retryTimer);
   for (const query of searchesNeeded({ setup: state.setup, locations: state.locations, searchResults: state.searchResults })) {
     if (temporaryFailures.has(searchKey(query))) {
       lookUp(query);

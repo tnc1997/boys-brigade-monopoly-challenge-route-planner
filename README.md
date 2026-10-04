@@ -27,7 +27,7 @@ Each row is looked up with OpenStreetMap when you've finished it: when you press
 - **Searching…** while it's being looked up.
 - **Found:** and the place it found. Check it's the right one, since a street name usually finds somewhere along the street rather than the exact spot.
 - **Not found.** Check the spelling, or pin it on the map (see below). Locations that aren't found are left out of the route.
-- **Couldn't search**, usually because there's no signal. It tries again by itself.
+- **Couldn't search**, usually because there's no signal. It tries again when the phone is back online, or when you press **Plan route**.
 
 **Pin a location on the map** when it isn't found, or isn't quite in the right spot. Tap the row's 📍, then tap where it is on the map. The row keeps its name and shows **📍 Pinned on the map**. Changing a pinned row's text only renames it. To look it up again instead, tap the ✕ next to **Pinned on the map**.
 
