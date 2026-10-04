@@ -940,8 +940,6 @@ settingsDialog.addEventListener('close', () => {
   if (settingsDialog.returnValue !== 'save') {
     return;
   }
-  const planningInputsBefore = planningInputs();
-  const checkInFormUrlBefore = state.settings.checkInFormUrl;
   if (isSpeedChanged) {
     state.settings.speedKmh = Number(speedSlider.value);
   }
