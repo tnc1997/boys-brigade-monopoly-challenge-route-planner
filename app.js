@@ -94,7 +94,12 @@ const lookups = new Map();
 /** Why lookups failed for a reason that may pass, such as no signal, by search key. These aren't saved, and are tried again. */
 const temporaryFailures = new Map();
 
-/** The text of rows and fields the team has just finished, whose result is announced to screen readers, by search key. */
+/**
+ * Rows and fields the team has just finished, whose result is announced to
+ * screen readers, by search key: their text, and whether they can be pinned.
+ *
+ * @type {Map<string, { label: string, canPin: boolean }>}
+ */
 const announcedLookups = new Map();
 
 /** The map, created the first time the Map tab is shown, because Leaflet needs a visible container. */
@@ -209,9 +214,11 @@ const ROW_BUTTON_CLASSES =
  * Describes where a row, or the Start or Finish field, is, to show under it.
  *
  * @param {import('./locations.js').Resolved} resolved Where it is, from the saved search results.
+ * @param {object} [options] What can be done about it.
+ * @param {boolean} [options.canPin=true] Whether it can be pinned on the map, which rows can but the Start and Finish fields can't.
  * @returns {{ text: string, isError: boolean }} What to show, and whether it's a problem.
  */
-function describeResolved(resolved) {
+function describeResolved(resolved, { canPin = true } = {}) {
   switch (resolved.status) {
     case 'empty':
       return { text: '', isError: false };
@@ -224,7 +231,7 @@ function describeResolved(resolved) {
     case 'notFound':
       // Coordinates out of range say what's wrong with them.
       return state.searchResults[searchKey(resolved.label)]
-        ? { text: 'Not found. Check the spelling or pin it on the map with 📍', isError: true }
+        ? { text: canPin ? 'Not found. Check the spelling or pin it on the map with 📍' : 'Not found. Check the spelling, or enter its coordinates.', isError: true }
         : { text: resolved.error, isError: true };
     default: {
       const key = searchKey(resolved.query);
@@ -337,8 +344,8 @@ function showRow(item, number) {
 /** Shows every row's labels and status, and the Start and Finish fields' statuses, and redraws the map if they've changed it. */
 function showRows() {
   [...locationRows.children].forEach((item, index) => showRow(/** @type {HTMLLIElement} */ (item), index + 1));
-  showDescription(startStatus, describeResolved(resolveText(state.setup.startText, 'start', state.searchResults)));
-  showDescription(finishStatus, describeResolved(resolveText(state.setup.finishText, 'finish', state.searchResults)));
+  showDescription(startStatus, describeResolved(resolveText(state.setup.startText, 'start', state.searchResults), { canPin: false }));
+  showDescription(finishStatus, describeResolved(resolveText(state.setup.finishText, 'finish', state.searchResults), { canPin: false }));
   updateMapIfChanged();
 }
 
@@ -406,10 +413,12 @@ function retryLookups() {
  * the result to screen readers when it's in.
  *
  * @param {import('./locations.js').Resolved} resolved Where the row is, from the saved search results.
+ * @param {object} [options] What can be done about it.
+ * @param {boolean} [options.canPin=true] Whether it can be pinned on the map, which rows can but the Start and Finish fields can't.
  */
-function lookUpFinished(resolved) {
+function lookUpFinished(resolved, { canPin = true } = {}) {
   if (resolved.status === 'unknown') {
-    announcedLookups.set(searchKey(resolved.query), resolved.label);
+    announcedLookups.set(searchKey(resolved.query), { label: resolved.label, canPin });
     lookUp(resolved.query);
   }
 }
@@ -422,12 +431,13 @@ function lookUpFinished(resolved) {
  * @param {string} key The search key that was looked up.
  */
 function announceLookup(key) {
-  const label = announcedLookups.get(key);
-  if (label === undefined) {
+  const announced = announcedLookups.get(key);
+  if (!announced) {
     return;
   }
   announcedLookups.delete(key);
-  locationAnnouncement.textContent = `${label}: ${describeResolved(resolveText(label, '', state.searchResults)).text}`;
+  const { label, canPin } = announced;
+  locationAnnouncement.textContent = `${label}: ${describeResolved(resolveText(label, '', state.searchResults), { canPin }).text}`;
 }
 
 /**
@@ -573,7 +583,7 @@ locationRows.addEventListener('click', (event) => {
 
 // The Start and Finish fields are looked up once they're finished, too.
 for (const field of [startField, finishField]) {
-  field.addEventListener('change', () => lookUpFinished(resolveText(field.value, field.id, state.searchResults)));
+  field.addEventListener('change', () => lookUpFinished(resolveText(field.value, field.id, state.searchResults), { canPin: false }));
 }
 
 /**
