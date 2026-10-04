@@ -460,6 +460,28 @@ function pinRow(id, text, { lat, lng }) {
   return /** @type {{ location: import('./locations.js').Location }} */ (resolveRecord(record, number, state.searchResults)).location;
 }
 
+/**
+ * Removes a row of the location list. If focus is in the row, it moves to
+ * the row that takes its place.
+ *
+ * @param {HTMLLIElement} item The row's list item.
+ * @param {import('./locations.js').LocationRecord} record The row.
+ */
+function removeRow(item, record) {
+  state.locations = state.locations.filter((candidate) => candidate !== record);
+  saveState(state);
+  const next = /** @type {HTMLLIElement} */ (item.nextElementSibling);
+  const hadFocus = item.contains(document.activeElement);
+  item.remove();
+  if (hadFocus) {
+    next.querySelector('input').focus();
+  }
+  if (addedPinKey === record.id) {
+    showPinStatus(PIN_HINT);
+  }
+  showRows();
+}
+
 locationRows.addEventListener('input', (event) => {
   const row = rowOf(event.target);
   if (!row || !(event.target instanceof HTMLInputElement)) {
@@ -487,14 +509,22 @@ locationRows.addEventListener('input', (event) => {
 // text. Never while typing, which Nominatim's usage policy forbids.
 locationRows.addEventListener('change', (event) => {
   const row = rowOf(event.target);
-  if (row?.record) {
-    // Changing an unpinned row's text changes its place, but changing a
-    // pinned row's text only renames it.
-    if (!row.record.pin) {
-      untick(row.record);
-    }
-    lookUpFinished(resolveRecord(row.record, state.locations.indexOf(row.record) + 1, state.searchResults));
+  if (!row?.record) {
+    return;
   }
+  const { item, record } = row;
+  // A row that's been emptied, without a pin, is removed once it's
+  // finished, so blank rows don't build up above the empty one at the end.
+  if (record.text.trim() === '' && !record.pin) {
+    removeRow(item, record);
+    return;
+  }
+  // Changing an unpinned row's text changes its place, but changing a
+  // pinned row's text only renames it.
+  if (!record.pin) {
+    untick(record);
+  }
+  lookUpFinished(resolveRecord(record, state.locations.indexOf(record) + 1, state.searchResults));
 });
 
 // Enter moves to the next row, rather than submitting the form, which
@@ -524,16 +554,7 @@ locationRows.addEventListener('click', (event) => {
   if (button.dataset.action === 'pin') {
     startPinning(record?.id ?? null, record?.text.trim() || `Location ${number}`);
   } else if (button.dataset.action === 'remove' && record) {
-    state.locations = state.locations.filter((candidate) => candidate !== record);
-    saveState(state);
-    // Move focus to the row that takes its place.
-    const next = /** @type {HTMLLIElement} */ (item.nextElementSibling);
-    item.remove();
-    next.querySelector('input').focus();
-    if (addedPinKey === record.id) {
-      showPinStatus(PIN_HINT);
-    }
-    showRows();
+    removeRow(item, record);
   } else if (button.dataset.action === 'clear-pin' && record) {
     record.pin = null;
     saveState(state);
