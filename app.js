@@ -624,7 +624,9 @@ function savePoints({ item, record }, field) {
   if (state.plan) {
     pointsTimer = setTimeout(() => {
       showPlan({ isMapUnchanged: true });
-      showPlanStatus('Press Re-plan from here to update the route with your new points.');
+      // Keep the warning that the must-visit locations don't fit in front.
+      const late = state.plan.isMustVisitLate ? `${mustVisitLateText(state.plan)} ` : '';
+      showPlanStatus(`${late}Press Re-plan from here to update the route with your new points.`, state.plan.isMustVisitLate);
     }, 250);
   }
 }
