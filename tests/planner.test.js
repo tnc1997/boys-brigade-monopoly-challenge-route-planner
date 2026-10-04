@@ -730,6 +730,22 @@ describe('plan with scores', () => {
     assert.equal(result.isMustVisitLate, false);
   });
 
+  test('plans the same must-visit points in the same order whatever they score, on random routes', () => {
+    const next = random(47);
+    for (let run = 0; run < 150; run += 1) {
+      const randomPoints = Array.from({ length: 4 + Math.floor(next() * 10) }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+      // A short budget, so the must-visit points are often late and the
+      // route is only them.
+      const planOptions = options(1000 + next() * 15000, {
+        points: randomPoints,
+        mustVisit: randomPoints.map((_, index) => index),
+        finish: next() < 0.5 ? null : kmFrom(next() * 6 - 3, next() * 6 - 3),
+      });
+      const scored = plan({ ...planOptions, scores: randomPoints.map(() => Math.floor(next() * 50)) });
+      assert.deepEqual(scored.order, plan(planOptions).order, `run ${run} differs`);
+    }
+  });
+
   test('greedy insertion adds the point that scores the most for each second it adds', () => {
     // The point 1 km east adds 1100 s for 1 point. The point 2 km west adds
     // 2100 s for 10 points, so it's added first, and then the other no

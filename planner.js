@@ -472,14 +472,17 @@ function improveRoute(route, context, stopAt) {
 /**
  * Builds the route that every route the planner considers starts from: every
  * must-visit point, each added where it adds the least time, then shortened
- * with 2-opt. It may not fit the time budget.
+ * with 2-opt. It may not fit the time budget. Every must-visit point is
+ * included whatever it scores, so scores don't change the route.
  *
  * @param {RouteContext} context The walking times and limits.
  * @returns {number[]} The must-visit point nodes, in visiting order.
  */
 function mustVisitRoute(context) {
   const candidates = pointNodes(context).filter((node) => context.mustVisitNodes.has(node));
-  return twoOpt(insertGreedily([], context, { candidates, budgetSeconds: Infinity }), context);
+  // With all scores equal, greedy insertion adds the point that adds the least time.
+  const unscored = { ...context, scores: context.scores.map(() => 1) };
+  return twoOpt(insertGreedily([], unscored, { candidates, budgetSeconds: Infinity }), context);
 }
 
 /**
