@@ -122,7 +122,7 @@ export function describeRoute(plan) {
   });
 
   const stops = plan.order.map((index, position) =>
-    stop(position + 1, plan.points[index], position === 0 ? plan.start : plan.points[plan.order[position - 1]], plan.arrivalTimes[position]),
+    stop(position + 1, plan.locations[index], position === 0 ? plan.start : plan.locations[plan.order[position - 1]], plan.arrivalTimes[position]),
   );
   const last = stops.length === 0 ? plan.start : stops[stops.length - 1].location;
 
@@ -130,7 +130,7 @@ export function describeRoute(plan) {
     stops,
     finish: plan.finish ? stop(0, plan.finish, last, plan.endEta) : null,
     endEta: plan.endEta,
-    skipped: plan.skipped.map((index) => plan.points[index]),
+    skipped: plan.skipped.map((index) => plan.locations[index]),
   };
 }
 
@@ -145,7 +145,7 @@ export function describeRoute(plan) {
  */
 export function progress(plan, visitedKeys) {
   const done = new Set(visitedKeys);
-  return { done: plan.points.filter(({ key }) => done.has(key)).length, total: plan.points.length };
+  return { done: plan.locations.filter(({ key }) => done.has(key)).length, total: plan.locations.length };
 }
 
 /**
@@ -187,7 +187,7 @@ export function mapRoute(plan, visitedKeys, formatTime) {
       title: `${number}. ${location.label}, ETA ${formatTime(arrivalTime)}${isDone ? ', selfie done' : ''}`,
     });
   }
-  for (const location of plan.points) {
+  for (const location of plan.locations) {
     if (done.has(location.key) && !routeKeys.has(location.key)) {
       markers.push({ kind: 'done', location, label: '✓', title: `${location.label}, selfie done` });
     }
@@ -225,8 +225,8 @@ export function mapRoute(plan, visitedKeys, formatTime) {
  * // [{ kind: 'new', location: { lat: 51.45174, … }, label: '+', title: 'Cabot Tower, not in the route yet' }]
  */
 export function newLocationMarkers(locations, plan, mustVisitKeys = new Set()) {
-  const planned = new Map(plan?.points.map((point) => [point.key, point]));
-  const routeKeys = new Set(plan?.order.map((index) => plan.points[index].key));
+  const planned = new Map(plan?.locations.map((location) => [location.key, location]));
+  const routeKeys = new Set(plan?.order.map((index) => plan.locations[index].key));
   const isMoved = ({ key, lat, lng }) => planned.get(key)?.lat !== lat || planned.get(key)?.lng !== lng;
   const isMissingMustVisit = ({ key }) => plan !== null && mustVisitKeys.has(key) && !routeKeys.has(key);
   return locations
@@ -301,7 +301,7 @@ export function timeWarning(plan, visitedKeys, now) {
 
   // How late the team is for the first stop that isn't done yet.
   const done = new Set(visitedKeys);
-  const next = plan.order.findIndex((index) => !done.has(plan.points[index].key));
+  const next = plan.order.findIndex((index) => !done.has(plan.locations[index].key));
   const behindMs = next === -1 ? 0 : Math.max(0, now - plan.arrivalTimes[next]);
   const minutesBehind = Math.floor(behindMs / 60000);
 
@@ -316,7 +316,7 @@ export function timeWarning(plan, visitedKeys, now) {
   // With every location ticked off and no finish to reach, there's nothing
   // to hurry for. An empty route isn't enough, because it can also mean
   // nothing fits before the deadline.
-  const isAllDone = plan.points.every(({ key }) => done.has(key)) && !plan.finish;
+  const isAllDone = plan.locations.every(({ key }) => done.has(key)) && !plan.finish;
   if ((!isShortOfTime && !isRunningLate) || (isAllDone && leftMs > 0)) {
     return null;
   }

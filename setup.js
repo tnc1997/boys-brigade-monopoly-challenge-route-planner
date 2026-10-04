@@ -9,7 +9,7 @@ import { SPEED_RANGE } from './settings.js';
  * schema may drop a saved plan rather than move it to the new shape.
  *
  * @typedef {import('./planner.js').Plan & {
- *   points: import('./locations.js').Location[],
+ *   locations: import('./locations.js').Location[],
  *   start: import('./locations.js').Location,
  *   finish: import('./locations.js').Location | null,
  *   startTime: number,
@@ -73,9 +73,9 @@ export function timeToday(time, now) {
  * Plans the route from the setup form and the location list. Rows of the
  * location list that couldn't be found or haven't been looked up are
  * returned so they can be listed, but don't stop the rest from being
- * planned. The route scores the most points it can, with each location
+ * planned. The route earns the most points it can, with each location
  * worth its row's points, or the event's Points per location if the row
- * doesn't say. Locations whose selfie is done are kept in the plan's `points`
+ * doesn't say. Locations whose selfie is done are kept in the plan's `locations`
  * but left out of the route. Must-visit locations still to visit are always
  * in the route, and the plan's `isMustVisitLate` says when they don't all fit
  * before the deadline minus the safety margin.
@@ -98,8 +98,8 @@ export function planFromSetup({ event, locations, settings, now, from = null, se
   const leftOut = rows.filter(({ resolved }) => resolved.status === 'notFound' || resolved.status === 'unknown');
   const failure = (error) => ({ plan: null, error, rows, leftOut });
 
-  const points = usableLocations(rows);
-  if (points.length === 0) {
+  const usable = usableLocations(rows);
+  if (usable.length === 0) {
     return failure('Add at least one location that can be found, or pin one on the map.');
   }
 
@@ -143,29 +143,29 @@ export function planFromSetup({ event, locations, settings, now, from = null, se
   // Plan only the locations still to visit, then map the result back to
   // indexes into every location, leaving done ones out of `skipped`.
   const done = new Set(visitedKeys(locations));
-  const remaining = points.map((point, index) => ({ point, index })).filter(({ point }) => !done.has(point.key));
+  const remaining = usable.map((location, index) => ({ location, index })).filter(({ location }) => !done.has(location.key));
   // Only locations still to visit can be must-visit, since a ticked-off one
   // has already been visited.
   const mustVisitKeys = new Set(locations.filter(({ isMustVisit }) => isMustVisit).map(({ id }) => id));
   const pointsByKey = pointsById(locations, event.pointsPerLocation);
   const result = plan({
     start: start.location,
-    points: remaining.map(({ point }) => point),
-    scores: remaining.map(({ point }) => pointsByKey.get(point.key)),
-    mustVisit: remaining.flatMap(({ point }, index) => (mustVisitKeys.has(point.key) ? [index] : [])),
+    locations: remaining.map(({ location }) => location),
+    points: remaining.map(({ location }) => pointsByKey.get(location.key)),
+    mustVisit: remaining.flatMap(({ location }, index) => (mustVisitKeys.has(location.key) ? [index] : [])),
     finish: finish?.location ?? null,
     startTime,
     deadline,
     ...planSettings,
   });
-  const toPointIndex = (index) => remaining[index].index;
+  const toLocationIndex = (index) => remaining[index].index;
 
   return {
     plan: {
       ...result,
-      order: result.order.map(toPointIndex),
-      skipped: result.skipped.map(toPointIndex),
-      points,
+      order: result.order.map(toLocationIndex),
+      skipped: result.skipped.map(toLocationIndex),
+      locations: usable,
       start: start.location,
       finish: finish?.location ?? null,
       startTime,

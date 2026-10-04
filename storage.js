@@ -129,7 +129,7 @@ function isSavedPlan(plan) {
   const isNumber = (value) => typeof value === 'number' && Number.isFinite(value);
   return (
     isObject(plan) &&
-    ['order', 'skipped', 'arrivalTimes', 'points'].every((key) => Array.isArray(plan[key])) &&
+    ['order', 'skipped', 'arrivalTimes', 'locations'].every((key) => Array.isArray(plan[key])) &&
     ['startTime', 'deadline', 'endEta', 'spareSeconds'].every((key) => isNumber(plan[key])) &&
     isObject(plan.start) &&
     (plan.finish === null || isObject(plan.finish)) &&

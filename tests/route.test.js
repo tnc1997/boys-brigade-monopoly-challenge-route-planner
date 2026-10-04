@@ -74,7 +74,7 @@ describe('describeRoute', () => {
     const plan = savedPlan();
     const { stops } = describeRoute(plan);
     assert.deepEqual(stops.map(({ number }) => number), [1, 2]);
-    assert.deepEqual(stops.map(({ location }) => location.label), plan.order.map((index) => plan.points[index].label));
+    assert.deepEqual(stops.map(({ location }) => location.label), plan.order.map((index) => plan.locations[index].label));
     assert.deepEqual(stops.map(({ arrivalTime }) => arrivalTime), plan.arrivalTimes);
     // Each stop's directions go to that stop's own coordinates.
     const coordinates = { 'Old Kent Road': '51.454500,-2.587900', 'Temple Meads': '51.449200,-2.581300' };
@@ -125,8 +125,8 @@ describe('progress', () => {
   test('counts the done locations out of every location in the list', () => {
     const plan = savedPlan();
     assert.deepEqual(progress(plan, []), { done: 0, total: 2 });
-    assert.deepEqual(progress(plan, [plan.points[0].key]), { done: 1, total: 2 });
-    assert.deepEqual(progress(plan, plan.points.map(({ key }) => key)), { done: 2, total: 2 });
+    assert.deepEqual(progress(plan, [plan.locations[0].key]), { done: 1, total: 2 });
+    assert.deepEqual(progress(plan, plan.locations.map(({ key }) => key)), { done: 2, total: 2 });
   });
 
   test('ignores keys of locations that are not in the plan', () => {
@@ -200,19 +200,19 @@ describe('newLocationMarkers', () => {
 
   test('marks only the locations that are not in the plan', () => {
     const plan = savedPlan();
-    assert.deepEqual(newLocationMarkers([...plan.points, cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
+    assert.deepEqual(newLocationMarkers([...plan.locations, cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
   });
 
   test("marks a must-visit location that the plan doesn't visit", () => {
     const plan = { ...savedPlan(), order: [0], skipped: [1] };
-    const markers = newLocationMarkers(plan.points, plan, new Set([plan.points[0].key, plan.points[1].key]));
+    const markers = newLocationMarkers(plan.locations, plan, new Set([plan.locations[0].key, plan.locations[1].key]));
     assert.deepEqual(markers.map(({ title }) => title), ['Temple Meads, must visit, not in the route yet']);
   });
 
   test('marks a location that has moved since the plan was made, such as when it was pinned', () => {
     const plan = savedPlan();
-    const moved = { ...plan.points[0], lat: 51.46 };
-    assert.deepEqual(newLocationMarkers([moved, plan.points[1]], plan).map(({ location }) => location), [moved]);
+    const moved = { ...plan.locations[0], lat: 51.46 };
+    assert.deepEqual(newLocationMarkers([moved, plan.locations[1]], plan).map(({ location }) => location), [moved]);
   });
 });
 
@@ -251,7 +251,7 @@ describe('timeWarning', () => {
 
   test('measures lateness against the next stop that is not done', () => {
     const plan = savedPlan({ startTime: '15:10' });
-    const allDone = plan.order.map((index) => plan.points[index].key);
+    const allDone = plan.order.map((index) => plan.locations[index].key);
     // Everything is done, so there's no stop to be late for, and the time
     // left is more than the margin.
     assert.equal(timeWarning(plan, allDone, plan.arrivalTimes.at(-1) + minutes(1)), null);
@@ -259,10 +259,10 @@ describe('timeWarning', () => {
 
   test("doesn't warn when every stop is done and there's no finish to reach", () => {
     const plan = savedPlan();
-    const allDone = plan.order.map((index) => plan.points[index].key);
+    const allDone = plan.order.map((index) => plan.locations[index].key);
     assert.equal(timeWarning(plan, allDone, plan.deadline - minutes(5)), null);
     const withFinish = savedPlan({ finishText: '51.4556,-2.5894' });
-    const allDoneWithFinish = withFinish.order.map((index) => withFinish.points[index].key);
+    const allDoneWithFinish = withFinish.order.map((index) => withFinish.locations[index].key);
     assert.match(timeWarning(withFinish, allDoneWithFinish, withFinish.deadline - minutes(5)).message, /^Head to the finish now/);
   });
 

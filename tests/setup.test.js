@@ -46,7 +46,7 @@ describe('planFromSetup', () => {
     assert.equal(error, null);
     assert.deepEqual(leftOut, []);
     assert.deepEqual([...plan.order].sort(), [0, 1]);
-    assert.deepEqual(plan.points.map(({ label, key }) => [label, key]), [
+    assert.deepEqual(plan.locations.map(({ label, key }) => [label, key]), [
       ['Old Kent Road', 'a'],
       ['Temple Meads', 'b'],
     ]);
@@ -76,7 +76,7 @@ describe('planFromSetup', () => {
   test('leaves out rows that were not found or not looked up, without stopping the rest', () => {
     const searchResults = { [searchKey('Nowhere')]: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false } };
     const { plan, leftOut } = planFromSetup({ ...setupWith({ locations: rows('51.4545,-2.5879', 'Nowhere', '', 'Not looked up') }), searchResults });
-    assert.equal(plan.points.length, 1);
+    assert.equal(plan.locations.length, 1);
     assert.deepEqual(leftOut.map(({ number }) => number), [2, 4]);
   });
 
@@ -86,7 +86,7 @@ describe('planFromSetup', () => {
       { id: 'q', text: '', pin: { lat: 51.4492, lng: -2.5813 } },
     ];
     const { plan } = planFromSetup(setupWith({ locations }));
-    assert.deepEqual(plan.points, [
+    assert.deepEqual(plan.locations, [
       { lat: 51.4504, lng: -2.5947, label: 'Queen Square', key: 'p' },
       { lat: 51.4492, lng: -2.5813, label: 'Location 2', key: 'q' },
     ]);
@@ -97,11 +97,11 @@ describe('planFromSetup', () => {
     assert.equal(plan.startTime, new Date(2026, 9, 3, 11, 30).getTime());
   });
 
-  test('leaves done locations out of the route but keeps them in the points', () => {
+  test('leaves done locations out of the route but keeps them in the locations', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
-    const locations = pinnedRows().map((record) => (record.id === firstPlan.points[0].key ? { ...record, isVisited: true } : record));
+    const locations = pinnedRows().map((record) => (record.id === firstPlan.locations[0].key ? { ...record, isVisited: true } : record));
     const { plan } = planFromSetup(setupWith({ locations }));
-    assert.deepEqual(plan.points.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
+    assert.deepEqual(plan.locations.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
     assert.deepEqual(plan.order, [1]);
     assert.deepEqual(plan.skipped, []);
     assert.equal(plan.arrivalTimes.length, 1);
@@ -138,7 +138,7 @@ describe('planFromSetup', () => {
 
   test('maps skipped locations back to their place in the list', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
-    const locations = pinnedRows().map((record) => (record.id === firstPlan.points[0].key ? { ...record, isVisited: true } : record));
+    const locations = pinnedRows().map((record) => (record.id === firstPlan.locations[0].key ? { ...record, isVisited: true } : record));
     const { plan } = planFromSetup(setupWith({ startTime: '15:40', locations }));
     assert.deepEqual(plan.order, []);
     assert.deepEqual(plan.skipped, [1]);
@@ -196,7 +196,7 @@ describe('planFromSetup with addresses and place names', () => {
       searchResults,
     });
     assert.deepEqual(leftOut, []);
-    assert.equal(plan.points[1].matchedName, 'Queen Square, City Centre, Bristol');
+    assert.equal(plan.locations[1].matchedName, 'Queen Square, City Centre, Bristol');
     assert.equal(plan.finish.lat, 51.4492);
   });
 

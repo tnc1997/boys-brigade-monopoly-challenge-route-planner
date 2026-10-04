@@ -628,7 +628,7 @@ function savePoints({ item, record }, field) {
   // Points per location.
   clearTimeout(pointsTimer);
   if (state.plan) {
-    const isPlanned = !record.isVisited && state.plan.points.some(({ key }) => key === record.id);
+    const isPlanned = !record.isVisited && state.plan.locations.some(({ key }) => key === record.id);
     if (isPlanned && locationPoints(record, state.event.pointsPerLocation) !== worth) {
       isReplanForPointsNeeded = true;
     }
@@ -1023,7 +1023,7 @@ function showPlan({ isMapUnchanged = false } = {}) {
   // Done locations that aren't stops on this route (because it was planned
   // after their selfie) are listed so a mistaken tick can be undone.
   const routeKeys = new Set(route.stops.map(({ location }) => location.key));
-  const doneElsewhere = plan.points.filter(({ key }) => visited.includes(key) && !routeKeys.has(key));
+  const doneElsewhere = plan.locations.filter(({ key }) => visited.includes(key) && !routeKeys.has(key));
   if (doneElsewhere.length > 0) {
     const heading = element('h3', 'mt-4 text-sm font-semibold', `Done (${doneElsewhere.length})`);
     const doneList = element('ul', 'mt-2 flex flex-col gap-2');
@@ -1149,7 +1149,7 @@ function mustVisitLateText(plan) {
  * @returns {string} The message, like "Planned 22 stops."
  */
 function planResultText(result) {
-  const { order, points: locations } = result.plan;
+  const { order, locations } = result.plan;
   const points = currentPoints();
   const scored = points ? ` · ${plural(totalPoints(order.map((index) => locations[index].key), points), 'point')}` : '';
   const parts = [`Planned ${plural(order.length, 'stop')}${scored}.`];

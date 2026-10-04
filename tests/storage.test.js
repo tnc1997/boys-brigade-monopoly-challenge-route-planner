@@ -22,7 +22,7 @@ const savedPlan = () => ({
   arrivalTimes: [1],
   endEta: 2,
   spareSeconds: 3,
-  points: [{ lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: 'a' }],
+  locations: [{ lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: 'a' }],
   start: { lat: 51.4556, lng: -2.5894, label: 'Start', key: 'start' },
   finish: null,
   startTime: 0,
