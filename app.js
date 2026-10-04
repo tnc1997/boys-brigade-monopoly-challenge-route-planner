@@ -945,15 +945,16 @@ settingsDialog.addEventListener('close', () => {
   if (isSpeedChanged) {
     state.settings.speedKmh = Number(speedSlider.value);
   }
-  // The fields are required and range-checked, so the dialog only closes
-  // with "save" when they're valid.
+  // The fields are range-checked, and the check-in form URL checked by its
+  // input listener, so the dialog only closes with "save" when they're valid.
   for (const field of panelFields) {
     if (field.dataset.panelSetup) {
       state.setup[field.dataset.panelSetup] = field.value;
     } else if (field.type === 'number') {
       state.settings[field.dataset.panelSetting] = Number(field.value) * Number(field.dataset.scale ?? 1);
     } else if (field === checkInFormField) {
-      state.settings.checkInFormUrl = checkInFormUrl(field.value) ?? '';
+      // Keep the saved link rather than clearing it if an invalid one gets through.
+      state.settings.checkInFormUrl = checkInFormUrl(field.value) ?? state.settings.checkInFormUrl;
     } else {
       state.settings[field.dataset.panelSetting] = field.value;
     }
