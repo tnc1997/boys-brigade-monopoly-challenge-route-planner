@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { BRISTOL_VIEWBOX, REQUEST_INTERVAL_MS, SEARCH_URL, searchKey, searchPlace, searchPlaces } from '../search.js';
+import { BRISTOL_VIEWBOX, REQUEST_INTERVAL_MS, SEARCH_URL, createSearchQueue, searchKey, searchPlace } from '../search.js';
 
 /** A fake fetch that returns the given JSON (or throws), and records the URLs it was called with. */
 const fakeFetch = (respond) => {
@@ -20,8 +20,21 @@ const fakeFetch = (respond) => {
 const queenSquare = { lat: '51.4504', lon: '-2.5947', display_name: 'Queen Square, City Centre, Bristol, England' };
 
 describe('searchKey', () => {
-  test('normalises spacing and case', () => {
-    assert.equal(searchKey('  Queen   Square, BRISTOL '), 'queen square, bristol');
+  test('is the query without its ends\' spaces, as base64', () => {
+    assert.equal(searchKey(' Queen Square '), 'UXVlZW4gU3F1YXJl');
+    assert.equal(atob(searchKey(' Queen Square ')), 'Queen Square');
+  });
+
+  test("doesn't otherwise normalise the query", () => {
+    assert.notEqual(searchKey('Queen Square'), searchKey('queen square'));
+    assert.notEqual(searchKey('Queen Square'), searchKey('Queen  Square'));
+  });
+
+  test('works for any text, including accents and names built into objects', () => {
+    assert.equal(new TextDecoder().decode(Uint8Array.from(atob(searchKey('Café Möller')), (char) => char.charCodeAt(0))), 'Café Möller');
+    for (const text of ['constructor', '__proto__', 'toString']) {
+      assert.equal(searchKey(text) in {}, false, text);
+    }
   });
 });
 
@@ -77,29 +90,54 @@ describe('searchPlace', () => {
   });
 });
 
-describe('searchPlaces', () => {
-  test('looks up each search once, one at a time, waiting between requests', async () => {
+describe('createSearchQueue', () => {
+  /** A clock that only moves when the queue sleeps, or when moved by hand. */
+  const fakeClock = () => {
+    const clock = { time: 0, waits: [] };
+    clock.now = () => clock.time;
+    clock.sleep = async (ms) => {
+      clock.waits.push(ms);
+      clock.time += ms;
+    };
+    return clock;
+  };
+
+  test('sends searches one at a time, at least the interval apart', async () => {
     const { fetch, urls } = fakeFetch(() => ({ body: [queenSquare] }));
-    const waits = [];
-    const progress = [];
-    const results = await searchPlaces(['Queen Square', 'queen  square', 'Temple Meads'], {
-      fetch,
-      sleep: async (ms) => waits.push(ms),
-      onProgress: (done, total) => progress.push([done, total]),
-    });
-    assert.deepEqual(urls.map((url) => url.searchParams.get('q')), ['Queen Square', 'Temple Meads']);
-    assert.deepEqual(waits, [REQUEST_INTERVAL_MS]);
-    assert.ok(REQUEST_INTERVAL_MS >= 1500, 'leaves a generous buffer over Nominatim\'s 1 request per second');
-    assert.deepEqual(progress, [
-      [1, 2],
-      [2, 2],
-    ]);
-    assert.deepEqual(Object.keys(results), ['queen square', 'temple meads']);
+    const clock = fakeClock();
+    const queue = createSearchQueue({ fetch, now: clock.now, sleep: clock.sleep });
+    const results = await Promise.all([queue.search('Queen Square'), queue.search('Temple Meads'), queue.search('Cabot Tower')]);
+    assert.deepEqual(urls.map((url) => url.searchParams.get('q')), ['Queen Square', 'Temple Meads', 'Cabot Tower']);
+    assert.deepEqual(clock.waits, [REQUEST_INTERVAL_MS, REQUEST_INTERVAL_MS]);
+    assert.ok(REQUEST_INTERVAL_MS >= 1500, "leaves a generous buffer over Nominatim's 1 request per second");
+    assert.ok(results.every((result) => result.isFound));
   });
 
-  test('does nothing for no searches', async () => {
-    const { fetch, urls } = fakeFetch(() => ({ body: [] }));
-    assert.deepEqual(await searchPlaces([], { fetch }), {});
-    assert.equal(urls.length, 0);
+  test('only waits for what is left of the interval since the last request', async () => {
+    const { fetch } = fakeFetch(() => ({ body: [queenSquare] }));
+    const clock = fakeClock();
+    const queue = createSearchQueue({ fetch, now: clock.now, sleep: clock.sleep });
+    await queue.search('Queen Square');
+    clock.time += 1000;
+    await queue.search('Temple Meads');
+    clock.time += REQUEST_INTERVAL_MS;
+    await queue.search('Cabot Tower');
+    assert.deepEqual(clock.waits, [REQUEST_INTERVAL_MS - 1000]);
+  });
+
+  test('keeps going after a search fails', async () => {
+    let calls = 0;
+    const fetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw new TypeError('Failed to fetch');
+      }
+      return { ok: true, status: 200, json: async () => [queenSquare] };
+    };
+    const clock = fakeClock();
+    const queue = createSearchQueue({ fetch, now: clock.now, sleep: clock.sleep });
+    const [failed, found] = await Promise.all([queue.search('Queen Square'), queue.search('Temple Meads')]);
+    assert.equal(failed.isTemporary, true);
+    assert.equal(found.isFound, true);
   });
 });

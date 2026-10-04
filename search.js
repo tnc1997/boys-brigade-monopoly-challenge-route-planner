@@ -17,31 +17,39 @@
  * OpenStreetMap's Nominatim search, which is free within its usage policy:
  * https://operations.osmfoundation.org/policies/nominatim/
  *
- * Keep to the policy when changing this module. Search only when the team
- * presses a button (never as they type, which is forbidden), at most once a
- * second, and save results so the same search isn't sent again. Keep the
+ * Keep to the policy when changing this module. It forbids searching as the
+ * team types (auto-complete), so search only when they finish a location or
+ * press a button. It allows at most 1 request per second for all users
+ * together, and requires results to be cached, so save each result under
+ * the query it was for and don't send that query again. Keep the
  * OpenStreetMap credit next to the location list, and send no personal data.
  * If asked to stop using the service, change this URL and redeploy.
  */
 export const SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
 
-/** The area searched, as Nominatim's `left,top,right,bottom`: Bristol and its outskirts. */
+/**
+ * The area searched, as Nominatim's `left,top,right,bottom`: Bristol and its
+ * outskirts. Saved search results are only right for this area, so if it
+ * changes, saved results should be cleared when they're loaded.
+ */
 export const BRISTOL_VIEWBOX = '-2.73,51.54,-2.45,51.39';
 
 /** The shortest time between requests: Nominatim's limit is 1 request per second, so this leaves a generous buffer. */
 export const REQUEST_INTERVAL_MS = 1500;
 
 /**
- * Normalises a search so that the same address typed slightly differently
- * is only looked up once.
+ * Makes the key a search's result is saved under: the query exactly as
+ * it's sent, without its ends' spaces, as base64. It isn't normalised any
+ * further (such as ignoring case), so there's no rule to keep tuning, and
+ * base64 means any text is a safe key, even "constructor" or "__proto__".
  *
  * @param {string} query The address or place name.
  * @returns {string} The key to save the result under.
  * @example
- * searchKey('  Queen   Square, BRISTOL '); // 'queen square, bristol'
+ * searchKey(' Queen Square '); // 'UXVlZW4gU3F1YXJl'
  */
 export function searchKey(query) {
-  return query.trim().replace(/\s+/g, ' ').toLowerCase();
+  return btoa(String.fromCharCode(...new TextEncoder().encode(query.trim())));
 }
 
 /**
@@ -102,38 +110,47 @@ export async function searchPlace(query, { fetch = globalThis.fetch } = {}) {
 }
 
 /**
- * Looks up several addresses or place names, one at a time and at most once
- * a second, following Nominatim's usage policy. Searches with the same
- * {@link searchKey} are only looked up once.
+ * A queue of searches, sent one at a time.
  *
- * @param {string[]} queries The addresses or place names.
- * @param {object} [options] Options for progress and testing.
- * @param {(done: number, total: number) => void} [options.onProgress] Called after each lookup.
- * @param {typeof fetch} [options.fetch] The fetch function to use. Defaults to the global `fetch`.
- * @param {(ms: number) => Promise<void>} [options.sleep] Waits between requests. Defaults to a timer.
- * @returns {Promise<SearchResults>} The results by {@link searchKey}.
+ * @typedef {object} SearchQueue
+ * @property {(query: string) => Promise<SearchResult>} search Looks up an address or place name, after any searches already queued.
  */
-export async function searchPlaces(
-  queries,
-  { onProgress = () => {}, fetch = globalThis.fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
-) {
-  // Keep the first spelling of each search.
-  const unique = new Map();
-  for (const query of queries) {
-    if (!unique.has(searchKey(query))) {
-      unique.set(searchKey(query), query);
-    }
-  }
-  /** @type {SearchResults} */
-  const results = {};
-  let done = 0;
-  for (const [key, query] of unique) {
-    if (done > 0) {
-      await sleep(REQUEST_INTERVAL_MS);
-    }
-    results[key] = await searchPlace(query, { fetch });
-    done += 1;
-    onProgress(done, unique.size);
-  }
-  return results;
+
+/**
+ * Creates a queue that looks up addresses and place names one at a time,
+ * with at least {@link REQUEST_INTERVAL_MS} between requests, following
+ * Nominatim's usage policy. It sends every search it's given, so don't give
+ * it one that's already queued.
+ *
+ * @param {object} [options] Options for testing.
+ * @param {typeof fetch} [options.fetch] The fetch function to use. Defaults to the global `fetch`.
+ * @param {() => number} [options.now] Gets the current time in milliseconds. Defaults to `Date.now`.
+ * @param {(ms: number) => Promise<void>} [options.sleep] Waits between requests. Defaults to a timer.
+ * @returns {SearchQueue} The queue.
+ * @example
+ * const queue = createSearchQueue();
+ * const result = await queue.search('Queen Square, Bristol');
+ */
+export function createSearchQueue({
+  fetch = globalThis.fetch,
+  now = Date.now,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  let lastRequestTime = -Infinity;
+  let tail = Promise.resolve();
+
+  return {
+    search(query) {
+      const result = tail.then(async () => {
+        const waitMs = lastRequestTime + REQUEST_INTERVAL_MS - now();
+        if (waitMs > 0) {
+          await sleep(waitMs);
+        }
+        lastRequestTime = now();
+        return searchPlace(query, { fetch });
+      });
+      tail = result.catch(() => {});
+      return result;
+    },
+  };
 }

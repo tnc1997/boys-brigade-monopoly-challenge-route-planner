@@ -1,15 +1,27 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
+import { START_KEY } from '../locations.js';
+import { searchKey } from '../search.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, startTimeToday, timeToday } from '../setup.js';
 import { defaultState } from '../storage.js';
 
 const now = new Date(2026, 9, 3, 11, 0).getTime();
 
-const setupWith = (setup = {}, settings = {}) => {
+/** Rows of the location list with the given texts, with ids `a`, `b` and so on. */
+const rows = (...texts) => texts.map((text, index) => ({ id: String.fromCharCode(97 + index), text }));
+
+/** Rows of the location list pinned at Old Kent Road and Temple Meads. */
+const pinnedRows = () => [
+  { id: 'a', text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
+  { id: 'b', text: 'Temple Meads', pin: { lat: 51.4492, lng: -2.5813 } },
+];
+
+const setupWith = ({ locations = pinnedRows(), ...event } = {}, settings = {}) => {
   const state = defaultState();
   return {
-    setup: { ...state.setup, locationsText: 'Old Kent Road 51.4545,-2.5879\nTemple Meads 51.4492,-2.5813', ...setup },
+    event: { ...state.event, ...event },
+    locations,
     settings: { ...state.settings, ...settings },
     now,
   };
@@ -30,12 +42,15 @@ describe('timeToday', () => {
 
 describe('planFromSetup', () => {
   test('plans every location from the default setup', () => {
-    const { plan, error, invalidLines } = planFromSetup(setupWith());
+    const { plan, error, leftOut } = planFromSetup(setupWith());
     assert.equal(error, null);
-    assert.deepEqual(invalidLines, []);
+    assert.deepEqual(leftOut, []);
     assert.deepEqual([...plan.order].sort(), [0, 1]);
-    assert.deepEqual(plan.points.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
-    assert.equal(plan.start.label, 'Castle Park');
+    assert.deepEqual(plan.points.map(({ label, key }) => [label, key]), [
+      ['Old Kent Road', 'a'],
+      ['Temple Meads', 'b'],
+    ]);
+    assert.equal(plan.start.label, 'Start');
     assert.equal(plan.startTime, now);
     assert.equal(plan.deadline, new Date(2026, 9, 3, 16, 0).getTime());
   });
@@ -45,34 +60,47 @@ describe('planFromSetup', () => {
   });
 
   test('plans to the finish when there is one', () => {
-    const { plan } = planFromSetup(setupWith({ finishText: 'Finish 51.4556,-2.5894' }));
+    const { plan } = planFromSetup(setupWith({ finishText: '51.4556,-2.5894' }));
     assert.equal(plan.finish.label, 'Finish');
   });
 
-  test('returns every line with its result', () => {
-    const { lines } = planFromSetup(setupWith({ locationsText: 'Old Kent Road 51.4545,-2.5879\n\nNowhere' }));
-    assert.deepEqual(lines.map(({ lineNumber, result }) => [lineNumber, result.isValid]), [
-      [1, true],
-      [3, false],
+  test('returns every row and where it is', () => {
+    const { rows: resolved } = planFromSetup(setupWith({ locations: rows('51.4545,-2.5879', '', 'Nowhere') }));
+    assert.deepEqual(resolved.map(({ number, resolved: { status } }) => [number, status]), [
+      [1, 'coordinates'],
+      [2, 'empty'],
+      [3, 'unknown'],
     ]);
   });
 
-  test('returns invalid lines without stopping the rest', () => {
-    const { plan, invalidLines } = planFromSetup(setupWith({ locationsText: 'Old Kent Road 51.4545,-2.5879\nWhitechapel ///filled.count.soap\nNowhere' }));
+  test('leaves out rows that were not found or not looked up, without stopping the rest', () => {
+    const searchResults = { [searchKey('Nowhere')]: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false } };
+    const { plan, leftOut } = planFromSetup({ ...setupWith({ locations: rows('51.4545,-2.5879', 'Nowhere', '', 'Not looked up') }), searchResults });
     assert.equal(plan.points.length, 1);
-    assert.deepEqual(invalidLines.map(({ lineNumber }) => lineNumber), [2, 3]);
-    assert.match(invalidLines[0].result.error, /what3words address/);
+    assert.deepEqual(leftOut.map(({ number }) => number), [2, 4]);
+  });
+
+  test('plans pinned rows where they were pinned, whatever their text', () => {
+    const locations = [
+      { id: 'p', text: 'Queen Square', pin: { lat: 51.4504, lng: -2.5947 } },
+      { id: 'q', text: '', pin: { lat: 51.4492, lng: -2.5813 } },
+    ];
+    const { plan } = planFromSetup(setupWith({ locations }));
+    assert.deepEqual(plan.points, [
+      { lat: 51.4504, lng: -2.5947, label: 'Queen Square', key: 'p' },
+      { lat: 51.4492, lng: -2.5813, label: 'Location 2', key: 'q' },
+    ]);
   });
 
   test('uses the start time when one is entered', () => {
-    const { plan } = planFromSetup(setupWith({ startTimeText: '11:30' }));
+    const { plan } = planFromSetup(setupWith({ startTime: '11:30' }));
     assert.equal(plan.startTime, new Date(2026, 9, 3, 11, 30).getTime());
   });
 
   test('leaves done locations out of the route but keeps them in the points', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
-    const doneKey = firstPlan.points[0].key;
-    const { plan } = planFromSetup({ ...setupWith(), doneKeys: [doneKey] });
+    const locations = pinnedRows().map((record) => (record.id === firstPlan.points[0].key ? { ...record, isVisited: true } : record));
+    const { plan } = planFromSetup(setupWith({ locations }));
     assert.deepEqual(plan.points.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
     assert.deepEqual(plan.order, [1]);
     assert.deepEqual(plan.skipped, []);
@@ -81,7 +109,8 @@ describe('planFromSetup', () => {
 
   test('maps skipped locations back to their place in the list', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
-    const { plan } = planFromSetup({ ...setupWith({ startTimeText: '15:40' }), doneKeys: [firstPlan.points[0].key] });
+    const locations = pinnedRows().map((record) => (record.id === firstPlan.points[0].key ? { ...record, isVisited: true } : record));
+    const { plan } = planFromSetup(setupWith({ startTime: '15:40', locations }));
     assert.deepEqual(plan.order, []);
     assert.deepEqual(plan.skipped, [1]);
   });
@@ -89,34 +118,36 @@ describe('planFromSetup', () => {
   test('re-plans from the current position and time, ignoring the Start field and start time', () => {
     const from = { lat: 51.4492, lng: -2.5813 };
     const later = new Date(2026, 9, 3, 13, 15).getTime();
-    const { plan, error } = planFromSetup({ ...setupWith({ startText: 'not a location', startTimeText: '11:00' }), now: later, from });
+    const { plan, error } = planFromSetup({ ...setupWith({ startText: 'not a location', startTime: '11:00' }), now: later, from });
     assert.equal(error, null);
-    assert.deepEqual(plan.start, { lat: 51.4492, lng: -2.5813, label: 'Your position', key: '51.449200,-2.581300' });
+    assert.deepEqual(plan.start, { lat: 51.4492, lng: -2.5813, label: 'Your position', key: START_KEY });
     assert.equal(plan.startTime, later);
   });
 
   test('uses the current form values when re-planning', () => {
     const from = { lat: 51.4492, lng: -2.5813 };
-    const { plan } = planFromSetup({ ...setupWith({ finishText: 'Finish 51.4556,-2.5894' }, { speedKmh: 3.5 }), from });
+    const { plan } = planFromSetup({ ...setupWith({ finishText: '51.4556,-2.5894' }, { speedKmh: 3.5 }), from });
     assert.equal(plan.finish.label, 'Finish');
     assert.equal(plan.settings.speedKmh, 3.5);
   });
 
   const failures = [
-    ['there are no usable locations', { locationsText: 'Nowhere' }, {}, /at least one location/],
-    ['the start is invalid', { startText: 'Castle Park' }, {}, /^Start: /],
+    ['there are no usable locations', { locations: rows('Nowhere') }, {}, /at least one location/],
+    ['there are no locations', { locations: [] }, {}, /at least one location/],
+    ['the start has not been looked up', { startText: 'Castle Park' }, {}, /^Start: "Castle Park" couldn't be looked up/],
+    ['the start is blank', { startText: ' ' }, {}, /^Start: Enter where/],
     ['the finish is invalid', { finishText: 'Somewhere' }, {}, /^Finish: /],
-    ['the start time is invalid', { startTimeText: 'soon' }, {}, /^Start time: /],
-    ['the deadline is invalid', {}, { deadline: '' }, /^Deadline: Enter a time/],
-    ['the deadline is before the start time', { startTimeText: '16:30' }, {}, /^Deadline: The deadline must be after/],
+    ['the start time is invalid', { startTime: 'soon' }, {}, /^Start time: /],
+    ['the deadline is invalid', { deadline: '' }, {}, /^Deadline: Enter a time/],
+    ['the deadline is before the start time', { startTime: '16:30' }, {}, /^Deadline: The deadline must be after/],
     ['the walking speed is 0', {}, { speedKmh: 0 }, /^Walking speed: /],
     ['the walking speed is below the slider range', {}, { speedKmh: 1.5 }, /^Walking speed: Enter a speed between 2 and 7 km\/h/],
     ['the walking speed is above the slider range', {}, { speedKmh: 9 }, /^Walking speed: Enter a speed between 2 and 7 km\/h/],
     ['the selfie time is negative', {}, { dwellSeconds: -60 }, /^Selfie time: /],
   ];
-  for (const [name, setup, settings, error] of failures) {
+  for (const [name, event, settings, error] of failures) {
     test(`stops planning when ${name}`, () => {
-      const result = planFromSetup(setupWith(setup, settings));
+      const result = planFromSetup(setupWith(event, settings));
       assert.equal(result.plan, null);
       assert.match(result.error, error);
     });
@@ -125,59 +156,49 @@ describe('planFromSetup', () => {
 
 describe('planFromSetup with addresses and place names', () => {
   const searchResults = {
-    'queen square, bristol': { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' },
-    'temple meads': { isFound: true, lat: 51.4492, lng: -2.5813, name: 'Bristol Temple Meads' },
+    [searchKey('Queen Square, Bristol')]: { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' },
+    [searchKey('Temple Meads')]: { isFound: true, lat: 51.4492, lng: -2.5813, name: 'Bristol Temple Meads' },
+    [searchKey('Nowhere')]: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false },
   };
 
-  test('plans looked-up locations and says what each matched', () => {
-    const { plan, matches, invalidLines } = planFromSetup({
-      ...setupWith({ locationsText: 'Old Kent Road 51.4545,-2.5879\nQueen Square, Bristol', finishText: 'Temple Meads' }),
+  test('plans rows that were found, with what each matched', () => {
+    const { plan, leftOut } = planFromSetup({
+      ...setupWith({ locations: rows('51.4545,-2.5879', 'Queen Square, Bristol'), finishText: 'Temple Meads' }),
       searchResults,
     });
-    assert.deepEqual(invalidLines, []);
-    assert.equal(plan.points.length, 2);
+    assert.deepEqual(leftOut, []);
+    assert.equal(plan.points[1].matchedName, 'Queen Square, City Centre, Bristol');
     assert.equal(plan.finish.lat, 51.4492);
-    // Lines show their own matches, so only the Finish is returned here.
-    assert.deepEqual(matches, [{ source: 'Finish', label: 'Temple Meads', matchedName: 'Bristol Temple Meads' }]);
-  });
-
-  test('returns a Start or Finish whose label starts with "Line"', () => {
-    const results = { 'line one road': { isFound: true, lat: 51.4492, lng: -2.5813, name: 'Temple Meads, Bristol' } };
-    const { matches } = planFromSetup({ ...setupWith({ finishText: 'Line One Road' }), searchResults: results });
-    assert.deepEqual(matches, [{ source: 'Finish', label: 'Line One Road', matchedName: 'Temple Meads, Bristol' }]);
-  });
-
-  test('returns the Start and Finish matches even when no location line is usable', () => {
-    const { plan, matches } = planFromSetup({ ...setupWith({ locationsText: 'Nowhere', startText: 'Queen Square, Bristol', finishText: 'Temple Meads' }), searchResults });
-    assert.equal(plan, null);
-    assert.deepEqual(matches.map(({ source }) => source), ['Start', 'Finish']);
   });
 
   test('looks up the start too', () => {
-    const { plan, matches } = planFromSetup({ ...setupWith({ startText: 'Queen Square, Bristol' }), searchResults });
+    const { plan } = planFromSetup({ ...setupWith({ startText: 'Queen Square, Bristol' }), searchResults });
     assert.equal(plan.start.lat, 51.4504);
-    assert.deepEqual(matches.map(({ source }) => source), ['Start']);
+  });
+
+  test('says why the start or finish was not found', () => {
+    const { error } = planFromSetup({ ...setupWith({ finishText: 'Nowhere' }), searchResults });
+    assert.equal(error, 'Finish: No match for "Nowhere" in Bristol.');
   });
 });
 
 describe('searchesNeeded', () => {
-  test('lists the lines, start and finish that need looking up, but not what3words addresses', () => {
-    const setup = { ...defaultState().setup, locationsText: 'Old Kent Road 51.4545,-2.5879\nQueen Square, Bristol\n///filled.count.soap', startText: 'Temple Meads', finishText: 'Cabot Tower' };
-    assert.deepEqual(searchesNeeded({ setup }), ['Queen Square, Bristol', 'Temple Meads', 'Cabot Tower']);
+  test('lists the rows, start and finish that need looking up, but not coordinates or pins', () => {
+    const event = { ...defaultState().event, startText: 'Temple Meads', finishText: 'Cabot Tower' };
+    const locations = [...rows('51.4545,-2.5879', 'Queen Square, Bristol', ''), { id: 'p', text: 'Pinned', pin: { lat: 51.45, lng: -2.59 } }];
+    assert.deepEqual(searchesNeeded({ event, locations }), ['Queen Square, Bristol', 'Temple Meads', 'Cabot Tower']);
   });
 
   test('leaves out searches that are already known', () => {
-    const setup = { ...defaultState().setup, locationsText: 'Queen Square, Bristol' };
-    const searchResults = { 'queen square, bristol': { isFound: false, error: 'No match', isTemporary: false } };
-    assert.deepEqual(searchesNeeded({ setup, searchResults }), []);
+    const searchResults = { [searchKey('Queen Square, Bristol')]: { isFound: false, error: 'No match', isTemporary: false } };
+    assert.deepEqual(searchesNeeded({ event: defaultState().event, locations: rows('Queen Square, Bristol'), searchResults }), []);
   });
 
-  test('leaves out the start when re-planning from the team\'s position', () => {
-    const setup = { ...defaultState().setup, locationsText: '', startText: 'Temple Meads' };
-    assert.deepEqual(searchesNeeded({ setup, isFromPosition: true }), []);
+  test("leaves out the start when re-planning from the team's position", () => {
+    const event = { ...defaultState().event, startText: 'Temple Meads' };
+    assert.deepEqual(searchesNeeded({ event, locations: [], isFromPosition: true }), []);
   });
 });
-
 describe('startTimeToday', () => {
   test('uses now for a blank start time, and today otherwise', () => {
     assert.equal(startTimeToday('', now), now);
@@ -188,7 +209,7 @@ describe('startTimeToday', () => {
 
 describe('replanStartingPoint', () => {
   const at = (day, hours, minutes) => new Date(2026, 9, day, hours, minutes).getTime();
-  const options = (overrides) => ({ startTimeText: '11:00', deadline: '16:00', doneKeys: [], isReplannedFromPositionToday: false, ...overrides });
+  const options = (overrides) => ({ startTime: '11:00', deadline: '16:00', hasVisited: false, isReplannedFromPositionToday: false, ...overrides });
 
   test('re-plans from the Start field before the start time, when nothing is ticked off', () => {
     assert.equal(replanStartingPoint(options({ now: at(3, 10, 30) })), 'start');
@@ -208,7 +229,7 @@ describe('replanStartingPoint', () => {
   });
 
   test("re-plans from the team's position once a selfie is ticked off, even before the start time", () => {
-    assert.equal(replanStartingPoint(options({ doneKeys: ['51.449200,-2.581300'], now: at(3, 10, 50) })), 'position');
+    assert.equal(replanStartingPoint(options({ hasVisited: true, now: at(3, 10, 50) })), 'position');
   });
 
   test("re-plans from the team's position after re-planning from there today, even before the start time", () => {
@@ -216,14 +237,14 @@ describe('replanStartingPoint', () => {
   });
 
   test('uses a start time that has just been put back', () => {
-    assert.equal(replanStartingPoint(options({ startTimeText: '12:00', now: at(3, 11, 30) })), 'start');
+    assert.equal(replanStartingPoint(options({ startTime: '12:00', now: at(3, 11, 30) })), 'start');
   });
 
   test("re-plans from the team's position with no start time before the deadline", () => {
-    assert.equal(replanStartingPoint(options({ startTimeText: '', now: at(3, 10, 0) })), 'position');
+    assert.equal(replanStartingPoint(options({ startTime: '', now: at(3, 10, 0) })), 'position');
   });
 
   test('re-plans from the Start field with an invalid start time', () => {
-    assert.equal(replanStartingPoint(options({ startTimeText: 'soon', now: at(3, 10, 0) })), 'start');
+    assert.equal(replanStartingPoint(options({ startTime: 'soon', now: at(3, 10, 0) })), 'start');
   });
 });

@@ -27,6 +27,10 @@
       </div>
     </header>
 
+    <p id="out-of-date" class="hidden bg-danger-soft text-danger ring-1 ring-danger-line">
+      <span class="mx-auto block max-w-xl px-4 py-3 text-sm font-semibold">This copy of the planner is out of date, so your saved list isn't shown and changes won't be saved. Reload with signal to update it.</span>
+    </p>
+
     <div id="time-warning" class="sticky top-0 z-[1100] hidden bg-danger-soft text-danger shadow-sm ring-1 ring-danger-line">
       <p id="time-warning-text" class="mx-auto max-w-xl px-4 py-3 text-sm font-semibold"></p>
     </div>
@@ -36,46 +40,38 @@
       <section id="setup" aria-labelledby="setup-heading" class="rounded-lg bg-surface p-4 shadow-sm ring-1 ring-line">
         <h2 id="setup-heading" class="text-base font-semibold">Setup</h2>
         <form id="setup-form" class="mt-3 flex flex-col gap-4" novalidate>
-          <div class="flex flex-col gap-1">
-            <label for="locations" class="text-sm font-medium">Locations</label>
+          <fieldset class="flex min-w-0 flex-col gap-2">
+            <legend class="text-sm font-medium">Locations</legend>
             <p id="locations-hint" class="text-xs text-muted">
-              One per line, each with its coordinates (like <code>51.4545,-2.5879</code>), a full Google Maps link, or an address or place name to look up.
-              To label an address, put the label first with a colon, like <code>Old Kent Road: Queen Square, Bristol</code>.
-              For a what3words address, tap Navigate in the what3words app and paste the address it gives instead.
-              To get coordinates on a phone, long-press the spot in Google Maps to drop a pin, then copy them from the search box.
-              Or long-press a spot on the map in the Map tab to add it here.
+              One per row, as given on the sheet, like a street or place in Bristol. Each is looked up when you move on to the next row.
+              If one isn't found or is in the wrong spot, tap 📍 and then tap where it is on the map.
               Addresses are looked up with <a href="https://nominatim.openstreetmap.org/" target="_blank" rel="noopener" class="underline">OpenStreetMap Nominatim</a>, © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" class="underline">OpenStreetMap contributors</a>.
             </p>
-            <textarea id="locations" data-setup="locationsText" rows="8" aria-describedby="locations-hint" spellcheck="false" autocapitalize="off"
-              placeholder="Old Kent Road 51.4545,-2.5879"
-              class="w-full rounded-md border border-field bg-surface px-3 py-2 font-mono text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"></textarea>
-            <p id="search-status" class="hidden text-sm text-muted" role="status"></p>
-            <ol id="location-lines" aria-label="Location lines" class="flex flex-col gap-1 text-sm"></ol>
-            <div id="location-matches" class="hidden flex-col gap-1">
-              <p class="text-sm font-medium">Looked up <span class="font-normal text-muted">(check these are the right places)</span></p>
-              <ul id="location-matches-list" class="flex flex-col gap-1 text-sm text-ink"></ul>
-            </div>
-          </div>
+            <ol id="location-rows" aria-label="Locations" class="flex flex-col gap-2"></ol>
+            <p id="location-announcement" class="sr-only" aria-live="polite"></p>
+          </fieldset>
 
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div class="flex flex-col gap-1">
               <label for="start" class="text-sm font-medium">Start</label>
-              <input id="start" data-setup="startText" type="text" autocapitalize="off" spellcheck="false"
+              <input id="start" data-event="startText" type="text" autocapitalize="off" spellcheck="false" aria-describedby="start-status"
                 class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
+              <p id="start-status" class="text-xs break-words"></p>
             </div>
             <div class="flex flex-col gap-1">
               <label for="finish" class="text-sm font-medium">Finish <span class="font-normal text-muted">(optional)</span></label>
-              <input id="finish" data-setup="finishText" type="text" autocapitalize="off" spellcheck="false" placeholder="Leave blank if there's no finish"
+              <input id="finish" data-event="finishText" type="text" autocapitalize="off" spellcheck="false" placeholder="Leave blank if there's no finish" aria-describedby="finish-status"
                 class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
+              <p id="finish-status" class="text-xs break-words"></p>
             </div>
             <div class="flex flex-col gap-1">
               <label for="start-time" class="text-sm font-medium">Start time <span class="font-normal text-muted">(blank for now)</span></label>
-              <input id="start-time" data-setup="startTimeText" type="time"
+              <input id="start-time" data-event="startTime" type="time"
                 class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
             </div>
             <div class="flex flex-col gap-1">
               <label for="deadline" class="text-sm font-medium">Deadline</label>
-              <input id="deadline" data-setting="deadline" type="time"
+              <input id="deadline" data-event="deadline" type="time"
                 class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
             </div>
             <div class="flex flex-col gap-1">
@@ -92,9 +88,11 @@
 
           <p id="setup-error" class="hidden rounded-md bg-danger-soft px-3 py-2 text-sm text-danger ring-1 ring-danger-line" role="alert"></p>
 
-          <button type="submit" class="min-h-11 rounded-md bg-accent px-4 py-2 font-semibold text-white hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60">
+          <p id="plan-hint" class="-mb-2 text-xs text-muted">Enter every location before planning, for the most accurate route. Locations added afterwards show as + on the map until you plan again.</p>
+          <button type="submit" aria-describedby="plan-hint" class="min-h-11 rounded-md bg-accent px-4 py-2 font-semibold text-white hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:opacity-60">
             Plan route
           </button>
+          <p id="plan-status" class="-mt-2 hidden text-sm" role="status"></p>
 
           <button id="new-challenge" type="button"
             class="min-h-11 rounded-md px-4 py-2 text-sm font-semibold text-danger ring-1 ring-danger-line hover:bg-danger-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-danger">
@@ -105,7 +103,7 @@
 
       <section id="stops" aria-labelledby="stops-heading" class="rounded-lg bg-surface p-4 shadow-sm ring-1 ring-line">
         <div class="flex items-center justify-between gap-2">
-          <h2 id="stops-heading" class="text-base font-semibold">Route</h2>
+          <h2 id="stops-heading" tabindex="-1" class="scroll-mt-4 text-base font-semibold focus:outline-none">Route</h2>
           <button id="settings-button" type="button" aria-haspopup="dialog" aria-controls="settings-dialog"
             class="inline-flex min-h-11 items-center gap-1 rounded-md px-3 text-sm font-semibold text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
             <span aria-hidden="true">⚙</span> Settings
@@ -132,7 +130,11 @@
           <p class="text-sm text-muted">Add your locations above and press Plan route.</p>
         </div>
         <div id="map-panel" role="tabpanel" aria-labelledby="map-tab" class="mt-3" hidden>
-          <div id="map" role="region" aria-label="Map of the route" class="h-[60dvh] min-h-80 overflow-hidden rounded-md ring-1 ring-line [-webkit-touch-callout:none] [&_.leaflet-control-zoom_a]:!size-11 [&_.leaflet-control-zoom_a]:!leading-[44px] [&_.leaflet-control-zoom_a]:!text-2xl [&_.leaflet-popup-content-wrapper]:!bg-surface [&_.leaflet-popup-content-wrapper]:!text-ink [&_.leaflet-popup-tip]:!bg-surface"></div>
+          <div id="pin-banner" class="mb-2 hidden flex-wrap items-center justify-between gap-2 rounded-md bg-accent-soft px-3 py-2 text-sm text-accent-ink ring-1 ring-accent-line">
+            <p id="pin-banner-text" class="min-w-0 font-semibold break-words"></p>
+            <button id="pin-banner-cancel" type="button" class="min-h-11 rounded-md bg-surface px-4 py-2 font-semibold text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">Cancel</button>
+          </div>
+          <div id="map" role="region" aria-label="Map of the route" class="h-[60dvh] min-h-80 overflow-hidden rounded-md ring-1 ring-line [-webkit-touch-callout:none] [&_.leaflet-control-zoom_a]:!size-11 [&_.leaflet-control-zoom_a]:!leading-[44px] [&_.leaflet-control-zoom_a]:!text-2xl [&_.leaflet-popup-content-wrapper]:!bg-surface [&_.leaflet-popup-content-wrapper]:!text-ink [&_.leaflet-popup-tip]:!bg-surface [&.is-pinning]:!cursor-crosshair"></div>
           <p id="pin-status" class="mt-2 text-sm text-muted" role="status">Long-press the map to add a location there.</p>
           <p id="map-status" class="mt-2 hidden text-sm text-muted" role="status"></p>
           <p id="map-tiles-status" class="mt-2 hidden text-sm text-muted" role="status">Some map tiles couldn't load without signal. Your route is still shown, and the List tab works offline.</p>
@@ -174,16 +176,16 @@
           </div>
           <div class="flex flex-col gap-1">
             <label for="settings-deadline" class="text-sm font-medium">Deadline</label>
-            <input id="settings-deadline" data-panel-setting="deadline" type="time" required class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
+            <input id="settings-deadline" data-panel-event="deadline" type="time" required class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
           </div>
           <div class="flex flex-col gap-1 sm:col-span-2">
             <label for="settings-finish" class="text-sm font-medium">Finish <span class="font-normal text-muted">(optional)</span></label>
-            <input id="settings-finish" data-panel-setup="finishText" type="text" autocapitalize="off" spellcheck="false" aria-describedby="settings-finish-hint" placeholder="Leave blank if there's no finish" class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
-            <p id="settings-finish-hint" class="text-xs text-muted">Coordinates, a Google Maps link or an address. Clear it if the finish is cancelled.</p>
+            <input id="settings-finish" data-panel-event="finishText" type="text" autocapitalize="off" spellcheck="false" aria-describedby="settings-finish-hint" placeholder="Leave blank if there's no finish" class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
+            <p id="settings-finish-hint" class="text-xs text-muted">A place or address, or coordinates. Clear it if the finish is cancelled.</p>
           </div>
           <div class="flex flex-col gap-1 sm:col-span-2">
             <label for="settings-check-in-form" class="text-sm font-medium">Check-in form URL <span class="font-normal text-muted">(optional)</span></label>
-            <input id="settings-check-in-form" data-panel-setting="checkInFormUrl" type="url" inputmode="url" autocapitalize="off" spellcheck="false" aria-describedby="settings-check-in-form-hint" placeholder="https://" class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
+            <input id="settings-check-in-form" data-panel-event="checkInFormUrl" type="url" inputmode="url" autocapitalize="off" spellcheck="false" aria-describedby="settings-check-in-form-hint" placeholder="https://" class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
             <p id="settings-check-in-form-hint" class="text-xs text-muted">The link to the organisers' online check-in form, if they have one. Must start with http:// or https://. Adds a Check in button to each stop, and raises the default selfie time to 5 minutes to allow for uploading.</p>
           </div>
         </div>
@@ -201,8 +203,8 @@
         <h2 id="pin-heading" class="text-base font-semibold">Add a location</h2>
 
         <div class="flex flex-col gap-1">
-          <label for="pin-label" class="text-sm font-medium">Name</label>
-          <input id="pin-label" type="text" required autocomplete="off" enterkeyhint="done" aria-describedby="pin-coordinates" placeholder="Old Kent Road"
+          <label for="pin-label" class="text-sm font-medium">Name <span class="font-normal text-muted">(optional)</span></label>
+          <input id="pin-label" type="text" autocomplete="off" enterkeyhint="done" aria-describedby="pin-coordinates" placeholder="Old Kent Road"
             class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
           <p id="pin-coordinates" class="text-xs text-muted"></p>
         </div>
@@ -213,8 +215,6 @@
         </div>
       </form>
     </dialog>
-
-    <p id="plan-announcement" class="sr-only" aria-live="polite"></p>
 
     <noscript>
       <p class="mx-auto max-w-xl px-4 pb-4 text-sm text-danger">This planner needs JavaScript to work.</p>

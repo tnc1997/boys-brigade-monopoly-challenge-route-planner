@@ -64,9 +64,10 @@ const MARKER_CLASSES = {
  * @param {() => void} [options.onTilesFailed] Called when map tiles fail to load, for example without signal.
  * @param {() => void} [options.onTilesLoaded] Called when map tiles load again.
  * @param {(latLng: import('./planner.js').LatLng) => void} [options.onLongPress] Called with the place the map was long-pressed or right-clicked, to drop a pin there.
+ * @param {(latLng: import('./planner.js').LatLng) => void} [options.onTap] Called with the place the map was tapped or clicked, but not dragged, such as to pin a location there.
  * @returns {RouteMap | null} The map, or `null` if Leaflet couldn't be loaded (for example, without signal).
  */
-export function createMap(container, { onTilesFailed = () => {}, onTilesLoaded = () => {}, onLongPress = () => {} } = {}) {
+export function createMap(container, { onTilesFailed = () => {}, onTilesLoaded = () => {}, onLongPress = () => {}, onTap = () => {} } = {}) {
   const { L } = globalThis;
   if (!L) {
     return null;
@@ -94,6 +95,12 @@ export function createMap(container, { onTilesFailed = () => {}, onTilesLoaded =
     }
     const { lat, lng } = latlng.wrap();
     onLongPress({ lat, lng });
+  });
+  // Leaflet doesn't fire click after the map is dragged, or for taps on
+  // markers, popups or the zoom buttons.
+  map.on('click', ({ latlng }) => {
+    const { lat, lng } = latlng.wrap();
+    onTap({ lat, lng });
   });
   const routeLayer = L.layerGroup().addTo(map);
   // The team's position goes in its own pane above the markers (600), so a

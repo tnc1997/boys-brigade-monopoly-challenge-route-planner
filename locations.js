@@ -6,315 +6,207 @@ import { searchKey } from './search.js';
  * @typedef {object} Location
  * @property {number} lat Latitude, from -90 to 90.
  * @property {number} lng Longitude, from -180 to 180.
- * @property {string} label What to call the location. Defaults to the place's name from a Google Maps URL, or the coordinates.
- * @property {string} key A stable key for the location, from its coordinates, for remembering which selfies are done.
- * @property {string} [matchedName] For a location found by searching for an address or place name, the name of the place that was found, so the team can check it.
+ * @property {string} label What to call the location: the row's text, or "Location N" for a pinned row without any.
+ * @property {string} key A stable key for the location, a v4 UUID. For a row of the location list, it's the row's id, so moving the location doesn't change which location it is. For the start and finish, it's {@link START_KEY} or {@link FINISH_KEY}.
+ * @property {string} [matchedName] For a location found by searching, the name of the place that was found, so the team can check it.
  */
 
 /**
- * The result of parsing a line of the location list.
+ * A row of the location list, as saved. Its text is both what's searched
+ * for and the location's name.
  *
- * @typedef {{ isValid: true, location: Location } | { isValid: false, error: string, query?: string }} ParsedLocation
- * `query` is the address or place name to look up when the line has no
- * coordinates and its search result isn't known yet.
- */
-
-/**
- * A non-blank line of the location list and the result of parsing it.
+ * Optional fields are left out rather than saved with their default or
+ * `null`, so a missing field means its default. Adding one doesn't change
+ * the schema version: add it here, and check it in {@link cleanRecords}.
  *
- * @typedef {object} ParsedLocationLine
- * @property {number} lineNumber The line's number in the list, starting at 1.
- * @property {string} text The line as typed.
- * @property {ParsedLocation} result The result of parsing the line.
+ * @typedef {object} LocationRecord
+ * @property {string} id A stable id for the row, a v4 UUID, which ticked-off selfies and plans refer to.
+ * @property {string} text The row's text, as typed.
+ * @property {import('./planner.js').LatLng} [pin] Where the row was pinned on the map, if it was. A pinned row isn't searched for.
+ * @property {true} [isVisited] Whether the location has been visited, with its selfie taken.
  */
 
-/** Coordinates as `lat,lng` in decimal degrees, with or without a space after the comma. */
-const COORDINATES = /(?<![\d.])(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)(?![\d.])/g;
-
-/** The same as {@link COORDINATES}, but for a whole value such as a URL's `q` parameter. */
-const WHOLE_COORDINATES = /^\s*(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/;
-
 /**
- * A what3words address, with or without the `///` prefix or a what3words.com
- * or w3w.co URL. These can't be used, because the free what3words plan can't
- * convert them to coordinates, so they're only detected to explain that.
- */
-const WHAT3WORDS_ADDRESS =
-  /(?<=^|[\s,;|])(?:(?:https?:\/\/)?(?:www\.)?(?:what3words\.com|w3w\.co)\/|\/{1,3})?[\p{L}\p{M}]+\.[\p{L}\p{M}]+\.[\p{L}\p{M}]+(?=[\s,;|]|$)/iu;
-
-/** A Google Maps URL, including short URLs, with or without `https://`. */
-const GOOGLE_MAPS_URL =
-  /(?<=^|\s)(?:https?:\/\/)?(?:(?:www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+|maps\.app\.goo\.gl|goo\.gl\/maps)(?:[/?#]\S*)?(?=\s|$)/gi;
-
-/** The position of the pin in a Google Maps place URL, as `!3d<lat>!4d<lng>`. */
-const PIN = /!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/;
-
-/** The centre of the map in a Google Maps URL, as `@<lat>,<lng>`. */
-const MAP_CENTRE = /\/@(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/;
-
-/** The place's name in a Google Maps place URL, as `/maps/place/<name>/`. */
-const PLACE_NAME = /\/maps\/place\/([^/@]+)/;
-
-/** Google Maps URL parameters that can hold the location's coordinates. */
-const COORDINATE_PARAMETERS = ['q', 'query', 'destination', 'll'];
-
-/** Punctuation that separates the parts of a line, removed from the ends of the label. */
-const SEPARATORS = /^[\s,;|–—-]+|[\s,;|–—-]+$/g;
-
-/**
- * Coordinates as written, before they're checked.
+ * Where a row (or the Start or Finish field) is, as far as is known without
+ * searching.
  *
- * @typedef {object} CoordinatesText
- * @property {string} lat The latitude as written.
- * @property {string} lng The longitude as written.
+ * - `empty`: there's no text and no pin, so it's ignored.
+ * - `pinned`: it was pinned on the map.
+ * - `coordinates`: its text is only coordinates, which are used directly.
+ * - `found`: its text was looked up and found.
+ * - `notFound`: its text was looked up and not found, or its coordinates are out of range.
+ * - `unknown`: its text hasn't been looked up yet.
+ *
+ * @typedef {{ status: 'empty' }
+ *   | { status: 'pinned' | 'coordinates' | 'found', location: Location }
+ *   | { status: 'notFound', label: string, error: string }
+ *   | { status: 'unknown', label: string, query: string }} Resolved
  */
 
 /**
- * Makes the key a location is remembered by, from its coordinates to 6
- * decimal places, so the same place written differently gets the same key.
+ * A row of the location list and where it is.
  *
- * @param {number} lat Latitude.
- * @param {number} lng Longitude.
- * @returns {string} The key, like `51.451740,-2.603400`.
- * @example
- * locationKey(51.45174, -2.6034); // '51.451740,-2.603400'
+ * @typedef {object} ResolvedRecord
+ * @property {LocationRecord} record The row.
+ * @property {number} number The row's position in the list, starting at 1.
+ * @property {Resolved} resolved Where it is.
  */
-export function locationKey(lat, lng) {
-  // Round first, so a value like -0.0000001 gives 0.000000 rather than
-  // -0.000000, the same as -0 read back from the location list.
-  const format = (value) => Number(value.toFixed(6)).toFixed(6);
-  return `${format(lat)},${format(lng)}`;
+
+/** Text that's only coordinates, as `lat,lng` in decimal degrees, with or without a space after the comma. */
+const COORDINATES = /^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$/;
+
+/**
+ * The key of the route's start, whether that's the Start field or the
+ * team's position. Like every location's key, it's a v4 UUID, but a fixed
+ * one, which can't clash with a row's random id.
+ */
+export const START_KEY = 'ae9af498-cc10-4b09-93c4-9a6d712f7fb7';
+
+/** The key of the route's finish, a fixed v4 UUID like {@link START_KEY}. */
+export const FINISH_KEY = '54fb4fd9-ae1a-45ec-907a-72c8ef4fc9d2';
+
+/**
+ * Makes a new id for a row of the location list: a random v4 UUID.
+ *
+ * @returns {string} The id, like `3b241101-e2bb-4255-8caf-4136c566a962`.
+ */
+export function newLocationId() {
+  // randomUUID is only available in secure contexts, such as https and
+  // localhost, so make one from random bytes elsewhere.
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  const bytes = globalThis.crypto?.getRandomValues?.(new Uint8Array(16)) ?? Uint8Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  // Mark it as version 4 (random), RFC 4122 variant.
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**
- * Gets the coordinates from a Google Maps URL, without any network
- * requests. The pin's position (`!3d…!4d…`) is preferred over the centre of
- * the map (`@lat,lng`), because the map can be scrolled away from the pin.
+ * Works out where a row of text is, using its search result if it has one.
+ * Text that's only coordinates (like `51.4545,-2.5879`) uses them directly.
+ * Any other text is searched for as it is, and is also the name.
  *
- * @param {string} text The URL as typed or pasted, with or without `https://`.
- * @returns {{ isValid: true, coordinates: CoordinatesText, placeName: string | null } | { isValid: false, error: string }} The coordinates and the place's name (for place URLs), or a message saying why they can't be read.
- * @example
- * parseGoogleMapsUrl('https://www.google.com/maps?q=51.4545,-2.5879');
- * // { isValid: true, coordinates: { lat: '51.4545', lng: '-2.5879' }, placeName: null }
- */
-export function parseGoogleMapsUrl(text) {
-  let url;
-  try {
-    url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
-  } catch {
-    return { isValid: false, error: 'This Google Maps link is not a valid link. Paste the full link or the coordinates instead.' };
-  }
-  if (/^(?:maps\.app\.goo\.gl|goo\.gl)$/i.test(url.hostname)) {
-    return {
-      isValid: false,
-      error: 'Short Google Maps links can\'t be read without opening them. In Google Maps, drop a pin on the location and paste the coordinates it shows instead.',
-    };
-  }
-
-  const href = decodeURIComponent(url.href);
-  const placeName = url.pathname.match(PLACE_NAME)?.[1];
-  const result = (lat, lng) => ({
-    isValid: true,
-    coordinates: { lat, lng },
-    placeName: placeName ? decodeURIComponent(placeName.replace(/\+/g, ' ')) : null,
-  });
-
-  const pin = href.match(PIN);
-  if (pin) {
-    return result(pin[1], pin[2]);
-  }
-  for (const name of COORDINATE_PARAMETERS) {
-    const value = url.searchParams.get(name)?.match(WHOLE_COORDINATES);
-    if (value) {
-      return result(value[1], value[2]);
-    }
-  }
-  const centre = href.match(MAP_CENTRE);
-  if (centre) {
-    return result(centre[1], centre[2]);
-  }
-  return {
-    isValid: false,
-    error: 'This Google Maps link doesn\'t include coordinates. In Google Maps, drop a pin on the location and paste the coordinates it shows instead.',
-  };
-}
-
-/**
- * Turns the text of a line without coordinates into a location, using its
- * search result if it has one.
- *
- * @param {string} text The line's text.
+ * @param {string} text The text, as typed.
+ * @param {string} key The location's key.
  * @param {import('./search.js').SearchResults} searchResults Search results by {@link searchKey}.
- * @returns {ParsedLocation} The location, or a message saying what's wrong with the text to look up.
+ * @param {object} [options] How to name a location that's only coordinates.
+ * @param {string} [options.coordinatesLabel] The name for a location that's only coordinates, like "Start". Defaults to the text.
+ * @returns {Resolved} Where it is.
+ * @example
+ * resolveText('51.4556,-2.5894', START_KEY, {}, { coordinatesLabel: 'Start' });
+ * // { status: 'coordinates', location: { lat: 51.4556, lng: -2.5894, label: 'Start', key: START_KEY } }
  */
-function searchedLocation(text, searchResults) {
-  const colon = text.indexOf(':');
-  const label = colon > 0 ? text.slice(0, colon).replace(SEPARATORS, '') : text;
-  const query = colon > 0 ? text.slice(colon + 1).replace(SEPARATORS, '') : text;
-  const result = searchResults[searchKey(query)];
+export function resolveText(text, key, searchResults, { coordinatesLabel } = {}) {
+  const label = text.trim();
+  if (label === '') {
+    return { status: 'empty' };
+  }
 
+  const coordinates = label.match(COORDINATES);
+  if (coordinates) {
+    const [, latText, lngText] = coordinates;
+    const lat = Number(latText);
+    const lng = Number(lngText);
+    if (lat < -90 || lat > 90) {
+      return { status: 'notFound', label, error: `The latitude ${latText} must be between -90 and 90. Check the coordinates are in lat,lng order.` };
+    }
+    if (lng < -180 || lng > 180) {
+      return { status: 'notFound', label, error: `The longitude ${lngText} must be between -180 and 180.` };
+    }
+    return { status: 'coordinates', location: { lat, lng, label: coordinatesLabel ?? label, key } };
+  }
+
+  const result = searchResults[searchKey(label)];
   if (!result) {
-    return { isValid: false, error: `Press Plan route to look up "${query}", or add the coordinates.`, query };
+    return { status: 'unknown', label, query: label };
   }
   if (!result.isFound) {
-    return { isValid: false, error: result.error };
+    return { status: 'notFound', label, error: result.error };
   }
-  return {
-    isValid: true,
-    location: {
-      lat: result.lat,
-      lng: result.lng,
-      label: label || query,
-      key: locationKey(result.lat, result.lng),
-      matchedName: result.name,
-    },
-  };
+  return { status: 'found', location: { lat: result.lat, lng: result.lng, label, key, matchedName: result.name } };
 }
 
 /**
- * Parses one line of the location list. A line must include the
- * coordinates, either as `lat,lng` or in a Google Maps URL, or an address or
- * place name to look up. With coordinates, any remaining text is the label.
- * A line with a what3words address is rejected, because the free what3words
- * plan can't convert it to coordinates.
+ * Works out where a row of the location list is. A pinned row is where it
+ * was pinned, whatever its text, and is called "Location N" if it has no
+ * text. Otherwise, the row's text is used as in {@link resolveText}.
  *
- * Without coordinates, the remaining text is looked up, and is also the
- * label. To give a different label, put it before a colon, like
- * `Old Kent Road: Queen Square, Bristol`. Until its search result is in
- * `searchResults`, the line is invalid with the text to look up as `query`.
- *
- * @param {string} line The line as typed.
- * @param {object} [options] Search results for lines without coordinates.
- * @param {import('./search.js').SearchResults} [options.searchResults] Search results by {@link searchKey}.
- * @returns {ParsedLocation} The location, or a message saying what's wrong.
- * @example
- * parseLocation('Old Kent Road 51.4545,-2.5879');
- * // { isValid: true, location: { lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: '51.454500,-2.587900' } }
+ * @param {LocationRecord} record The row.
+ * @param {number} number The row's position in the list, starting at 1.
+ * @param {import('./search.js').SearchResults} searchResults Search results by {@link searchKey}.
+ * @returns {Resolved} Where it is.
  */
-export function parseLocation(line, { searchResults = {} } = {}) {
-  // Google Maps URLs are read and removed first, because they can contain
-  // text that looks like coordinates or a what3words address (such as
-  // maps.google.com).
-  /** @type {CoordinatesText[]} */
-  const coordinates = [];
-  let placeName = null;
-  let rest = line;
-  for (const [url] of line.matchAll(GOOGLE_MAPS_URL)) {
-    const parsedUrl = parseGoogleMapsUrl(url);
-    if (!parsedUrl.isValid) {
-      return { isValid: false, error: parsedUrl.error };
+export function resolveRecord(record, number, searchResults) {
+  if (record.pin) {
+    const label = record.text.trim() || `Location ${number}`;
+    return { status: 'pinned', location: { lat: record.pin.lat, lng: record.pin.lng, label, key: record.id } };
+  }
+  return resolveText(record.text, record.id, searchResults);
+}
+
+/**
+ * Works out where each row of the location list is.
+ *
+ * @param {LocationRecord[]} records The rows, in order.
+ * @param {import('./search.js').SearchResults} searchResults Search results by {@link searchKey}.
+ * @returns {ResolvedRecord[]} Each row with its position in the list and where it is, in order.
+ */
+export function resolveRecords(records, searchResults) {
+  return records.map((record, index) => ({ record, number: index + 1, resolved: resolveRecord(record, index + 1, searchResults) }));
+}
+
+/**
+ * Gets the locations that can be planned: rows that are pinned, have
+ * coordinates or were found.
+ *
+ * @param {ResolvedRecord[]} rows The rows, from {@link resolveRecords}.
+ * @returns {Location[]} Their locations, in order.
+ */
+export function usableLocations(rows) {
+  return rows.flatMap(({ resolved }) => ('location' in resolved ? [resolved.location] : []));
+}
+
+/**
+ * Gets the keys of the rows that have been visited, whose selfie has been taken.
+ *
+ * @param {LocationRecord[]} records The rows.
+ * @returns {string[]} Their ids, which are their locations' keys.
+ */
+export function visitedKeys(records) {
+  return records.filter(({ isVisited }) => isVisited).map(({ id }) => id);
+}
+
+/**
+ * Cleans up saved rows of the location list, dropping anything that isn't a
+ * row and rows with no text and no pin, so the app can rely on their shape.
+ * Optional fields are only kept when they're valid, so an invalid one
+ * falls back to its default, and unknown fields are dropped.
+ *
+ * @param {unknown} records The rows as saved.
+ * @returns {LocationRecord[]} The rows.
+ */
+export function cleanRecords(records) {
+  if (!Array.isArray(records)) {
+    return [];
+  }
+  const isCoordinate = (value, limit) => typeof value === 'number' && Math.abs(value) <= limit;
+  const ids = new Set();
+  return records.flatMap((record) => {
+    if (typeof record?.id !== 'string' || typeof record.text !== 'string' || ids.has(record.id)) {
+      return [];
     }
-    coordinates.push(parsedUrl.coordinates);
-    placeName ??= parsedUrl.placeName;
-    rest = rest.replace(url, ' ');
-  }
-
-  const what3wordsAddress = rest.match(WHAT3WORDS_ADDRESS)?.[0];
-  if (what3wordsAddress) {
-    return {
-      isValid: false,
-      error: `${what3wordsAddress} looks like a what3words address, which can't be used. Replace it with the address that Navigate gives in the what3words app, or the coordinates.`,
-    };
-  }
-
-  const coordinateMatches = [...rest.matchAll(COORDINATES)];
-  coordinates.push(...coordinateMatches.map((match) => ({ lat: match[1], lng: match[2] })));
-
-  if (coordinates.length === 0) {
-    const text = rest.replace(/\s+/g, ' ').replace(SEPARATORS, '');
-    if (text) {
-      return searchedLocation(text, searchResults);
+    ids.add(record.id);
+    /** @type {LocationRecord} */
+    const cleaned = { id: record.id, text: record.text };
+    if (isCoordinate(record.pin?.lat, 90) && isCoordinate(record.pin?.lng, 180)) {
+      cleaned.pin = { lat: record.pin.lat, lng: record.pin.lng };
     }
-    return { isValid: false, error: 'Add the coordinates as lat,lng, like 51.4545,-2.5879, a Google Maps link, or an address to look up.' };
-  }
-  if (coordinates.length > 1) {
-    return { isValid: false, error: 'This line has more than one set of coordinates. Put each location on its own line.' };
-  }
-
-  const lat = Number(coordinates[0].lat);
-  const lng = Number(coordinates[0].lng);
-  if (lat < -90 || lat > 90) {
-    return { isValid: false, error: `The latitude ${coordinates[0].lat} must be between -90 and 90. Check the coordinates are in lat,lng order.` };
-  }
-  if (lng < -180 || lng > 180) {
-    return { isValid: false, error: `The longitude ${coordinates[0].lng} must be between -180 and 180.` };
-  }
-
-  let label = rest;
-  for (const match of coordinateMatches) {
-    label = label.replace(match[0], ' ');
-  }
-  label = label.replace(/\s+/g, ' ').replace(SEPARATORS, '');
-
-  return {
-    isValid: true,
-    location: {
-      lat,
-      lng,
-      label: label || placeName || `${coordinates[0].lat}, ${coordinates[0].lng}`,
-      key: locationKey(lat, lng),
-    },
-  };
-}
-
-/**
- * Parses the location list, one location per line. Blank lines are ignored.
- *
- * @param {string} text The location list as typed.
- * @param {object} [options] Search results for lines without coordinates.
- * @param {import('./search.js').SearchResults} [options.searchResults] Search results by {@link searchKey}.
- * @returns {ParsedLocationLine[]} Each non-blank line with the result of parsing it, in order.
- */
-export function parseLocations(text, { searchResults = {} } = {}) {
-  return text
-    .split(/\r?\n/)
-    .map((line, index) => ({ lineNumber: index + 1, text: line }))
-    .filter(({ text: line }) => line.trim() !== '')
-    .map((line) => ({ ...line, result: parseLocation(line.text, { searchResults }) }));
-}
-
-/**
- * Makes a line of the location list for a pin dropped on the map, with its
- * coordinates to 6 decimal places (about 10 cm). The label is checked, so a
- * label that looks like coordinates, a Google Maps link or a what3words
- * address can't stop the line being read.
- *
- * @param {string} label What to call the location, as typed.
- * @param {import('./planner.js').LatLng} latLng Where the pin was dropped.
- * @returns {{ isValid: true, line: string, location: Location } | { isValid: false, error: string }} The line and the location it gives, or a message saying what's wrong with the label.
- * @example
- * pinLine('Cabot Tower', { lat: 51.45174, lng: -2.6034 });
- * // { isValid: true, line: 'Cabot Tower 51.451740,-2.603400', location: { lat: 51.45174, lng: -2.6034, label: 'Cabot Tower', key: '51.451740,-2.603400' } }
- */
-export function pinLine(label, { lat, lng }) {
-  // Separators around the name are dropped when the line is read, so drop
-  // them here too, and treat a name of only separators, like "-", as blank.
-  const name = label.replace(/\s+/g, ' ').replace(SEPARATORS, '');
-  if (!name) {
-    return { isValid: false, error: 'Enter a name for the location.' };
-  }
-  const key = locationKey(lat, lng);
-  // The key is the coordinates to 6 decimal places, which is also how
-  // they're written on the line.
-  const line = `${name} ${key}`;
-  const result = parseLocation(line);
-  // The line must read back as the pin, not as other coordinates in the label.
-  if (!result.isValid || result.location.key !== key) {
-    return { isValid: false, error: 'Use a name without coordinates, links or what3words addresses.' };
-  }
-  return { isValid: true, line, location: result.location };
-}
-
-/**
- * Adds a line to the end of the location list.
- *
- * @param {string} text The location list as typed.
- * @param {string} line The line to add.
- * @returns {string} The location list with the line on the end.
- * @example
- * addLocationLine('Old Kent Road 51.4545,-2.5879', 'Cabot Tower 51.451740,-2.603400');
- * // 'Old Kent Road 51.4545,-2.5879\nCabot Tower 51.451740,-2.603400'
- */
-export function addLocationLine(text, line) {
-  return text === '' || text.endsWith('\n') ? `${text}${line}` : `${text}\n${line}`;
+    if (record.isVisited === true) {
+      cleaned.isVisited = true;
+    }
+    return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
+  });
 }
