@@ -30,7 +30,7 @@ const CACHE_PREFIX = 'monopoly-challenge-route-planner-';
 const LEGACY_CACHE_PREFIXES = ['monopoly-challenge-planner-'];
 
 /** Change this to replace every saved file, for example when the list below changes. */
-const CACHE_NAME = `${CACHE_PREFIX}v1`;
+const CACHE_NAME = `${CACHE_PREFIX}v2`;
 
 /** The app's own files, relative to this script. Every top-level module must be listed. */
 const APP_FILES = [
@@ -38,6 +38,7 @@ const APP_FILES = [
   'index.html',
   'styles.css',
   'app.js',
+  'legacy.js',
   'locations.js',
   'map.js',
   'planner.js',

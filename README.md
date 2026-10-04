@@ -1,6 +1,6 @@
 # Boys' Brigade Monopoly Challenge Route Planner
 
-A phone-friendly route planner for the Boys' Brigade Monopoly Challenge in Bristol. Paste in the list of locations at the start, and it plans a walking route that fits in as many group selfies as possible before the deadline, ending at the finish if there is one. During the day you can tick off selfies, see the route and your position on a map, change the pace and re-plan from wherever you are.
+A phone-friendly route planner for the Boys' Brigade Monopoly Challenge in Bristol. Enter the list of locations at the start, and it plans a walking route that fits in as many group selfies as possible before the deadline, ending at the finish if there is one. During the day you can tick off selfies, see the route and your position on a map, change the pace and re-plan from wherever you are.
 
 **Open it on your phone:** https://tnc1997.github.io/boys-brigade-monopoly-challenge-route-planner/
 
@@ -15,32 +15,29 @@ Open it once with signal before the challenge starts. After that it works withou
 1. Open the planner and check the **Start** (Castle Park by default), **Deadline** (16:00), **Walking speed** and **Selfie time**. Set the walking speed to the pace of the slowest walker, because the team must stay together.
 2. Leave **Finish** blank if there's no finish point. Otherwise, enter it in the same way as a location (see below). You can add, change or clear it later.
 3. Leave **Start time** blank to start now, or enter the time you'll set off.
-4. Paste or type the locations into **Locations**, one per line. As you type, each line shows ✓ when it's ready, ⌕ when it will be looked up, or ✗ with what's wrong.
-5. Press **Plan route**.
+4. Type the locations into **Locations**, one per row. A new empty row appears as you fill in the last one, and **Enter** moves to the next row. Enter every location before planning, for the most accurate route.
+5. Press **Plan route**. If some locations are still being looked up, the button says so and plans as soon as they're done. It then says how many stops it planned, lists any locations that weren't found, and moves to the route.
 
 ### 2. Writing each location
 
-Each line needs one of these:
+Type each location as it's given on the sheet, such as a street or place in Bristol, like `Queen Square`. The row's text is also what the location is called in the route and on the map.
 
-| What you have | What to type | Example |
-|---|---|---|
-| An address or place name | Just the address. It's looked up with OpenStreetMap. | `Queen Square, Bristol` |
-| A label and an address | The label, a colon, then the address | `Old Kent Road: Queen Square, Bristol` |
-| Coordinates | Latitude and longitude, with any label | `Temple Meads 51.4492,-2.5813` |
-| A full Google Maps link | The link, with any label | `Cabot Tower https://www.google.com/maps?q=51.4517,-2.6034` |
+Each row is looked up with OpenStreetMap when you've finished it: when you press **Enter** or move to another field. Never while you're typing. Underneath, it shows:
 
-**Or drop a pin on the map.** On the **Map** tab, long-press the spot (or right-click it on a computer) and give it a name. It's added to the end of **Locations** as a line with its coordinates. Until you press **Plan route** or **Re-plan from here**, it shows on the map as a dashed **+**. To remove it, delete its line from **Locations**, and plan again if it's already in the route.
+- **Searching…** while it's being looked up.
+- **Found:** and the place it found. Check it's the right one, since a street name usually finds somewhere along the street rather than the exact spot.
+- **Not found.** Check the spelling, or pin it on the map (see below). Locations that aren't found are left out of the route.
+- **Couldn't search**, usually because there's no signal. It tries again by itself.
 
-After planning, each address line shows what it matched, like `Line 2: Old Kent Road → Queen Square, City Centre, Bristol`, and the **Looked up** list does the same for the Start and Finish. Check they're the right places.
+**Pin a location on the map** when it isn't found, or isn't quite in the right spot. Tap the row's 📍, then tap where it is on the map. The row keeps its name and shows **📍 Pinned on the map**. Changing a pinned row's text only renames it. To look it up again instead, tap the ✕ next to **Pinned on the map**.
 
-**what3words addresses can't be used directly.** Converting them to coordinates needs a paid what3words plan, so the planner rejects a line with a what3words address and tells you what to do. For each one, either:
+**Or add a location from the map.** On the **Map** tab, long-press the spot (or right-click it on a computer). Give it a name if you like, or leave it blank to call it "Location 4", say, after its place in the list. It's added to the end of **Locations** as a pinned row.
 
-- **Use its address:** open the address in the free what3words app, tap **Navigate**, and copy the street address it hands to the maps app onto the line, or
-- **Use its coordinates:** find the square in what3words, then long-press the same spot in Google Maps to drop a pin. Its coordinates appear in the search box at the top, ready to copy onto the line.
+Rows you add after planning show on the map as a dashed **+** until you press **Plan route** or **Re-plan from here**. To remove a location, tap the row's ✕, and plan again if it's already in the route.
 
-**Short Google Maps links** (`maps.app.goo.gl/…`), which the Google Maps app's Share button gives you, can't be read. Drop a pin and copy its coordinates instead.
+**Coordinates** (like `51.4545,-2.5879`, from long-pressing a spot in Google Maps) are used directly, without a lookup. Any other text on the row is the location's name. Google Maps links and what3words addresses can't be used: pin those locations on the map instead.
 
-**Only one phone should look up a fresh list of addresses.** OpenStreetMap's free address search allows 1 request per second for everyone using the planner together, and the planner waits 1.5 seconds between lookups. If several phones plan the same new list at once, they can go over that limit. Each phone saves its results, so later plans and re-plans don't look anything up again. See the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/).
+**Only one phone should look up a fresh list of addresses.** OpenStreetMap's free address search allows 1 request per second for everyone using the planner together, and the planner waits 1.5 seconds between lookups. If several phones enter the same new list at once, they can go over that limit. Each phone saves its results, so each location is only looked up once and re-planning works without signal. See the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/).
 
 ### 3. Follow the route
 
@@ -93,7 +90,8 @@ npm run build # build the minified styles.css
 |---|---|
 | `index.html`, `app.js` | The page and the code that runs it |
 | `planner.js` | Walking times and route planning |
-| `locations.js` | Reading location lines (coordinates, Google Maps links, addresses) |
+| `locations.js` | The location list's rows, and where each one is |
+| `legacy.js` | Moving a location list saved by an earlier version, one per line, to rows |
 | `search.js` | Address lookups with Nominatim |
 | `setup.js` | Turning the setup form into a plan |
 | `route.js` | Describing the plan for the list, the map, the warning banner and the countdown |

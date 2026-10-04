@@ -18,9 +18,10 @@
  * https://operations.osmfoundation.org/policies/nominatim/
  *
  * Keep to the policy when changing this module. Search only when the team
- * presses a button (never as they type, which is forbidden), at most once a
- * second, and save results so the same search isn't sent again. Keep the
- * OpenStreetMap credit next to the location list, and send no personal data.
+ * finishes a location or presses a button (never as they type, which is
+ * forbidden), at most once a second, and save results so the same search
+ * isn't sent again. Keep the OpenStreetMap credit next to the location list,
+ * and send no personal data.
  * If asked to stop using the service, change this URL and redeploy.
  */
 export const SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
@@ -102,38 +103,59 @@ export async function searchPlace(query, { fetch = globalThis.fetch } = {}) {
 }
 
 /**
- * Looks up several addresses or place names, one at a time and at most once
- * a second, following Nominatim's usage policy. Searches with the same
- * {@link searchKey} are only looked up once.
+ * A queue of searches, sent one at a time.
  *
- * @param {string[]} queries The addresses or place names.
- * @param {object} [options] Options for progress and testing.
- * @param {(done: number, total: number) => void} [options.onProgress] Called after each lookup.
- * @param {typeof fetch} [options.fetch] The fetch function to use. Defaults to the global `fetch`.
- * @param {(ms: number) => Promise<void>} [options.sleep] Waits between requests. Defaults to a timer.
- * @returns {Promise<SearchResults>} The results by {@link searchKey}.
+ * @typedef {object} SearchQueue
+ * @property {(query: string) => Promise<SearchResult>} search Looks up an address or place name, after any searches already queued.
+ * @property {() => number} size How many searches are queued or being sent.
  */
-export async function searchPlaces(
-  queries,
-  { onProgress = () => {}, fetch = globalThis.fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
-) {
-  // Keep the first spelling of each search.
-  const unique = new Map();
-  for (const query of queries) {
-    if (!unique.has(searchKey(query))) {
-      unique.set(searchKey(query), query);
-    }
-  }
-  /** @type {SearchResults} */
-  const results = {};
-  let done = 0;
-  for (const [key, query] of unique) {
-    if (done > 0) {
-      await sleep(REQUEST_INTERVAL_MS);
-    }
-    results[key] = await searchPlace(query, { fetch });
-    done += 1;
-    onProgress(done, unique.size);
-  }
-  return results;
+
+/**
+ * Creates a queue that looks up addresses and place names one at a time,
+ * with at least {@link REQUEST_INTERVAL_MS} between requests, following
+ * Nominatim's usage policy. A search with the same {@link searchKey} as one
+ * that's already queued isn't sent again, but shares its result.
+ *
+ * @param {object} [options] Options for testing.
+ * @param {typeof fetch} [options.fetch] The fetch function to use. Defaults to the global `fetch`.
+ * @param {() => number} [options.now] Gets the current time in milliseconds. Defaults to `Date.now`.
+ * @param {(ms: number) => Promise<void>} [options.sleep] Waits between requests. Defaults to a timer.
+ * @returns {SearchQueue} The queue.
+ * @example
+ * const queue = createSearchQueue();
+ * const result = await queue.search('Queen Square, Bristol');
+ */
+export function createSearchQueue({
+  fetch = globalThis.fetch,
+  now = Date.now,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  /** @type {Map<string, Promise<SearchResult>>} */
+  const queued = new Map();
+  let lastRequestTime = -Infinity;
+  let tail = Promise.resolve();
+
+  return {
+    search(query) {
+      const key = searchKey(query);
+      const existing = queued.get(key);
+      if (existing) {
+        return existing;
+      }
+      const result = tail.then(async () => {
+        const waitMs = lastRequestTime + REQUEST_INTERVAL_MS - now();
+        if (waitMs > 0) {
+          await sleep(waitMs);
+        }
+        lastRequestTime = now();
+        return searchPlace(query, { fetch });
+      });
+      tail = result.catch(() => {});
+      queued.set(key, result);
+      const remove = () => queued.delete(key);
+      result.then(remove, remove);
+      return result;
+    },
+    size: () => queued.size,
+  };
 }

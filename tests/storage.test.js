@@ -36,8 +36,11 @@ describe('storage', () => {
     const storage = memoryStorage();
     const state = defaultState();
     state.settings.speedKmh = 3.5;
-    state.setup.locationsText = 'Old Kent Road 51.4545,-2.5879';
-    state.doneKeys = ['51.4545,-2.5879'];
+    state.locations = [
+      { id: 'a', text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
+      { id: 'b', text: 'Queen Square, Bristol', pin: null },
+    ];
+    state.doneKeys = ['a'];
     state.plan = { order: [0], arrivalTimes: [1], endEta: 2, spareSeconds: 3, skipped: [] };
     assert.equal(saveState(state, storage), true);
     assert.deepEqual(loadState(storage), state);
@@ -71,6 +74,7 @@ describe('storage', () => {
     const defaults = defaultState();
     assert.deepEqual(state.settings, { ...defaults.settings, speedKmh: 5.5 });
     assert.deepEqual(state.setup, defaults.setup);
+    assert.deepEqual(state.locations, []);
     assert.deepEqual(state.doneKeys, ['a']);
     assert.deepEqual(state.searchResults, {});
     assert.equal(state.plan, null);
@@ -132,26 +136,27 @@ describe('resetChallenge', () => {
   test('clears the locations, ticks and plan, keeping everything else', () => {
     const state = defaultState();
     state.settings.speedKmh = 3.5;
-    state.setup = { locationsText: 'Old Kent Road 51.4545,-2.5879', startText: 'Castle Park 51.4556,-2.5894', finishText: 'Finish 51.4556,-2.5894', startTimeText: '11:00' };
-    state.doneKeys = ['51.454500,-2.587900'];
+    state.setup = { startText: 'Castle Park 51.4556,-2.5894', finishText: 'Finish 51.4556,-2.5894', startTimeText: '11:00' };
+    state.locations = [{ id: 'a', text: 'Old Kent Road 51.4545,-2.5879', pin: null }];
+    state.doneKeys = ['a'];
     state.view = 'map';
     state.searchResults = { 'queen square': { isFound: false, error: 'No match', isTemporary: false } };
     state.plan = { order: [0] };
     const reset = resetChallenge(state);
-    assert.equal(reset.setup.locationsText, '');
+    assert.deepEqual(reset.locations, []);
     assert.deepEqual(reset.doneKeys, []);
     assert.equal(reset.plan, null);
     assert.deepEqual(reset.settings, state.settings);
-    assert.deepEqual({ ...reset.setup, locationsText: 'x' }, { ...state.setup, locationsText: 'x' });
+    assert.deepEqual(reset.setup, state.setup);
     assert.equal(reset.view, 'map');
     assert.deepEqual(reset.searchResults, state.searchResults);
   });
 
   test("doesn't change the original state", () => {
     const state = defaultState();
-    state.setup.locationsText = 'Old Kent Road 51.4545,-2.5879';
+    state.locations = [{ id: 'a', text: 'Old Kent Road 51.4545,-2.5879', pin: null }];
     resetChallenge(state);
-    assert.equal(state.setup.locationsText, 'Old Kent Road 51.4545,-2.5879');
+    assert.equal(state.locations.length, 1);
   });
 });
 
@@ -192,5 +197,69 @@ describe('legacy storage keys', () => {
     const storage = memoryStorage({ [STORAGE_KEY]: '{}', [legacyKey]: '{}' });
     assert.equal(clearState(storage), true);
     assert.equal(storage.items.size, 0);
+  });
+});
+
+describe('moving state saved with schema version 1', () => {
+  const version1 = {
+    version: 1,
+    settings: { ...defaultState().settings, speedKmh: 3.5 },
+    setup: {
+      locationsText: 'Old Kent Road 51.4545,-2.5879\nQueen Square, Bristol\n\nWhitechapel ///filled.count.soap',
+      startText: 'Castle Park 51.4556,-2.5894',
+      finishText: '',
+      startTimeText: '11:00',
+    },
+    doneKeys: ['51.454500,-2.587900', '51.000000,-2.000000'],
+    view: 'map',
+    searchResults: { 'queen square, bristol': { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' } },
+    plan: {
+      order: [1],
+      skipped: [],
+      arrivalTimes: [1],
+      endEta: 2,
+      spareSeconds: 3,
+      points: [
+        { lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: '51.454500,-2.587900' },
+        { lat: 51.4504, lng: -2.5947, label: 'Queen Square, Bristol', key: '51.450400,-2.594700', matchedName: 'Queen Square, City Centre, Bristol' },
+      ],
+    },
+  };
+
+  test('moves the location list to rows, keeping everything else', () => {
+    const state = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(version1) }));
+    assert.equal(state.version, SCHEMA_VERSION);
+    assert.deepEqual(
+      state.locations.map(({ text, pin }) => ({ text, pin })),
+      [
+        { text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
+        { text: 'Queen Square, Bristol', pin: null },
+        { text: 'Whitechapel ///filled.count.soap', pin: null },
+      ],
+    );
+    assert.deepEqual(state.setup, { startText: 'Castle Park 51.4556,-2.5894', finishText: '', startTimeText: '11:00' });
+    assert.equal(state.settings.speedKmh, 3.5);
+    assert.equal(state.view, 'map');
+    assert.deepEqual(state.searchResults, version1.searchResults);
+  });
+
+  test("moves ticked-off selfies and the plan's locations to the rows' ids", () => {
+    const state = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(version1) }));
+    const [oldKentRoad, queenSquare] = state.locations;
+    assert.deepEqual(state.doneKeys, [oldKentRoad.id]);
+    assert.deepEqual(state.plan.points.map(({ key }) => key), [oldKentRoad.id, queenSquare.id]);
+    assert.deepEqual(state.plan.order, [1]);
+  });
+
+  test('saves the moved state, so the rows keep their ids', () => {
+    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(version1) });
+    const state = loadState(storage);
+    assert.deepEqual(JSON.parse(storage.items.get(STORAGE_KEY)), state);
+    assert.deepEqual(loadState(storage), state);
+  });
+
+  test('moves state saved under the old key too', () => {
+    const storage = memoryStorage({ [LEGACY_STORAGE_KEYS[0]]: JSON.stringify(version1) });
+    assert.equal(loadState(storage).locations.length, 3);
   });
 });

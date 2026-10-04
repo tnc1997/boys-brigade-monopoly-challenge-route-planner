@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, markDone, newLocationMarkers, plural, progress, timeWarning, toggleDone } from './route.js';
-import { searchPlaces } from './search.js';
-import { addLocationLine, parseLocations, pinLine } from './locations.js';
+import { createSearchQueue, searchKey } from './search.js';
+import { newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -10,18 +10,20 @@ import { defaultState, loadState, resetChallenge, saveState } from './storage.js
 const state = loadState();
 
 const form = /** @type {HTMLFormElement} */ (document.getElementById('setup-form'));
-const locationLines = /** @type {HTMLOListElement} */ (document.getElementById('location-lines'));
-const locationsField = /** @type {HTMLTextAreaElement} */ (document.getElementById('locations'));
+const locationRows = /** @type {HTMLOListElement} */ (document.getElementById('location-rows'));
+const locationAnnouncement = /** @type {HTMLParagraphElement} */ (document.getElementById('location-announcement'));
+const startField = /** @type {HTMLInputElement} */ (document.getElementById('start'));
+const finishField = /** @type {HTMLInputElement} */ (document.getElementById('finish'));
+const startStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('start-status'));
+const finishStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('finish-status'));
 const setupError = /** @type {HTMLParagraphElement} */ (document.getElementById('setup-error'));
 const stopList = /** @type {HTMLDivElement} */ (document.getElementById('stop-list'));
+const stopsHeading = /** @type {HTMLHeadingElement} */ (document.getElementById('stops-heading'));
 const replan = /** @type {HTMLDivElement} */ (document.getElementById('replan'));
 const replanButton = /** @type {HTMLButtonElement} */ (document.getElementById('replan-button'));
 const replanStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('replan-status'));
-const searchStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('search-status'));
-const locationMatches = /** @type {HTMLDivElement} */ (document.getElementById('location-matches'));
-const locationMatchesList = /** @type {HTMLUListElement} */ (document.getElementById('location-matches-list'));
 const planButton = /** @type {HTMLButtonElement} */ (form.querySelector('button[type="submit"]'));
-const planAnnouncement = /** @type {HTMLParagraphElement} */ (document.getElementById('plan-announcement'));
+const planStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('plan-status'));
 const tabs = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll('[role="tab"][data-view]')]);
 const mapContainer = /** @type {HTMLDivElement} */ (document.getElementById('map'));
 const settingsButton = /** @type {HTMLButtonElement} */ (document.getElementById('settings-button'));
@@ -59,9 +61,11 @@ const mapStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('
 const mapTilesStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('map-tiles-status'));
 const pinStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('pin-status'));
 const pinDialog = /** @type {HTMLDialogElement} */ (document.getElementById('pin-dialog'));
-const pinForm = /** @type {HTMLFormElement} */ (document.getElementById('pin-form'));
 const pinLabel = /** @type {HTMLInputElement} */ (document.getElementById('pin-label'));
 const pinCoordinates = /** @type {HTMLParagraphElement} */ (document.getElementById('pin-coordinates'));
+const pinBanner = /** @type {HTMLDivElement} */ (document.getElementById('pin-banner'));
+const pinBannerText = /** @type {HTMLParagraphElement} */ (document.getElementById('pin-banner-text'));
+const pinBannerCancel = /** @type {HTMLButtonElement} */ (document.getElementById('pin-banner-cancel'));
 
 /** What the line under the map says until a pin is dropped. */
 const PIN_HINT = 'Long-press the map to add a location there.';
@@ -69,8 +73,35 @@ const PIN_HINT = 'Long-press the map to add a location there.';
 /** Where the pin being named was dropped, or `null` if there isn't one. */
 let droppedPin = null;
 
-/** The key of the location the line under the map says was just added, or `null` if it shows the hint. */
+/** The id of the row the line under the map says was just added, or `null` if it shows the hint. */
 let addedPinKey = null;
+
+/**
+ * The row being pinned on the map with 📍, or `null` if none is. Its `id` is
+ * `null` for the empty row at the end of the list, which becomes a row once
+ * it's pinned.
+ *
+ * @type {{ id: string | null } | null}
+ */
+let pinTarget = null;
+
+/** Sends lookups one at a time, following Nominatim's usage policy. */
+const searchQueue = createSearchQueue();
+
+/** Lookups that are queued or being sent, by search key. */
+const lookups = new Map();
+
+/** Why lookups failed for a reason that may pass, such as no signal, by search key. These aren't saved, and are tried again. */
+const temporaryFailures = new Map();
+
+/** The text of rows and fields the team has just finished, whose result is announced to screen readers, by search key. */
+const announcedLookups = new Map();
+
+/** Tries failed lookups again after a while. */
+let retryTimer;
+
+/** How long to wait before trying failed lookups again, in milliseconds. */
+const RETRY_DELAY_MS = 30000;
 
 /** The map, created the first time the Map tab is shown, because Leaflet needs a visible container. */
 let routeMap = null;
@@ -110,7 +141,7 @@ let isWatchingPosition = false;
 const POSITION_MAX_AGE_MS = 60000;
 
 /** The setup form's fields, which are bound to `state.setup` or `state.settings` by their data attributes. */
-const fields = /** @type {NodeListOf<HTMLInputElement | HTMLTextAreaElement>} */ (form.querySelectorAll('[data-setup], [data-setting]'));
+const fields = /** @type {NodeListOf<HTMLInputElement>} */ (form.querySelectorAll('[data-setup], [data-setting]'));
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 
@@ -145,7 +176,7 @@ function fillForm() {
 /**
  * Saves a field's value to the state.
  *
- * @param {HTMLInputElement | HTMLTextAreaElement} field The field that changed.
+ * @param {HTMLInputElement} field The field that changed.
  */
 function saveField(field) {
   if (field.dataset.setup) {
@@ -176,59 +207,331 @@ function showSettingsSummary() {
   settingsSummaryText.textContent = `Planning for ${settingsSummary(state.settings)}${isOutOfDate ? ' (re-plan to use these)' : ''}`;
 }
 
+/** Classes for the 📍 and ✕ buttons on each row. */
+const ROW_BUTTON_CLASSES =
+  'flex size-11 shrink-0 items-center justify-center rounded-md text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent';
+
 /**
- * Shows the status of each line of the location list: ready to plan (with
- * its label, and what an address matched), still to look up, or what's wrong.
+ * Describes where a row, or the Start or Finish field, is, to show under it.
  *
- * @param {import('./locations.js').ParsedLocationLine[]} lines The lines to show.
+ * @param {import('./locations.js').Resolved} resolved Where it is, from the saved search results.
+ * @returns {{ text: string, isError: boolean }} What to show, and whether it's a problem.
  */
-function showLines(lines) {
-  locationLines.replaceChildren(
-    ...lines.map(({ lineNumber, result }) => {
-      const item = element('li', 'flex gap-2 break-words');
-      let icon;
-      let status;
-      let text;
-      if (result.isValid) {
-        icon = element('span', 'text-accent-ink', '✓');
-        status = 'Ready';
-        const { label, matchedName } = result.location;
-        text = element('span', '', matchedName ? `Line ${lineNumber}: ${label} → ${matchedName}` : `Line ${lineNumber}: ${label}`);
-      } else if (result.query) {
-        icon = element('span', 'text-muted', '⌕');
-        status = 'To look up';
-        text = element('span', 'text-muted', `Line ${lineNumber}: "${result.query}" will be looked up when you press Plan route`);
-      } else {
-        icon = element('span', 'text-danger', '✗');
-        status = 'Problem';
-        text = element('span', 'text-danger', `Line ${lineNumber}: ${result.error}`);
+function describeResolved(resolved) {
+  switch (resolved.status) {
+    case 'empty':
+      return { text: '', isError: false };
+    case 'pinned':
+      return { text: '📍 Pinned on the map', isError: false };
+    case 'coordinates':
+      return { text: `Using the coordinates ${resolved.location.lat}, ${resolved.location.lng}`, isError: false };
+    case 'found':
+      return { text: `Found: ${resolved.location.matchedName}`, isError: false };
+    case 'notFound':
+      // Coordinates out of range say what's wrong with them.
+      return state.searchResults[searchKey(resolved.label)]
+        ? { text: 'Not found. Check the spelling or pin it on the map with 📍', isError: true }
+        : { text: resolved.error, isError: true };
+    default: {
+      const key = searchKey(resolved.query);
+      if (lookups.has(key)) {
+        return { text: 'Searching…', isError: false };
       }
-      icon.setAttribute('aria-hidden', 'true');
-      text.prepend(element('span', 'sr-only', `${status}: `));
-      item.append(icon, text);
-      return item;
-    }),
-  );
+      if (temporaryFailures.has(key)) {
+        return { text: temporaryFailures.get(key), isError: true };
+      }
+      return { text: 'Not looked up yet', isError: false };
+    }
+  }
 }
 
 /**
- * Shows the status of each line as typed, using only saved search results so
- * typing never searches, and marks locations that aren't in the route yet on
- * the map.
+ * Shows a description under a row or field.
+ *
+ * @param {HTMLElement} status The element to show it in.
+ * @param {{ text: string, isError: boolean }} description What to show, from {@link describeResolved}.
  */
-function previewLines() {
-  const lines = parseLocations(state.setup.locationsText, { searchResults: state.searchResults });
-  showLines(lines);
-  // Stop saying a pin was added once its line has been deleted.
-  if (addedPinKey !== null && !lines.some(({ result }) => result.isValid && result.location.key === addedPinKey)) {
-    showPinStatus(PIN_HINT);
+function showDescription(status, { text, isError }) {
+  status.textContent = text;
+  status.classList.toggle('text-danger', isError);
+  status.classList.toggle('text-muted', !isError);
+}
+
+/**
+ * Finds the row of the location list that an element is in.
+ *
+ * @param {EventTarget | null} target The element.
+ * @returns {{ item: HTMLLIElement, record: import('./locations.js').LocationRecord | null } | null} The row's list item and saved row (`null` for the empty row at the end), or `null` if the element isn't in a row.
+ */
+function rowOf(target) {
+  const item = target instanceof Element ? target.closest('#location-rows > li') : null;
+  if (!(item instanceof HTMLLIElement)) {
+    return null;
   }
-  // Only redraw the map when the locations not in the route yet change, or
-  // are renamed, so typing doesn't keep rebuilding it or closing an open
-  // popup.
-  if (newLocationsText(newLocationMarkers(lines, currentPlan())) !== drawnNewLocations) {
-    updateMap(lines);
+  return { item, record: state.locations.find(({ id }) => id === item.dataset.id) ?? null };
+}
+
+/**
+ * Creates the list item for a row of the location list: its text field, a
+ * 📍 button to pin it on the map, a ✕ button to remove it and its status.
+ *
+ * @param {import('./locations.js').LocationRecord | null} record The row, or `null` for the empty row at the end.
+ * @returns {HTMLLIElement} The list item. Its labels and status are filled in by {@link showRows}.
+ */
+function rowItem(record) {
+  const item = element('li', 'flex flex-col gap-1');
+  item.dataset.id = record?.id ?? '';
+  const line = element('div', 'flex gap-1');
+  const field = element(
+    'input',
+    'min-h-11 min-w-0 flex-1 rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30',
+  );
+  field.type = 'text';
+  field.value = record?.text ?? '';
+  field.autocomplete = 'off';
+  field.spellcheck = false;
+  field.enterKeyHint = 'next';
+  const pin = element('button', ROW_BUTTON_CLASSES, '📍');
+  pin.type = 'button';
+  pin.dataset.action = 'pin';
+  const remove = element('button', `${ROW_BUTTON_CLASSES} text-lg`, '✕');
+  remove.type = 'button';
+  remove.dataset.action = 'remove';
+  // The empty row at the end has nothing to remove, but keeps the space so
+  // the fields line up.
+  remove.classList.toggle('invisible', record === null);
+  line.append(field, pin, remove);
+  const status = element('p', 'flex flex-wrap items-center gap-x-2 text-xs break-words');
+  status.id = `location-status-${Math.random().toString(36).slice(2)}`;
+  field.setAttribute('aria-describedby', status.id);
+  item.append(line, status);
+  return item;
+}
+
+/**
+ * Shows a row's labels, which depend on its position in the list, and its
+ * status. A pinned row's status has a ✕ to clear the pin.
+ *
+ * @param {HTMLLIElement} item The row's list item.
+ * @param {number} number The row's position in the list, starting at 1.
+ */
+function showRow(item, number) {
+  const record = state.locations.find(({ id }) => id === item.dataset.id) ?? null;
+  const [field, pin, remove] = item.querySelectorAll('input, button');
+  const status = /** @type {HTMLParagraphElement} */ (item.lastElementChild);
+  field.setAttribute('aria-label', `Location ${number}`);
+  pin.setAttribute('aria-label', `Pin location ${number} on the map`);
+  remove.setAttribute('aria-label', `Remove location ${number}`);
+  const resolved = record ? resolveRecord(record, number, state.searchResults) : { status: 'empty' };
+  showDescription(status, describeResolved(resolved));
+  if (resolved.status === 'pinned') {
+    const clear = element('button', 'inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-base text-accent-ink hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent', '✕');
+    clear.type = 'button';
+    clear.dataset.action = 'clear-pin';
+    clear.setAttribute('aria-label', `Clear the pin for location ${number} and look it up instead`);
+    status.append(clear);
   }
+}
+
+/** Shows every row's labels and status, and the Start and Finish fields' statuses, and redraws the map if they've changed it. */
+function showRows() {
+  [...locationRows.children].forEach((item, index) => showRow(/** @type {HTMLLIElement} */ (item), index + 1));
+  showDescription(startStatus, describeResolved(resolveText(state.setup.startText, 'start', state.searchResults)));
+  showDescription(finishStatus, describeResolved(resolveText(state.setup.finishText, 'finish', state.searchResults)));
+  updateMapIfChanged();
+}
+
+/** Builds the location list's rows from the state, with an empty row at the end, keeping focus in the same row. */
+function buildRows() {
+  const focusedId = rowOf(document.activeElement)?.item.dataset.id;
+  locationRows.replaceChildren(...state.locations.map(rowItem), rowItem(null));
+  if (focusedId !== undefined) {
+    locationRows.querySelector(`li[data-id="${CSS.escape(focusedId)}"] input`)?.focus();
+  }
+  showRows();
+}
+
+/** Redraws the map if the locations not in the route yet have changed, or been renamed, so typing doesn't keep rebuilding it or closing an open popup. */
+function updateMapIfChanged() {
+  const locations = usableLocations(resolveRecords(state.locations, state.searchResults));
+  if (newLocationsText(newLocationMarkers(locations, currentPlan())) !== drawnNewLocations) {
+    updateMap();
+  }
+}
+
+/**
+ * Looks up an address or place name, unless it's already being looked up.
+ * The result is saved unless the lookup failed for a reason that may pass,
+ * such as no signal, in which case it's tried again later.
+ *
+ * @param {string} query The address or place name.
+ * @returns {Promise<void>} Resolves once it's been looked up.
+ */
+function lookUp(query) {
+  const key = searchKey(query);
+  if (!lookups.has(key)) {
+    const lookup = searchQueue.search(query).then((result) => {
+      lookups.delete(key);
+      if (result.isFound || !result.isTemporary) {
+        state.searchResults[key] = result;
+        temporaryFailures.delete(key);
+        saveState(state);
+      } else {
+        temporaryFailures.set(key, "Couldn't search, which usually means there's no signal. It'll try again soon.");
+        clearTimeout(retryTimer);
+        retryTimer = setTimeout(retryLookups, RETRY_DELAY_MS);
+      }
+      showRows();
+      announceLookup(key);
+    });
+    lookups.set(key, lookup);
+  }
+  showRows();
+  return lookups.get(key);
+}
+
+/** Looks up anything still to look up whose last lookup failed for a reason that may pass. */
+function retryLookups() {
+  clearTimeout(retryTimer);
+  for (const query of searchesNeeded({ setup: state.setup, locations: state.locations, searchResults: state.searchResults })) {
+    if (temporaryFailures.has(searchKey(query))) {
+      lookUp(query);
+    }
+  }
+}
+
+/**
+ * Looks up a row that's just been finished, if it needs it, and announces
+ * the result to screen readers when it's in.
+ *
+ * @param {import('./locations.js').Resolved} resolved Where the row is, from the saved search results.
+ */
+function lookUpFinished(resolved) {
+  if (resolved.status === 'unknown') {
+    announcedLookups.set(searchKey(resolved.query), resolved.label);
+    lookUp(resolved.query);
+  }
+}
+
+/**
+ * Tells screen readers the result of looking up a row or field the team has
+ * just finished. Other lookups, such as those when Plan route is pressed,
+ * aren't announced, so every row isn't announced at once.
+ *
+ * @param {string} key The search key that was looked up.
+ */
+function announceLookup(key) {
+  const label = announcedLookups.get(key);
+  if (label === undefined) {
+    return;
+  }
+  announcedLookups.delete(key);
+  locationAnnouncement.textContent = `${label}: ${describeResolved(resolveText(label, '', state.searchResults)).text}`;
+}
+
+/**
+ * Saves a pin for a row of the location list. Pinning the empty row at the
+ * end, or a row that's been removed since, adds a new row.
+ *
+ * @param {string | null} id The row's id, or `null` for a new row.
+ * @param {string} text The text for a new row.
+ * @param {import('./planner.js').LatLng} latLng Where to pin it.
+ * @returns {import('./locations.js').Location} The pinned location.
+ */
+function pinRow(id, text, { lat, lng }) {
+  let record = state.locations.find((candidate) => candidate.id === id);
+  if (!record) {
+    record = { id: newLocationId(), text, pin: null };
+    state.locations.push(record);
+  }
+  record.pin = { lat, lng };
+  saveState(state);
+  buildRows();
+  const number = state.locations.indexOf(record) + 1;
+  return /** @type {{ location: import('./locations.js').Location }} */ (resolveRecord(record, number, state.searchResults)).location;
+}
+
+locationRows.addEventListener('input', (event) => {
+  const row = rowOf(event.target);
+  if (!row || !(event.target instanceof HTMLInputElement)) {
+    return;
+  }
+  let { record } = row;
+  if (!record) {
+    // Typing in the empty row at the end makes it a row, with a new empty row below.
+    record = { id: newLocationId(), text: '', pin: null };
+    state.locations.push(record);
+    row.item.dataset.id = record.id;
+    row.item.querySelector('[data-action="remove"]').classList.remove('invisible');
+    locationRows.append(rowItem(null));
+    showRow(/** @type {HTMLLIElement} */ (locationRows.lastElementChild), state.locations.length + 1);
+  }
+  record.text = event.target.value;
+  saveState(state);
+  showRow(row.item, state.locations.indexOf(record) + 1);
+  // Wait for a pause in typing before checking the map, so long lists stay responsive.
+  clearTimeout(mapTimer);
+  mapTimer = setTimeout(updateMapIfChanged, 250);
+});
+
+// A row is looked up once it's finished: when it loses focus with changed
+// text. Never while typing, which Nominatim's usage policy forbids.
+locationRows.addEventListener('change', (event) => {
+  const row = rowOf(event.target);
+  if (row?.record) {
+    lookUpFinished(resolveRecord(row.record, state.locations.indexOf(row.record) + 1, state.searchResults));
+  }
+});
+
+// Enter moves to the next row, rather than submitting the form, which
+// finishes the row and looks it up.
+locationRows.addEventListener('keydown', (event) => {
+  const row = rowOf(event.target);
+  if (row && event.target instanceof HTMLInputElement && event.key === 'Enter' && !event.isComposing) {
+    event.preventDefault();
+    const next = row.item.nextElementSibling?.querySelector('input');
+    if (next) {
+      next.focus();
+    } else {
+      event.target.blur();
+      event.target.focus();
+    }
+  }
+});
+
+locationRows.addEventListener('click', (event) => {
+  const button = event.target instanceof Element ? event.target.closest('button[data-action]') : null;
+  const row = rowOf(button);
+  if (!(button instanceof HTMLButtonElement) || !row) {
+    return;
+  }
+  const { item, record } = row;
+  const number = [...locationRows.children].indexOf(item) + 1;
+  if (button.dataset.action === 'pin') {
+    startPinning(record?.id ?? null, record?.text.trim() || `Location ${number}`);
+  } else if (button.dataset.action === 'remove' && record) {
+    state.locations = state.locations.filter((candidate) => candidate !== record);
+    saveState(state);
+    // Move focus to the row that takes its place.
+    const next = /** @type {HTMLLIElement} */ (item.nextElementSibling);
+    item.remove();
+    next.querySelector('input').focus();
+    if (addedPinKey === record.id) {
+      showPinStatus(PIN_HINT);
+    }
+    showRows();
+  } else if (button.dataset.action === 'clear-pin' && record) {
+    record.pin = null;
+    saveState(state);
+    item.querySelector('input').focus();
+    showRows();
+    lookUpFinished(resolveRecord(record, number, state.searchResults));
+  }
+});
+
+// The Start and Finish fields are looked up once they're finished, too.
+for (const field of [startField, finishField]) {
+  field.addEventListener('change', () => lookUpFinished(resolveText(field.value, field.id, state.searchResults)));
 }
 
 /**
@@ -512,89 +815,57 @@ stopList.addEventListener('click', (event) => {
   }
 });
 
-/** Waits for a pause in typing before previewing the lines, so long lists stay responsive. */
-let previewTimer;
+/** Waits for a pause in typing before checking whether the map needs redrawing. */
+let mapTimer;
 
 form.addEventListener('input', (event) => {
-  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+  // The location list's rows aren't bound to a setting, and save themselves.
+  if (event.target instanceof HTMLInputElement && (event.target.dataset.setup || event.target.dataset.setting)) {
     saveField(event.target);
   }
-  if (event.target === locationsField) {
-    clearTimeout(previewTimer);
-    previewTimer = setTimeout(previewLines, 250);
+  if (event.target === startField || event.target === finishField) {
+    showRows();
   }
 });
 
 /**
- * Shows what each looked-up address or place name matched, or hides the list.
- *
- * @param {import('./setup.js').SearchMatch[]} matches The matches.
- */
-function showMatches(matches) {
-  locationMatchesList.replaceChildren(
-    ...matches.map(({ source, label, matchedName }) => element('li', 'break-words', `${source}: ${label} → ${matchedName}`)),
-  );
-  locationMatches.classList.toggle('hidden', matches.length === 0);
-  locationMatches.classList.toggle('flex', matches.length > 0);
-}
-
-/**
- * Tells screen readers how planning went, since the line preview and route
- * update without being announced. Problems that stop planning are already
- * announced by the setup error alert.
- *
- * @param {import('./setup.js').SetupResult} result The result of planning.
- */
-function announcePlan(result) {
-  if (!result.plan) {
-    return;
-  }
-  const stops = result.plan.order.length;
-  const problems = result.invalidLines.length;
-  planAnnouncement.textContent = `Planned ${plural(stops, 'stop', 'stops')}.${problems > 0 ? ` ${plural(problems, 'line has a problem', 'lines have problems')}.` : ''}`;
-}
-
-/**
- * Shows the progress of looking up addresses, or hides it.
+ * Shows how planning went under Plan route, or hides the message.
  *
  * @param {string | null} message The message, or `null` to hide it.
  */
-function showSearchStatus(message) {
-  searchStatus.textContent = message ?? '';
-  searchStatus.classList.toggle('hidden', message === null);
+function showPlanStatus(message) {
+  planStatus.textContent = message ?? '';
+  planStatus.classList.toggle('hidden', message === null);
 }
 
 /**
- * Looks up any addresses and place names in the setup form that aren't
- * known yet. Results are saved unless the lookup failed for a reason that
- * may pass, such as being offline.
+ * Describes how planning went, including any rows that were left out
+ * because they couldn't be found.
  *
- * @param {boolean} isFromPosition Whether the route starts from the team's position, so the Start field isn't used.
- * @returns {Promise<import('./search.js').SearchResults>} Every known result, including temporary failures from this lookup.
+ * @param {import('./setup.js').SetupResult} result The result of planning.
+ * @returns {string} The message, like "Planned 22 stops."
  */
-async function lookUpAddresses(isFromPosition) {
-  const queries = searchesNeeded({ setup: state.setup, searchResults: state.searchResults, isFromPosition });
-  if (queries.length === 0) {
-    return state.searchResults;
+function planResultText(result) {
+  const stops = `Planned ${plural(result.plan.order.length, 'stop')}.`;
+  if (result.leftOut.length === 0) {
+    return stops;
   }
-  showSearchStatus(`Looking up ${queries.length === 1 ? '1 address' : `${queries.length} addresses`}…`);
-  let results;
-  try {
-    results = await searchPlaces(queries, {
-      onProgress: (done, total) => showSearchStatus(`Looked up ${done} of ${total}…`),
-    });
-  } finally {
-    showSearchStatus(null);
-  }
-  const saved = Object.fromEntries(Object.entries(results).filter(([, result]) => result.isFound || !result.isTemporary));
-  state.searchResults = { ...state.searchResults, ...saved };
-  saveState(state);
-  return { ...state.searchResults, ...results };
+  const labels = result.leftOut.map(({ number, resolved }) => ('label' in resolved ? resolved.label : `Location ${number}`));
+  return `${stops} Left out because ${result.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`;
 }
 
 /**
- * Looks up any new addresses, then plans the route from the setup form and
- * shows it.
+ * Waits for the next frame to be drawn, so a message shows before a long task.
+ *
+ * @returns {Promise<void>} Resolves after the frame.
+ */
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
+}
+
+/**
+ * Looks up anything that still needs it, waiting for lookups already
+ * running, then plans the route from the setup form and shows it.
  *
  * @param {import('./planner.js').LatLng | null} from The team's current position to re-plan from, or `null` to start at the Start field.
  * @returns {Promise<string | null>} What stopped planning, or `null` if a plan was made.
@@ -602,13 +873,28 @@ async function lookUpAddresses(isFromPosition) {
 async function planRoute(from) {
   planButton.disabled = true;
   replanButton.disabled = true;
+  const planButtonText = planButton.textContent;
   try {
-    const searchResults = await lookUpAddresses(from !== null);
-    const result = planFromSetup({ setup: state.setup, settings: state.settings, now: Date.now(), doneKeys: state.doneKeys, from, searchResults });
-    showLines(result.lines);
-    showMatches(result.matches);
+    for (const query of searchesNeeded({ setup: state.setup, locations: state.locations, searchResults: state.searchResults, isFromPosition: from !== null })) {
+      lookUp(query);
+    }
+    while (lookups.size > 0) {
+      planButton.textContent = `Waiting for ${plural(lookups.size, 'search', 'searches')}…`;
+      await Promise.race(lookups.values());
+    }
+    planButton.textContent = 'Planning…';
+    await nextFrame();
+    const result = planFromSetup({
+      setup: state.setup,
+      locations: state.locations,
+      settings: state.settings,
+      now: Date.now(),
+      doneKeys: state.doneKeys,
+      from,
+      searchResults: state.searchResults,
+    });
     showSetupError(result.error);
-    announcePlan(result);
+    showPlanStatus(result.plan ? planResultText(result) : null);
     if (result.plan) {
       state.plan = result.plan;
       saveState(state);
@@ -616,12 +902,16 @@ async function planRoute(from) {
       showPlan();
       showSettingsSummary();
       showPinStatus(PIN_HINT);
-    } else {
-      // Show locations that were just looked up, even though planning failed.
-      updateMap(result.lines);
+    }
+    showRows();
+    if (result.plan && from === null) {
+      // Move to the route, now it's ready.
+      stopsHeading.focus({ preventScroll: true });
+      stopsHeading.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
     return result.error;
   } finally {
+    planButton.textContent = planButtonText;
     planButton.disabled = false;
     replanButton.disabled = false;
   }
@@ -729,7 +1019,8 @@ function showMap() {
   routeMap = createMap(mapContainer, {
     onTilesFailed: () => mapTilesStatus.classList.remove('hidden'),
     onTilesLoaded: () => mapTilesStatus.classList.add('hidden'),
-    onLongPress: openPinDialog,
+    onLongPress: (latLng) => (pinTarget ? placePin(latLng) : openPinDialog(latLng)),
+    onTap: (latLng) => pinTarget && placePin(latLng),
   });
   showMapStatus(routeMap ? null : "The map couldn't load, which usually means there's no signal. The List tab still works.");
   // Without a map, there's nowhere to drop a pin.
@@ -791,16 +1082,14 @@ function watchPosition() {
  * showing, with any locations that aren't in it yet. It zooms to fit the
  * route the first time it's drawn after planning, but not after ticking off
  * a stop, so the team's view stays put.
- *
- * @param {import('./locations.js').ParsedLocationLine[]} [lines] The location list, if it's already parsed.
  */
-function updateMap(lines = parseLocations(state.setup.locationsText, { searchResults: state.searchResults })) {
+function updateMap() {
   if (!routeMap || mapContainer.closest('[hidden]')) {
     return;
   }
   const plan = currentPlan();
   const route = plan ? mapRoute(plan, state.doneKeys, (time) => timeFormat.format(time)) : { path: [], markers: [] };
-  const newMarkers = newLocationMarkers(lines, plan);
+  const newMarkers = newLocationMarkers(usableLocations(resolveRecords(state.locations, state.searchResults)), plan);
   route.markers.push(...newMarkers);
   drawnNewLocations = newLocationsText(newMarkers);
   showRoute(routeMap, route, shouldFitMap);
@@ -811,7 +1100,7 @@ function updateMap(lines = parseLocations(state.setup.locationsText, { searchRes
  * Shows a message under the map about dropping pins.
  *
  * @param {string} message The message.
- * @param {string | null} [addedKey] The key of the location the message says was added, if it does.
+ * @param {string | null} [addedKey] The id of the row the message says was added, if it does.
  */
 function showPinStatus(message, addedKey = null) {
   pinStatus.textContent = message;
@@ -830,7 +1119,6 @@ function openPinDialog(latLng) {
   }
   droppedPin = latLng;
   pinLabel.value = '';
-  pinLabel.setCustomValidity('');
   pinCoordinates.textContent = `At ${latLng.lat.toFixed(6)}, ${latLng.lng.toFixed(6)}`;
   // Escape and the back button close the dialog without changing
   // returnValue, so clear it to stop an earlier Add applying again.
@@ -839,42 +1127,64 @@ function openPinDialog(latLng) {
 }
 
 /**
- * Saves a new location list and shows it in the setup form, the line
- * preview and on the map.
+ * Starts pinning a row of the location list on the map: shows the map with
+ * a banner saying what to tap, and waits for a tap.
  *
- * @param {string} locationsText The new location list.
+ * @param {string | null} id The row's id, or `null` for the empty row at the end.
+ * @param {string} label What the row is called, for the banner.
  */
-function saveLocationsText(locationsText) {
-  state.setup.locationsText = locationsText;
-  saveState(state);
-  locationsField.value = locationsText;
-  clearTimeout(previewTimer);
-  previewLines();
+function startPinning(id, label) {
+  showView('map');
+  if (!routeMap) {
+    // The map couldn't load, and says so under it.
+    mapContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  pinTarget = { id };
+  pinBannerText.textContent = `Tap where ${label} is.`;
+  pinBanner.classList.replace('hidden', 'flex');
+  mapContainer.classList.add('is-pinning');
+  pinBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  pinBannerCancel.focus({ preventScroll: true });
 }
+
+/** Stops pinning a row on the map, and hides the banner. */
+function stopPinning() {
+  pinTarget = null;
+  pinBanner.classList.replace('flex', 'hidden');
+  mapContainer.classList.remove('is-pinning');
+}
+
+/**
+ * Pins the row being pinned where the map was tapped.
+ *
+ * @param {import('./planner.js').LatLng} latLng Where the map was tapped.
+ */
+function placePin(latLng) {
+  const location = pinRow(pinTarget.id, '', latLng);
+  stopPinning();
+  const action = state.plan?.settings ? 'Re-plan from here' : 'Plan route';
+  showPinStatus(`Pinned ${location.label}. Press ${action} to use the pin in the route.`, location.key);
+}
+
+pinBannerCancel.addEventListener('click', stopPinning);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && pinTarget) {
+    stopPinning();
+  }
+});
 
 document.getElementById('pin-cancel').addEventListener('click', () => pinDialog.close('cancel'));
 
-// The name is required, so the dialog only submits with one. Keep it open
-// if the name would stop the line being read.
-pinForm.addEventListener('submit', (event) => {
-  const result = pinLine(pinLabel.value, droppedPin);
-  if (!result.isValid) {
-    event.preventDefault();
-    pinLabel.setCustomValidity(result.error);
-    pinLabel.reportValidity();
-  }
-});
-pinLabel.addEventListener('input', () => pinLabel.setCustomValidity(''));
-
 pinDialog.addEventListener('close', () => {
-  const result = pinDialog.returnValue === 'add' && droppedPin ? pinLine(pinLabel.value, droppedPin) : null;
+  const latLng = pinDialog.returnValue === 'add' ? droppedPin : null;
   droppedPin = null;
-  if (!result?.isValid) {
+  if (!latLng) {
     return;
   }
-  saveLocationsText(addLocationLine(state.setup.locationsText, result.line));
+  const location = pinRow(null, pinLabel.value.trim(), latLng);
   const action = state.plan?.settings ? 'Re-plan from here' : 'Plan route';
-  showPinStatus(`Added ${result.location.label} to the location list. Press ${action} to include it in the route.`, result.location.key);
+  showPinStatus(`Added ${location.label} to the location list. Press ${action} to include it in the route.`, location.key);
 });
 
 for (const tab of tabs) {
@@ -902,15 +1212,15 @@ document.getElementById('new-challenge').addEventListener('click', () => {
   Object.assign(state, resetChallenge(state));
   saveState(state);
   fillForm();
-  previewLines();
-  showMatches([]);
+  buildRows();
   showSetupError(null);
+  showPlanStatus(null);
   showReplanStatus('Uses your current location and time, and the locations still to visit.', false);
   showPinStatus(PIN_HINT);
   shouldFitMap = true;
   showPlan();
   showSettingsSummary();
-  locationsField.focus();
+  locationRows.querySelector('input').focus();
 });
 
 /**
@@ -1035,6 +1345,7 @@ settingsDialog.addEventListener('close', () => {
   }
   saveState(state);
   fillForm();
+  showRows();
   showSettingsSummary();
   showCountdown();
   // Show or hide the Check in buttons now, even if re-planning fails.
@@ -1077,7 +1388,10 @@ function showConnection() {
   offlineBadge.classList.toggle('inline-block', !navigator.onLine);
 }
 
-window.addEventListener('online', showConnection);
+window.addEventListener('online', () => {
+  showConnection();
+  retryLookups();
+});
 window.addEventListener('offline', showConnection);
 
 // Save the app's files so it opens and works without signal after the first visit.
@@ -1091,6 +1405,6 @@ fillForm();
 showConnection();
 showCountdown();
 showSettingsSummary();
-previewLines();
+buildRows();
 showView(state.view);
 showPlan();

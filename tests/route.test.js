@@ -1,17 +1,22 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { parseLocations } from '../locations.js';
 import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, markDone, newLocationMarkers, plural, progress, timeWarning, toggleDone } from '../route.js';
 import { planFromSetup } from '../setup.js';
 import { defaultState } from '../storage.js';
 
 const now = new Date(2026, 9, 3, 11, 0).getTime();
 
+/** Rows of the location list with the given texts, with ids `a`, `b` and so on. */
+const rows = (...texts) => texts.map((text, index) => ({ id: String.fromCharCode(97 + index), text, pin: null }));
+
+const locations = rows('Old Kent Road 51.4545,-2.5879', 'Temple Meads 51.4492,-2.5813');
+
 const savedPlan = (setup = {}, settings = {}) => {
   const state = defaultState();
   return planFromSetup({
-    setup: { ...state.setup, locationsText: 'Old Kent Road 51.4545,-2.5879\nTemple Meads 51.4492,-2.5813', ...setup },
+    setup: { ...state.setup, ...setup },
+    locations,
     settings: { ...state.settings, ...settings },
     now,
   }).plan;
@@ -185,7 +190,8 @@ describe('mapRoute', () => {
     assert.match(done[0].title, /selfie done$/);
 
     const replanned = planFromSetup({
-      setup: { ...defaultState().setup, locationsText: 'Old Kent Road 51.4545,-2.5879\nTemple Meads 51.4492,-2.5813' },
+      setup: defaultState().setup,
+      locations,
       settings: defaultState().settings,
       now,
       doneKeys: [first.location.key],
@@ -211,21 +217,18 @@ describe('mapRoute', () => {
 });
 
 describe('newLocationMarkers', () => {
+  const cabotTower = { lat: 51.45174, lng: -2.6034, label: 'Cabot Tower', key: 'c' };
+
   test('marks every location when there is no plan', () => {
-    const markers = newLocationMarkers(parseLocations('Cabot Tower 51.451740,-2.603400'), null);
-    assert.deepEqual(markers, [
-      {
-        kind: 'new',
-        location: { lat: 51.45174, lng: -2.6034, label: 'Cabot Tower', key: '51.451740,-2.603400' },
-        label: '+',
-        title: 'Cabot Tower, not in the route yet',
-      },
+    assert.deepEqual(newLocationMarkers([cabotTower], null), [
+      { kind: 'new', location: cabotTower, label: '+', title: 'Cabot Tower, not in the route yet' },
     ]);
   });
 
-  test('marks only the locations that are not in the plan, once each', () => {
-    const lines = parseLocations('Old Kent Road 51.4545,-2.5879\nTemple Meads 51.4492,-2.5813\nPin 51.45,-2.59\nPin again 51.450000,-2.590000\nnot a location');
-    assert.deepEqual(newLocationMarkers(lines, savedPlan()).map(({ title }) => title), ['Pin, not in the route yet']);
+  test('marks only the locations that are not in the plan, by key', () => {
+    const plan = savedPlan();
+    const moved = { ...plan.points[0], lat: 51.46 };
+    assert.deepEqual(newLocationMarkers([moved, plan.points[1], cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
   });
 });
 

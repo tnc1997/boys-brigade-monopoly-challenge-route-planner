@@ -1,3 +1,5 @@
+import { migrateLocationsText } from './legacy.js';
+import { cleanRecords } from './locations.js';
 import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
 
 /**
@@ -16,7 +18,6 @@ import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
  * What was entered in the setup form, kept as typed so it can be shown again.
  *
  * @typedef {object} Setup
- * @property {string} locationsText The location list, one location per line.
  * @property {string} startText Where the route starts.
  * @property {string} finishText Where the route finishes, or an empty string if there's no physical finish.
  * @property {string} startTimeText When the route starts, as `HH:MM` local time, or an empty string to start when Plan route is pressed.
@@ -28,8 +29,9 @@ import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
  * @typedef {object} AppState
  * @property {number} version The schema version the state was saved with.
  * @property {Settings} settings Settings for planning.
- * @property {Setup} setup What was entered in the setup form.
- * @property {string[]} doneKeys Keys of the locations whose selfie has been taken.
+ * @property {Setup} setup What was entered in the setup form, apart from the location list.
+ * @property {import('./locations.js').LocationRecord[]} locations The location list, one row per location.
+ * @property {string[]} doneKeys Keys of the locations whose selfie has been taken, which are the ids of their rows.
  * @property {'list' | 'map'} view Which tab of the Route section is showing.
  * @property {import('./search.js').SearchResults} searchResults Saved results of looking up addresses and place names, so each is only looked up once and re-planning works offline. Temporary failures aren't saved.
  * @property {import('./setup.js').SavedPlan | null} plan The current plan, or `null` if there isn't one yet.
@@ -47,8 +49,12 @@ export const STORAGE_KEY = 'monopoly-challenge-route-planner';
 /** Keys the state was saved under by earlier versions, which it's moved from when loading. */
 export const LEGACY_STORAGE_KEYS = ['monopoly-challenge-planner'];
 
-/** The current schema version. Increase it when the shape of {@link AppState} changes. */
-export const SCHEMA_VERSION = 1;
+/**
+ * The current schema version. Increase it when the shape of {@link AppState}
+ * changes, and move state saved with the previous version in {@link loadState}.
+ * Version 1 kept the location list as text, one location per line.
+ */
+export const SCHEMA_VERSION = 2;
 
 /**
  * Creates the state for a new challenge.
@@ -67,11 +73,11 @@ export function defaultState() {
       checkInFormUrl: '',
     },
     setup: {
-      locationsText: '',
       startText: 'Castle Park 51.4556,-2.5894',
       finishText: '',
       startTimeText: '',
     },
+    locations: [],
     doneKeys: [],
     view: 'list',
     searchResults: {},
@@ -96,10 +102,11 @@ function browserStorage() {
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
- * Loads the saved state. Anything missing, unreadable or saved with a
- * different schema version falls back to the defaults, so the app always
- * gets a complete state. State saved by an earlier version under one of the
- * {@link LEGACY_STORAGE_KEYS} is moved to {@link STORAGE_KEY}.
+ * Loads the saved state. Anything missing, unreadable or saved with an
+ * unknown schema version falls back to the defaults, so the app always gets
+ * a complete state. State saved by an earlier version under one of the
+ * {@link LEGACY_STORAGE_KEYS} is moved to {@link STORAGE_KEY}, and state
+ * saved with schema version 1 is moved to the current version and saved.
  *
  * @param {StateStorage | null} [storage] Where to load from. Defaults to the browser's localStorage.
  * @returns {AppState} The saved state, or the default state.
@@ -116,21 +123,62 @@ export function loadState(storage = browserStorage()) {
   } catch {
     return defaults;
   }
-  if (!isObject(saved) || saved.version !== SCHEMA_VERSION) {
+  if (!isObject(saved) || (saved.version !== SCHEMA_VERSION && saved.version !== 1)) {
     return defaults;
+  }
+  const isVersion1 = saved.version === 1;
+  if (isVersion1) {
+    saved = migrateVersion1(saved);
   }
   const settings = { ...defaults.settings, ...(isObject(saved.settings) ? saved.settings : {}) };
   // The form is opened in a new tab, so only ever load an http or https URL.
   settings.checkInFormUrl = (typeof settings.checkInFormUrl === 'string' && checkInFormUrl(settings.checkInFormUrl)) || '';
-  return {
+  const state = {
     version: SCHEMA_VERSION,
     settings,
     setup: { ...defaults.setup, ...(isObject(saved.setup) ? saved.setup : {}) },
+    locations: cleanRecords(saved.locations),
     doneKeys: Array.isArray(saved.doneKeys) ? saved.doneKeys.filter((key) => typeof key === 'string') : [],
     view: saved.view === 'map' ? 'map' : 'list',
     searchResults: isObject(saved.searchResults) ? saved.searchResults : {},
     plan: isObject(saved.plan) ? saved.plan : null,
   };
+  if (isVersion1) {
+    // Save straight away, so the rows keep the ids they've just been given.
+    saveState(state, storage);
+  }
+  return state;
+}
+
+/**
+ * Moves state saved with schema version 1, which kept the location list as
+ * text, to rows. Ticked-off selfies and the plan's locations, which were
+ * remembered by their coordinates, are moved to the ids of the matching rows.
+ *
+ * @param {Record<string, any>} saved The state as saved with version 1.
+ * @returns {Record<string, any>} The state with rows, still to be checked like any other saved state.
+ */
+function migrateVersion1(saved) {
+  const { locationsText = '', ...setup } = isObject(saved.setup) ? saved.setup : {};
+  const searchResults = isObject(saved.searchResults) ? saved.searchResults : {};
+  const { records, idsByKey } = migrateLocationsText(typeof locationsText === 'string' ? locationsText : '', searchResults);
+  const doneKeys = Array.isArray(saved.doneKeys) ? saved.doneKeys.flatMap((key) => idsByKey.get(key) ?? []) : [];
+  let { plan } = saved;
+  if (isObject(plan) && Array.isArray(plan.points)) {
+    // Give each of the plan's locations the id of a row at the same place,
+    // using each row once, in order, as the lines were.
+    const used = new Set();
+    const points = plan.points.map((point) => {
+      const id = idsByKey.get(point?.key)?.find((candidate) => !used.has(candidate));
+      if (id === undefined) {
+        return point;
+      }
+      used.add(id);
+      return { ...point, key: id };
+    });
+    plan = { ...plan, points };
+  }
+  return { ...saved, setup, locations: records, doneKeys, plan };
 }
 
 /**
@@ -209,7 +257,7 @@ export function clearState(storage = browserStorage()) {
 export function resetChallenge(state) {
   return {
     ...state,
-    setup: { ...state.setup, locationsText: '' },
+    locations: [],
     doneKeys: [],
     plan: null,
   };
