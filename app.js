@@ -910,7 +910,8 @@ settingsButton.addEventListener('click', () => {
       field.value = field.dataset.scale ? String(value / Number(field.dataset.scale)) : String(value);
     }
   }
-  checkInFormField.setCustomValidity('');
+  // Check the link as filled in, since setting a value doesn't fire input.
+  checkInFormField.dispatchEvent(new Event('input'));
   settingsSave.textContent = state.plan?.settings ? 'Save and re-plan' : 'Save';
   settingsDialog.showModal();
 });
