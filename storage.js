@@ -104,6 +104,23 @@ function browserStorage() {
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
+ * Takes a saved group of fields, such as the settings, keeping each field
+ * only if it has the same type as its default, so a wrong type (such as
+ * `null` for an emptied number field) can't stop the app working. Unknown
+ * fields are dropped, and missing ones get their default.
+ *
+ * @template {Record<string, unknown>} T
+ * @param {T} defaults The group's defaults.
+ * @param {unknown} saved The group as saved.
+ * @returns {T} The group.
+ */
+function withDefaults(defaults, saved) {
+  return /** @type {T} */ (
+    Object.fromEntries(Object.entries(defaults).map(([key, value]) => [key, isObject(saved) && typeof saved[key] === typeof value ? saved[key] : value]))
+  );
+}
+
+/**
  * Loads the saved state. Anything missing, unreadable or saved with an
  * unknown schema version falls back to the defaults, so the app always gets
  * a complete state. State saved by an earlier version under one of the
@@ -132,13 +149,13 @@ export function loadState(storage = browserStorage()) {
   if (saved.version === 1) {
     saved = fromVersion1(saved);
   }
-  const event = { ...defaults.event, ...(isObject(saved.event) ? saved.event : {}) };
+  const event = withDefaults(defaults.event, saved.event);
   // The form is opened in a new tab, so only ever load an http or https URL.
-  event.checkInFormUrl = (typeof event.checkInFormUrl === 'string' && checkInFormUrl(event.checkInFormUrl)) || '';
+  event.checkInFormUrl = checkInFormUrl(event.checkInFormUrl) ?? '';
   return {
     version: SCHEMA_VERSION,
     event,
-    settings: { ...defaults.settings, ...(isObject(saved.settings) ? saved.settings : {}) },
+    settings: withDefaults(defaults.settings, saved.settings),
     locations: cleanRecords(saved.locations),
     view: saved.view === 'map' ? 'map' : 'list',
     searchResults: isObject(saved.searchResults) ? saved.searchResults : {},
@@ -162,8 +179,7 @@ export function loadState(storage = browserStorage()) {
 function fromVersion1(saved) {
   const { locationsText, startTimeText, ...setup } = isObject(saved.setup) ? saved.setup : {};
   const { deadline, checkInFormUrl: formUrl, ...settings } = isObject(saved.settings) ? saved.settings : {};
-  // Leave out what version 1 didn't save, so it gets its default.
-  const event = Object.fromEntries(Object.entries({ ...setup, startTime: startTimeText, deadline, checkInFormUrl: formUrl }).filter(([, value]) => value !== undefined));
+  const event = { ...setup, startTime: startTimeText, deadline, checkInFormUrl: formUrl };
   // Version 1 allowed a name or a Google Maps link around coordinates,
   // which would now be looked up as text, so keep only the coordinates.
   for (const field of ['startText', 'finishText']) {

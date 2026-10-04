@@ -79,6 +79,16 @@ describe('storage', () => {
     assert.equal(state.plan, null);
   });
 
+  test('uses the default for a field saved with the wrong type, and drops unknown fields', () => {
+    const storage = memoryStorage({
+      [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, event: { startText: 42, deadline: '15:00' }, settings: { speedKmh: null, dwellSeconds: '300', colour: 'red' } }),
+    });
+    const { event, settings } = loadState(storage);
+    const defaults = defaultState();
+    assert.deepEqual(event, { ...defaults.event, deadline: '15:00' });
+    assert.deepEqual(settings, defaults.settings);
+  });
+
   test('has no check-in form by default', () => {
     assert.equal(defaultState().event.checkInFormUrl, '');
   });
