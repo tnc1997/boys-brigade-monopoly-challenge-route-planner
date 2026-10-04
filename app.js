@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, hasOwnPoints, locationPoints, newLocationId, parsePoints, pointsById, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, hasOwnPoints, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -613,7 +613,7 @@ function savePoints({ item, setupLocation }, field) {
   if (!parsed.isValid || !setupLocation || (parsed.points ?? undefined) === setupLocation.points) {
     return;
   }
-  const worth = locationPoints(setupLocation, state.event.pointsPerLocation);
+  const worth = pointsOf(setupLocation, state.event.pointsPerLocation);
   if (parsed.points === null) {
     delete setupLocation.points;
   } else {
@@ -629,7 +629,7 @@ function savePoints({ item, setupLocation }, field) {
   clearTimeout(pointsTimer);
   if (state.plan) {
     const isPlanned = !setupLocation.isVisited && state.plan.routeLocations.some(({ key }) => key === setupLocation.id);
-    if (isPlanned && locationPoints(setupLocation, state.event.pointsPerLocation) !== worth) {
+    if (isPlanned && pointsOf(setupLocation, state.event.pointsPerLocation) !== worth) {
       isReplanForPointsNeeded = true;
     }
     pointsTimer = setTimeout(() => {

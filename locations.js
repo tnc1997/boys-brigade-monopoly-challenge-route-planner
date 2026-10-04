@@ -206,7 +206,7 @@ export function parsePoints(text) {
  * @param {number} pointsPerLocation What a location is worth unless its row says otherwise.
  * @returns {number} Its points.
  */
-export function locationPoints(setupLocation, pointsPerLocation) {
+export function pointsOf(setupLocation, pointsPerLocation) {
   return setupLocation?.points ?? pointsPerLocation;
 }
 
@@ -220,7 +220,7 @@ export function locationPoints(setupLocation, pointsPerLocation) {
  * pointsById([{ id: 'a', text: 'A', points: 20 }, { id: 'b', text: 'B' }], 10); // Map { 'a' => 20, 'b' => 10 }
  */
 export function pointsById(setupLocations, pointsPerLocation) {
-  return new Map(setupLocations.map((setupLocation) => [setupLocation.id, locationPoints(setupLocation, pointsPerLocation)]));
+  return new Map(setupLocations.map((setupLocation) => [setupLocation.id, pointsOf(setupLocation, pointsPerLocation)]));
 }
 
 /**
