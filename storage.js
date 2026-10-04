@@ -1,4 +1,3 @@
-import { migrateLocationsText } from './legacy.js';
 import { cleanRecords } from './locations.js';
 import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
 
@@ -106,7 +105,8 @@ const isObject = (value) => typeof value === 'object' && value !== null && !Arra
  * unknown schema version falls back to the defaults, so the app always gets
  * a complete state. State saved by an earlier version under one of the
  * {@link LEGACY_STORAGE_KEYS} is moved to {@link STORAGE_KEY}, and state
- * saved with schema version 1 is moved to the current version and saved.
+ * saved with schema version 1 keeps everything but the location list, the
+ * ticks and the plan.
  *
  * @param {StateStorage | null} [storage] Where to load from. Defaults to the browser's localStorage.
  * @returns {AppState} The saved state, or the default state.
@@ -126,14 +126,13 @@ export function loadState(storage = browserStorage()) {
   if (!isObject(saved) || (saved.version !== SCHEMA_VERSION && saved.version !== 1)) {
     return defaults;
   }
-  const isVersion1 = saved.version === 1;
-  if (isVersion1) {
-    saved = migrateVersion1(saved);
+  if (saved.version === 1) {
+    saved = fromVersion1(saved);
   }
   const settings = { ...defaults.settings, ...(isObject(saved.settings) ? saved.settings : {}) };
   // The form is opened in a new tab, so only ever load an http or https URL.
   settings.checkInFormUrl = (typeof settings.checkInFormUrl === 'string' && checkInFormUrl(settings.checkInFormUrl)) || '';
-  const state = {
+  return {
     version: SCHEMA_VERSION,
     settings,
     setup: { ...defaults.setup, ...(isObject(saved.setup) ? saved.setup : {}) },
@@ -143,42 +142,20 @@ export function loadState(storage = browserStorage()) {
     searchResults: isObject(saved.searchResults) ? saved.searchResults : {},
     plan: isObject(saved.plan) ? saved.plan : null,
   };
-  if (isVersion1) {
-    // Save straight away, so the rows keep the ids they've just been given.
-    saveState(state, storage);
-  }
-  return state;
 }
 
 /**
  * Moves state saved with schema version 1, which kept the location list as
- * text, to rows. Ticked-off selfies and the plan's locations, which were
- * remembered by their coordinates, are moved to the ids of the matching rows.
+ * text, to the current version. The list was from the 2026 challenge, so it
+ * isn't moved to rows, and nor are the ticks and the plan, which refer to
+ * it. The settings and the rest of the setup form are kept.
  *
  * @param {Record<string, any>} saved The state as saved with version 1.
- * @returns {Record<string, any>} The state with rows, still to be checked like any other saved state.
+ * @returns {Record<string, any>} The state without the location list, still to be checked like any other saved state.
  */
-function migrateVersion1(saved) {
-  const { locationsText = '', ...setup } = isObject(saved.setup) ? saved.setup : {};
-  const searchResults = isObject(saved.searchResults) ? saved.searchResults : {};
-  const { records, idsByKey } = migrateLocationsText(typeof locationsText === 'string' ? locationsText : '', searchResults);
-  const doneKeys = Array.isArray(saved.doneKeys) ? saved.doneKeys.flatMap((key) => idsByKey.get(key) ?? []) : [];
-  let { plan } = saved;
-  if (isObject(plan) && Array.isArray(plan.points)) {
-    // Give each of the plan's locations the id of a row at the same place,
-    // using each row once, in order, as the lines were.
-    const used = new Set();
-    const points = plan.points.map((point) => {
-      const id = idsByKey.get(point?.key)?.find((candidate) => !used.has(candidate));
-      if (id === undefined) {
-        return point;
-      }
-      used.add(id);
-      return { ...point, key: id };
-    });
-    plan = { ...plan, points };
-  }
-  return { ...saved, setup, locations: records, doneKeys, plan };
+function fromVersion1(saved) {
+  const { locationsText, ...setup } = isObject(saved.setup) ? saved.setup : {};
+  return { ...saved, setup, locations: [], doneKeys: [], plan: null };
 }
 
 /**

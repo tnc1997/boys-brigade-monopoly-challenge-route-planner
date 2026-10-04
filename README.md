@@ -91,7 +91,6 @@ npm run build # build the minified styles.css
 | `index.html`, `app.js` | The page and the code that runs it |
 | `planner.js` | Walking times and route planning |
 | `locations.js` | The location list's rows, and where each one is |
-| `legacy.js` | Moving a location list saved by an earlier version, one per line, to rows |
 | `search.js` | Address lookups with Nominatim |
 | `setup.js` | Turning the setup form into a plan |
 | `route.js` | Describing the plan for the list, the map, the warning banner and the countdown |

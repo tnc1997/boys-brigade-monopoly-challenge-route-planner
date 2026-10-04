@@ -38,7 +38,6 @@ const APP_FILES = [
   'index.html',
   'styles.css',
   'app.js',
-  'legacy.js',
   'locations.js',
   'map.js',
   'planner.js',
