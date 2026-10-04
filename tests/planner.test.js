@@ -264,45 +264,45 @@ describe('plan', () => {
     describe(name, () => {
       test('visits every location when there is plenty of time', () => {
         const locations = [kmNorth(2), kmNorth(1)];
-        const result = plan({ ...base, locations, finish });
+        const planned = plan({ ...base, locations, finish });
         // With a finish back at the start, either direction along the line
         // takes the same time.
-        assert.deepEqual([...result.order].sort(), [0, 1]);
-        assert.deepEqual(result.skipped, []);
+        assert.deepEqual([...planned.order].sort(), [0, 1]);
+        assert.deepEqual(planned.skipped, []);
       });
 
       test('stays within the time budget', () => {
         const locations = [kmNorth(1), kmNorth(2), kmNorth(3), kmNorth(4)];
         const options = { ...withDeadlineAfter(4500), locations, finish };
-        const result = plan(options);
-        assert.ok(result.spareSeconds >= 0);
-        assert.ok(result.endEta <= options.deadline - options.safetyMarginSeconds * 1000);
+        const planned = plan(options);
+        assert.ok(planned.spareSeconds >= 0);
+        assert.ok(planned.endEta <= options.deadline - options.safetyMarginSeconds * 1000);
       });
 
       test('skips locations when time is short', () => {
         const locations = [kmNorth(1), kmNorth(2), kmNorth(3), kmNorth(4)];
-        const result = plan({ ...withDeadlineAfter(2500), locations, finish });
-        assert.ok(result.skipped.length > 0);
-        assert.deepEqual([...result.order, ...result.skipped].sort(), [0, 1, 2, 3]);
-        assert.deepEqual(result.skipped, [...result.skipped].sort());
+        const planned = plan({ ...withDeadlineAfter(2500), locations, finish });
+        assert.ok(planned.skipped.length > 0);
+        assert.deepEqual([...planned.order, ...planned.skipped].sort(), [0, 1, 2, 3]);
+        assert.deepEqual(planned.skipped, [...planned.skipped].sort());
       });
 
       test('matches the timings from evaluateRoute', () => {
         const locations = [kmNorth(1), kmNorth(2)];
         const options = { ...base, locations, finish };
-        const result = plan(options);
-        const timeline = evaluateRoute({ ...options, stops: result.order.map((index) => locations[index]) });
-        assert.deepEqual(result.arrivalTimes, timeline.arrivalTimes);
-        assert.equal(result.endEta, timeline.endEta);
-        assert.equal(result.spareSeconds, timeline.spareSeconds);
+        const planned = plan(options);
+        const timeline = evaluateRoute({ ...options, stops: planned.order.map((index) => locations[index]) });
+        assert.deepEqual(planned.arrivalTimes, timeline.arrivalTimes);
+        assert.equal(planned.endEta, timeline.endEta);
+        assert.equal(planned.spareSeconds, timeline.spareSeconds);
       });
 
       test('skips every location when the deadline has passed', () => {
         const locations = [kmNorth(1), kmNorth(2)];
-        const result = plan({ ...base, locations, finish, deadline: startTime - 1000 });
-        assert.deepEqual(result.order, []);
-        assert.deepEqual(result.arrivalTimes, []);
-        assert.deepEqual(result.skipped, [0, 1]);
+        const planned = plan({ ...base, locations, finish, deadline: startTime - 1000 });
+        assert.deepEqual(planned.order, []);
+        assert.deepEqual(planned.arrivalTimes, []);
+        assert.deepEqual(planned.skipped, [0, 1]);
       });
     });
   }
@@ -427,10 +427,10 @@ describe('plan with 2-opt', () => {
         safetyMarginSeconds: 600,
       };
       const greedy = greedyInsertion(options);
-      const result = plan(options);
-      assert.ok(result.order.length >= greedy.length, `run ${run} visits fewer locations`);
-      assert.ok(result.spareSeconds >= 0 || result.order.length === 0, `run ${run} is over budget`);
-      extraLocations += result.order.length - greedy.length;
+      const planned = plan(options);
+      assert.ok(planned.order.length >= greedy.length, `run ${run} visits fewer locations`);
+      assert.ok(planned.spareSeconds >= 0 || planned.order.length === 0, `run ${run} is over budget`);
+      extraLocations += planned.order.length - greedy.length;
     }
     // 2-opt frees up time on some routes, which is used for more locations.
     assert.ok(extraLocations > 0, 'expected 2-opt to fit extra locations on some routes');
@@ -464,28 +464,28 @@ describe('plan with swaps', () => {
     const locations = [kmFrom(0, 1), kmFrom(0, -1.05), kmFrom(0, -1.1)];
     const planOptions = options(locations, 1500);
     assert.deepEqual(greedyInsertion(planOptions), [0]);
-    const result = plan(planOptions);
-    assert.deepEqual(result.order, [1, 2]);
-    assert.deepEqual(result.skipped, [0]);
-    assert.ok(result.spareSeconds >= 0);
+    const planned = plan(planOptions);
+    assert.deepEqual(planned.order, [1, 2]);
+    assert.deepEqual(planned.skipped, [0]);
+    assert.ok(planned.spareSeconds >= 0);
   });
 
   test('stops improving after about the time limit, even for 60 locations', () => {
     const locations = Array.from({ length: 60 }, (_, index) => kmFrom(Math.sin(index * 7.1) * 2.5, Math.cos(index * 3.3) * 2.5));
     const planOptions = options(locations, 5 * 3600, { dwellSeconds: 180, finish: castlePark });
     const started = performance.now();
-    const result = plan(planOptions);
+    const planned = plan(planOptions);
     const elapsed = performance.now() - started;
     assert.ok(elapsed < 600, `took ${elapsed.toFixed(0)} ms`);
-    assert.ok(result.spareSeconds >= 0);
-    assert.ok(result.order.length >= greedyInsertion(planOptions).length);
+    assert.ok(planned.spareSeconds >= 0);
+    assert.ok(planned.order.length >= greedyInsertion(planOptions).length);
   });
 
   test('still returns a route within budget with no time to improve it', () => {
     const locations = [kmFrom(0, 1), kmFrom(0, -1.05), kmFrom(0, -1.1)];
-    const result = plan({ ...options(locations, 1500), timeLimitMs: 0 });
-    assert.deepEqual(result.order, [0]);
-    assert.ok(result.spareSeconds >= 0);
+    const planned = plan({ ...options(locations, 1500), timeLimitMs: 0 });
+    assert.deepEqual(planned.order, [0]);
+    assert.ok(planned.spareSeconds >= 0);
   });
 });
 
@@ -597,33 +597,33 @@ describe('plan with must-visit locations', () => {
   const locations = [kmFrom(3), kmFrom(-0.5), kmFrom(-1)];
 
   test('visits more locations without must-visit locations', () => {
-    const result = plan(options(3200, { locations }));
-    assert.deepEqual(result.order, [1, 2]);
-    assert.equal(result.isMustVisitLate, false);
+    const planned = plan(options(3200, { locations }));
+    assert.deepEqual(planned.order, [1, 2]);
+    assert.equal(planned.isMustVisitLate, false);
   });
 
   test('includes a must-visit location over a route that visits more locations without it', () => {
-    const result = plan(options(3200, { locations, mustVisit: [0] }));
-    assert.deepEqual(result.order, [0]);
-    assert.deepEqual(result.skipped, [1, 2]);
-    assert.equal(result.isMustVisitLate, false);
-    assert.ok(result.spareSeconds >= 0);
+    const planned = plan(options(3200, { locations, mustVisit: [0] }));
+    assert.deepEqual(planned.order, [0]);
+    assert.deepEqual(planned.skipped, [1, 2]);
+    assert.equal(planned.isMustVisitLate, false);
+    assert.ok(planned.spareSeconds >= 0);
   });
 
   test('adds other locations around the must-visit locations when they fit', () => {
-    const result = plan(options(10000, { locations, mustVisit: [0] }));
-    assert.deepEqual([...result.order].sort(), [0, 1, 2]);
+    const planned = plan(options(10000, { locations, mustVisit: [0] }));
+    assert.deepEqual([...planned.order].sort(), [0, 1, 2]);
   });
 
   test("plans only the must-visit locations, in the shortest order, when they don't fit", () => {
     // Locations 1, 2 and 3 km north, listed out of order: the shortest route
     // visits them nearest first, taking 3300 s.
     const line = [kmFrom(3), kmFrom(-0.5), kmFrom(1), kmFrom(2)];
-    const result = plan(options(2000, { locations: line, mustVisit: [0, 2, 3] }));
-    assert.equal(result.isMustVisitLate, true);
-    assert.deepEqual(result.order, [2, 3, 0]);
-    assert.deepEqual(result.skipped, [1]);
-    assert.ok(Math.abs(result.spareSeconds - (2000 - 3300)) < 1, `spare ${result.spareSeconds}`);
+    const planned = plan(options(2000, { locations: line, mustVisit: [0, 2, 3] }));
+    assert.equal(planned.isMustVisitLate, true);
+    assert.deepEqual(planned.order, [2, 3, 0]);
+    assert.deepEqual(planned.skipped, [1]);
+    assert.ok(Math.abs(planned.spareSeconds - (2000 - 3300)) < 1, `spare ${planned.spareSeconds}`);
   });
 
   test("ends at the finish when the must-visit locations don't fit", () => {
@@ -631,22 +631,22 @@ describe('plan with must-visit locations', () => {
     // The finish alone, 3.5 km away, fits in 3700 s, but not with the
     // must-visit locations on the way, which take 3800 s.
     const finish = kmFrom(3.5);
-    const result = plan(options(3700, { locations: line, mustVisit: [0, 1, 2], finish }));
-    assert.equal(result.isMustVisitLate, true);
-    assert.deepEqual(result.order, [1, 2, 0]);
-    assert.ok(Math.abs(result.endEta - (startTime + 3800 * 1000)) < 1000, `ends ${result.endEta - startTime} ms after the start`);
+    const planned = plan(options(3700, { locations: line, mustVisit: [0, 1, 2], finish }));
+    assert.equal(planned.isMustVisitLate, true);
+    assert.deepEqual(planned.order, [1, 2, 0]);
+    assert.ok(Math.abs(planned.endEta - (startTime + 3800 * 1000)) < 1000, `ends ${planned.endEta - startTime} ms after the start`);
   });
 
   test("isn't late without must-visit locations, even when nothing fits", () => {
-    const result = plan(options(3200, { locations, finish: kmFrom(10) }));
-    assert.deepEqual(result.order, []);
-    assert.equal(result.isMustVisitLate, false);
+    const planned = plan(options(3200, { locations, finish: kmFrom(10) }));
+    assert.deepEqual(planned.order, []);
+    assert.equal(planned.isMustVisitLate, false);
   });
 
   test("isn't late when even the walk to the finish doesn't fit", () => {
-    const result = plan(options(3200, { locations, mustVisit: [1], finish: kmFrom(10) }));
-    assert.equal(result.isMustVisitLate, false);
-    assert.ok(result.spareSeconds < 0);
+    const planned = plan(options(3200, { locations, mustVisit: [1], finish: kmFrom(10) }));
+    assert.equal(planned.isMustVisitLate, false);
+    assert.ok(planned.spareSeconds < 0);
   });
 
   test('always includes every must-visit location that fits, and never removes one to fit others in, on random routes', () => {
@@ -655,20 +655,20 @@ describe('plan with must-visit locations', () => {
       const randomLocations = Array.from({ length: 5 + Math.floor(next() * 25) }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
       const mustVisit = randomLocations.map((_, index) => index).filter(() => next() < 0.2);
       const finish = next() < 0.5 ? null : kmFrom(next() * 6 - 3, next() * 6 - 3);
-      const result = plan(options(3000 + next() * 15000, { locations: randomLocations, mustVisit, finish, timeLimitMs: 20 }));
+      const planned = plan(options(3000 + next() * 15000, { locations: randomLocations, mustVisit, finish, timeLimitMs: 20 }));
       for (const index of mustVisit) {
-        assert.ok(result.order.includes(index), `run ${run} leaves out must-visit location ${index}`);
+        assert.ok(planned.order.includes(index), `run ${run} leaves out must-visit location ${index}`);
       }
-      if (result.isMustVisitLate) {
-        assert.deepEqual([...result.order].sort((a, b) => a - b), mustVisit, `run ${run} visits others although the must-visit locations are late`);
+      if (planned.isMustVisitLate) {
+        assert.deepEqual([...planned.order].sort((a, b) => a - b), mustVisit, `run ${run} visits others although the must-visit locations are late`);
       } else {
-        assert.ok(result.spareSeconds >= 0, `run ${run} is over budget`);
+        assert.ok(planned.spareSeconds >= 0, `run ${run} is over budget`);
       }
     }
   });
 });
 
-describe('plan with scores', () => {
+describe('plan with points', () => {
   // Locations walked at 3.6 km/h (1 m/s) with no detour, so each kilometre takes
   // exactly 1000 s.
   const kmFrom = (northKm, eastKm = 0) => ({
@@ -707,27 +707,27 @@ describe('plan with scores', () => {
   const locations = [kmFrom(3), kmFrom(-0.5), kmFrom(-1)];
 
   test('visits a high-scoring location over two low-scoring ones that score less together', () => {
-    const result = plan(options(3200, { locations, points: [30, 10, 10] }));
-    assert.deepEqual(result.order, [0]);
-    assert.deepEqual(result.skipped, [1, 2]);
-    assert.ok(result.spareSeconds >= 0);
+    const planned = plan(options(3200, { locations, points: [30, 10, 10] }));
+    assert.deepEqual(planned.order, [0]);
+    assert.deepEqual(planned.skipped, [1, 2]);
+    assert.ok(planned.spareSeconds >= 0);
   });
 
   test('visits two low-scoring locations over a high-scoring one when they score more together', () => {
-    const result = plan(options(3200, { locations, points: [15, 10, 10] }));
-    assert.deepEqual(result.order, [1, 2]);
-    assert.deepEqual(result.skipped, [0]);
+    const planned = plan(options(3200, { locations, points: [15, 10, 10] }));
+    assert.deepEqual(planned.order, [1, 2]);
+    assert.deepEqual(planned.skipped, [0]);
   });
 
   test('visits the quicker route when two routes score the same', () => {
-    const result = plan(options(3200, { locations, points: [20, 10, 10] }));
-    assert.deepEqual(result.order, [1, 2]);
+    const planned = plan(options(3200, { locations, points: [20, 10, 10] }));
+    assert.deepEqual(planned.order, [1, 2]);
   });
 
   test('includes a must-visit location over locations that score more', () => {
-    const result = plan(options(3200, { locations, points: [1, 50, 50], mustVisit: [0] }));
-    assert.deepEqual(result.order, [0]);
-    assert.equal(result.isMustVisitLate, false);
+    const planned = plan(options(3200, { locations, points: [1, 50, 50], mustVisit: [0] }));
+    assert.deepEqual(planned.order, [0]);
+    assert.equal(planned.isMustVisitLate, false);
   });
 
   test('plans the same must-visit locations in the same order whatever they score, on random routes', () => {
@@ -760,7 +760,7 @@ describe('plan with scores', () => {
     assert.deepEqual(greedyInsertion(greedyOptions), [0]);
   });
 
-  test('plans the same routes with all scores equal as without scores, on random routes', () => {
+  test('plans the same routes with every location worth the same as without points, on random routes', () => {
     const next = random(45);
     for (let run = 0; run < 150; run += 1) {
       const randomLocations = Array.from({ length: 3 + Math.floor(next() * 25) }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
@@ -818,14 +818,14 @@ describe('plan with scores', () => {
     assert.ok(matches >= runs * 0.98, `matched the best route on ${matches} of ${runs} cases`);
   });
 
-  test('stays within budget and the time limit for 30 locations with varied scores', () => {
+  test('stays within budget and the time limit for 30 locations with varied points', () => {
     const next = random(30);
     const randomLocations = Array.from({ length: 30 }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
     const planOptions = options(5 * 3600, { locations: randomLocations, points: randomLocations.map(() => Math.floor(next() * 50)), finish: castlePark, dwellSeconds: 180 });
     const started = performance.now();
-    const result = plan(planOptions);
+    const planned = plan(planOptions);
     const elapsed = performance.now() - started;
     assert.ok(elapsed < 600, `took ${elapsed.toFixed(0)} ms`);
-    assert.ok(result.spareSeconds >= 0);
+    assert.ok(planned.spareSeconds >= 0);
   });
 });

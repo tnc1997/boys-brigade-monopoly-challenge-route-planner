@@ -129,7 +129,7 @@ export async function searchPlace(query, { fetch = globalThis.fetch } = {}) {
  * @returns {SearchQueue} The queue.
  * @example
  * const queue = createSearchQueue();
- * const result = await queue.search('Queen Square, Bristol');
+ * const searchResult = await queue.search('Queen Square, Bristol');
  */
 export function createSearchQueue({
   fetch = globalThis.fetch,
@@ -141,7 +141,7 @@ export function createSearchQueue({
 
   return {
     search(query) {
-      const result = tail.then(async () => {
+      const searched = tail.then(async () => {
         const waitMs = lastRequestTime + REQUEST_INTERVAL_MS - now();
         if (waitMs > 0) {
           await sleep(waitMs);
@@ -149,8 +149,8 @@ export function createSearchQueue({
         lastRequestTime = now();
         return searchPlace(query, { fetch });
       });
-      tail = result.catch(() => {});
-      return result;
+      tail = searched.catch(() => {});
+      return searched;
     },
   };
 }

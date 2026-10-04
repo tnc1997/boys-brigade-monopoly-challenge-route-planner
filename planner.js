@@ -325,14 +325,14 @@ const MIN_ADDED_SECONDS = 1e-9;
  * @returns {number[]} The route with the locations that fit added.
  */
 function insertGreedily(route, context, { candidates = locationNodes(context), budgetSeconds = context.budgetSeconds } = {}) {
-  const result = [...route];
-  let seconds = routeSeconds(result, context);
-  const unvisited = new Set(candidates.filter((node) => !result.includes(node)));
+  const extended = [...route];
+  let seconds = routeSeconds(extended, context);
+  const unvisited = new Set(candidates.filter((node) => !extended.includes(node)));
 
   while (unvisited.size > 0) {
     let best = null;
     for (const node of unvisited) {
-      const insertion = cheapestInsertion(result, node, context);
+      const insertion = cheapestInsertion(extended, node, context);
       if (seconds + insertion.addedSeconds > budgetSeconds) {
         continue;
       }
@@ -348,11 +348,11 @@ function insertGreedily(route, context, { candidates = locationNodes(context), b
     if (best === null) {
       break;
     }
-    result.splice(best.position, 0, best.node);
+    extended.splice(best.position, 0, best.node);
     seconds += best.addedSeconds;
     unvisited.delete(best.node);
   }
-  return result;
+  return extended;
 }
 
 /** Smallest saving in seconds that counts as an improvement, so rounding errors can't loop forever. */
@@ -367,30 +367,30 @@ const IMPROVEMENT_SECONDS = 1e-6;
  * @returns {number[]} The improved route.
  */
 function twoOpt(route, { walk, startNode, finishNode }) {
-  const result = [...route];
+  const shortened = [...route];
   let isImproved = true;
   while (isImproved) {
     isImproved = false;
-    for (let i = 0; i < result.length - 1; i += 1) {
-      for (let j = i + 1; j < result.length; j += 1) {
-        const before = i === 0 ? startNode : result[i - 1];
-        const after = j === result.length - 1 ? finishNode : result[j + 1];
-        // Reversing result[i..j] replaces the walks before → result[i] and
-        // result[j] → after with before → result[j] and result[i] → after.
+    for (let i = 0; i < shortened.length - 1; i += 1) {
+      for (let j = i + 1; j < shortened.length; j += 1) {
+        const before = i === 0 ? startNode : shortened[i - 1];
+        const after = j === shortened.length - 1 ? finishNode : shortened[j + 1];
+        // Reversing shortened[i..j] replaces the walks before → shortened[i] and
+        // shortened[j] → after with before → shortened[j] and shortened[i] → after.
         // Without a finish, reversing the tail (after === null) only changes
         // the first of those walks.
         const savedSeconds =
-          walk[before][result[i]] -
-          walk[before][result[j]] +
-          (after === null ? 0 : walk[result[j]][after] - walk[result[i]][after]);
+          walk[before][shortened[i]] -
+          walk[before][shortened[j]] +
+          (after === null ? 0 : walk[shortened[j]][after] - walk[shortened[i]][after]);
         if (savedSeconds > IMPROVEMENT_SECONDS) {
-          result.splice(i, j - i + 1, ...result.slice(i, j + 1).reverse());
+          shortened.splice(i, j - i + 1, ...shortened.slice(i, j + 1).reverse());
           isImproved = true;
         }
       }
     }
   }
-  return result;
+  return shortened;
 }
 
 /**
@@ -454,20 +454,20 @@ function swapOneForMore(route, context, stopAt) {
  * @returns {number[]} The improved route.
  */
 function improveRoute(route, context, stopAt) {
-  let result = route;
+  let best = route;
   while (performance.now() < stopAt) {
-    const improved = insertGreedily(twoOpt(result, context), context);
-    if (isBetterRoute(improved, result, context)) {
-      result = improved;
+    const improved = insertGreedily(twoOpt(best, context), context);
+    if (isBetterRoute(improved, best, context)) {
+      best = improved;
       continue;
     }
-    const swapped = swapOneForMore(result, context, stopAt);
+    const swapped = swapOneForMore(best, context, stopAt);
     if (!swapped) {
       break;
     }
-    result = swapped;
+    best = swapped;
   }
-  return result;
+  return best;
 }
 
 /**

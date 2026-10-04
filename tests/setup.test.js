@@ -17,11 +17,11 @@ const pinnedRows = () => [
   { id: 'b', text: 'Temple Meads', pin: { lat: 51.4492, lng: -2.5813 } },
 ];
 
-const setupWith = ({ locations = pinnedRows(), ...event } = {}, settings = {}) => {
+const setupWith = ({ setupLocations = pinnedRows(), ...event } = {}, settings = {}) => {
   const state = defaultState();
   return {
     event: { ...state.event, ...event },
-    locations,
+    setupLocations,
     settings: { ...state.settings, ...settings },
     now,
   };
@@ -46,7 +46,7 @@ describe('planFromSetup', () => {
     assert.equal(error, null);
     assert.deepEqual(leftOut, []);
     assert.deepEqual([...plan.order].sort(), [0, 1]);
-    assert.deepEqual(plan.locations.map(({ label, key }) => [label, key]), [
+    assert.deepEqual(plan.routeLocations.map(({ label, key }) => [label, key]), [
       ['Old Kent Road', 'a'],
       ['Temple Meads', 'b'],
     ]);
@@ -65,28 +65,24 @@ describe('planFromSetup', () => {
   });
 
   test('returns every row and where it is', () => {
-    const { rows: resolved } = planFromSetup(setupWith({ locations: rows('51.4545,-2.5879', '', 'Nowhere') }));
-    assert.deepEqual(resolved.map(({ number, resolved: { status } }) => [number, status]), [
-      [1, 'coordinates'],
-      [2, 'empty'],
-      [3, 'unknown'],
-    ]);
+    const { routeLocationResults } = planFromSetup(setupWith({ setupLocations: rows('51.4545,-2.5879', '', 'Nowhere') }));
+    assert.deepEqual(routeLocationResults.map(({ status }) => status), ['coordinates', 'empty', 'unknown']);
   });
 
   test('leaves out rows that were not found or not looked up, without stopping the rest', () => {
     const searchResults = { [searchKey('Nowhere')]: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false } };
-    const { plan, leftOut } = planFromSetup({ ...setupWith({ locations: rows('51.4545,-2.5879', 'Nowhere', '', 'Not looked up') }), searchResults });
-    assert.equal(plan.locations.length, 1);
-    assert.deepEqual(leftOut.map(({ number }) => number), [2, 4]);
+    const { plan, leftOut } = planFromSetup({ ...setupWith({ setupLocations: rows('51.4545,-2.5879', 'Nowhere', '', 'Not looked up') }), searchResults });
+    assert.equal(plan.routeLocations.length, 1);
+    assert.deepEqual(leftOut.map(({ label }) => label), ['Nowhere', 'Not looked up']);
   });
 
   test('plans pinned rows where they were pinned, whatever their text', () => {
-    const locations = [
+    const setupLocations = [
       { id: 'p', text: 'Queen Square', pin: { lat: 51.4504, lng: -2.5947 } },
       { id: 'q', text: '', pin: { lat: 51.4492, lng: -2.5813 } },
     ];
-    const { plan } = planFromSetup(setupWith({ locations }));
-    assert.deepEqual(plan.locations, [
+    const { plan } = planFromSetup(setupWith({ setupLocations }));
+    assert.deepEqual(plan.routeLocations, [
       { lat: 51.4504, lng: -2.5947, label: 'Queen Square', key: 'p' },
       { lat: 51.4492, lng: -2.5813, label: 'Location 2', key: 'q' },
     ]);
@@ -97,11 +93,11 @@ describe('planFromSetup', () => {
     assert.equal(plan.startTime, new Date(2026, 9, 3, 11, 30).getTime());
   });
 
-  test('leaves done locations out of the route but keeps them in the locations', () => {
+  test('leaves done locations out of the route but keeps them in the route locations', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
-    const locations = pinnedRows().map((record) => (record.id === firstPlan.locations[0].key ? { ...record, isVisited: true } : record));
-    const { plan } = planFromSetup(setupWith({ locations }));
-    assert.deepEqual(plan.locations.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === firstPlan.routeLocations[0].key ? { ...setupLocation, isVisited: true } : setupLocation));
+    const { plan } = planFromSetup(setupWith({ setupLocations }));
+    assert.deepEqual(plan.routeLocations.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
     assert.deepEqual(plan.order, [1]);
     assert.deepEqual(plan.skipped, []);
     assert.equal(plan.arrivalTimes.length, 1);
@@ -109,8 +105,8 @@ describe('planFromSetup', () => {
 
   test('always includes must-visit locations still to visit', () => {
     // With the start time at 15:40, nothing fits on its own merit.
-    const locations = pinnedRows().map((record) => (record.id === 'b' ? { ...record, isMustVisit: true } : record));
-    const { plan } = planFromSetup(setupWith({ startTime: '15:40', locations }));
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, isMustVisit: true } : setupLocation));
+    const { plan } = planFromSetup(setupWith({ startTime: '15:40', setupLocations }));
     assert.deepEqual(plan.order, [1]);
     assert.equal(plan.isMustVisitLate, true);
   });
@@ -119,27 +115,27 @@ describe('planFromSetup', () => {
     // With the start time at 15:24, either location fits on its own, but not
     // both. Old Kent Road is the quicker.
     assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24' })).plan.order, [0]);
-    const locations = pinnedRows().map((record) => (record.id === 'b' ? { ...record, points: 50 } : record));
-    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', locations })).plan.order, [1]);
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, points: 50 } : setupLocation));
+    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', setupLocations })).plan.order, [1]);
   });
 
   test("counts a location without its own points as worth the event's Points per location", () => {
-    const locations = pinnedRows().map((record) => (record.id === 'a' ? { ...record, points: 5 } : record));
-    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', pointsPerLocation: 10, locations })).plan.order, [1]);
-    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', pointsPerLocation: 1, locations })).plan.order, [0]);
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'a' ? { ...setupLocation, points: 5 } : setupLocation));
+    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', pointsPerLocation: 10, setupLocations })).plan.order, [1]);
+    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', pointsPerLocation: 1, setupLocations })).plan.order, [0]);
   });
 
   test("ignores Must visit on a location that's been visited", () => {
-    const locations = pinnedRows().map((record) => (record.id === 'b' ? { ...record, isMustVisit: true, isVisited: true } : record));
-    const { plan } = planFromSetup(setupWith({ startTime: '15:40', locations }));
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, isMustVisit: true, isVisited: true } : setupLocation));
+    const { plan } = planFromSetup(setupWith({ startTime: '15:40', setupLocations }));
     assert.deepEqual(plan.order, []);
     assert.equal(plan.isMustVisitLate, false);
   });
 
   test('maps skipped locations back to their place in the list', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
-    const locations = pinnedRows().map((record) => (record.id === firstPlan.locations[0].key ? { ...record, isVisited: true } : record));
-    const { plan } = planFromSetup(setupWith({ startTime: '15:40', locations }));
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === firstPlan.routeLocations[0].key ? { ...setupLocation, isVisited: true } : setupLocation));
+    const { plan } = planFromSetup(setupWith({ startTime: '15:40', setupLocations }));
     assert.deepEqual(plan.order, []);
     assert.deepEqual(plan.skipped, [1]);
   });
@@ -161,8 +157,8 @@ describe('planFromSetup', () => {
   });
 
   const failures = [
-    ['there are no usable locations', { locations: rows('Nowhere') }, {}, /at least one location/],
-    ['there are no locations', { locations: [] }, {}, /at least one location/],
+    ['there are no usable locations', { setupLocations: rows('Nowhere') }, {}, /at least one location/],
+    ['there are no locations', { setupLocations: [] }, {}, /at least one location/],
     ['the start has not been looked up', { startText: 'Castle Park' }, {}, /^Start: "Castle Park" couldn't be looked up/],
     ['the start is blank', { startText: ' ' }, {}, /^Start: Enter where/],
     ['the finish is invalid', { finishText: 'Somewhere' }, {}, /^Finish: /],
@@ -176,9 +172,9 @@ describe('planFromSetup', () => {
   ];
   for (const [name, event, settings, error] of failures) {
     test(`stops planning when ${name}`, () => {
-      const result = planFromSetup(setupWith(event, settings));
-      assert.equal(result.plan, null);
-      assert.match(result.error, error);
+      const setupResult = planFromSetup(setupWith(event, settings));
+      assert.equal(setupResult.plan, null);
+      assert.match(setupResult.error, error);
     });
   }
 });
@@ -192,11 +188,11 @@ describe('planFromSetup with addresses and place names', () => {
 
   test('plans rows that were found, with what each matched', () => {
     const { plan, leftOut } = planFromSetup({
-      ...setupWith({ locations: rows('51.4545,-2.5879', 'Queen Square, Bristol'), finishText: 'Temple Meads' }),
+      ...setupWith({ setupLocations: rows('51.4545,-2.5879', 'Queen Square, Bristol'), finishText: 'Temple Meads' }),
       searchResults,
     });
     assert.deepEqual(leftOut, []);
-    assert.equal(plan.locations[1].matchedName, 'Queen Square, City Centre, Bristol');
+    assert.equal(plan.routeLocations[1].matchedName, 'Queen Square, City Centre, Bristol');
     assert.equal(plan.finish.lat, 51.4492);
   });
 
@@ -214,18 +210,18 @@ describe('planFromSetup with addresses and place names', () => {
 describe('searchesNeeded', () => {
   test('lists the rows, start and finish that need looking up, but not coordinates or pins', () => {
     const event = { ...defaultState().event, startText: 'Temple Meads', finishText: 'Cabot Tower' };
-    const locations = [...rows('51.4545,-2.5879', 'Queen Square, Bristol', ''), { id: 'p', text: 'Pinned', pin: { lat: 51.45, lng: -2.59 } }];
-    assert.deepEqual(searchesNeeded({ event, locations }), ['Queen Square, Bristol', 'Temple Meads', 'Cabot Tower']);
+    const setupLocations = [...rows('51.4545,-2.5879', 'Queen Square, Bristol', ''), { id: 'p', text: 'Pinned', pin: { lat: 51.45, lng: -2.59 } }];
+    assert.deepEqual(searchesNeeded({ event, setupLocations }), ['Queen Square, Bristol', 'Temple Meads', 'Cabot Tower']);
   });
 
   test('leaves out searches that are already known', () => {
     const searchResults = { [searchKey('Queen Square, Bristol')]: { isFound: false, error: 'No match', isTemporary: false } };
-    assert.deepEqual(searchesNeeded({ event: defaultState().event, locations: rows('Queen Square, Bristol'), searchResults }), []);
+    assert.deepEqual(searchesNeeded({ event: defaultState().event, setupLocations: rows('Queen Square, Bristol'), searchResults }), []);
   });
 
   test("leaves out the start when re-planning from the team's position", () => {
     const event = { ...defaultState().event, startText: 'Temple Meads' };
-    assert.deepEqual(searchesNeeded({ event, locations: [], isFromPosition: true }), []);
+    assert.deepEqual(searchesNeeded({ event, setupLocations: [], isFromPosition: true }), []);
   });
 });
 describe('startTimeToday', () => {

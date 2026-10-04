@@ -16,13 +16,13 @@ const pinnedRows = () => [
   { id: 'b', text: 'Temple Meads', pin: { lat: 51.4492, lng: -2.5813 } },
 ];
 
-const locations = pinnedRows();
+const setupLocations = pinnedRows();
 
 const savedPlan = (event = {}, settings = {}) => {
   const state = defaultState();
   return planFromSetup({
     event: { ...state.event, ...event },
-    locations,
+    setupLocations,
     settings: { ...state.settings, ...settings },
     now,
   }).plan;
@@ -74,7 +74,7 @@ describe('describeRoute', () => {
     const plan = savedPlan();
     const { stops } = describeRoute(plan);
     assert.deepEqual(stops.map(({ number }) => number), [1, 2]);
-    assert.deepEqual(stops.map(({ location }) => location.label), plan.order.map((index) => plan.locations[index].label));
+    assert.deepEqual(stops.map(({ location }) => location.label), plan.order.map((index) => plan.routeLocations[index].label));
     assert.deepEqual(stops.map(({ arrivalTime }) => arrivalTime), plan.arrivalTimes);
     // Each stop's directions go to that stop's own coordinates.
     const coordinates = { 'Old Kent Road': '51.454500,-2.587900', 'Temple Meads': '51.449200,-2.581300' };
@@ -125,8 +125,8 @@ describe('progress', () => {
   test('counts the done locations out of every location in the list', () => {
     const plan = savedPlan();
     assert.deepEqual(progress(plan, []), { done: 0, total: 2 });
-    assert.deepEqual(progress(plan, [plan.locations[0].key]), { done: 1, total: 2 });
-    assert.deepEqual(progress(plan, plan.locations.map(({ key }) => key)), { done: 2, total: 2 });
+    assert.deepEqual(progress(plan, [plan.routeLocations[0].key]), { done: 1, total: 2 });
+    assert.deepEqual(progress(plan, plan.routeLocations.map(({ key }) => key)), { done: 2, total: 2 });
   });
 
   test('ignores keys of locations that are not in the plan', () => {
@@ -165,7 +165,7 @@ describe('mapRoute', () => {
 
     const replanned = planFromSetup({
       event: defaultState().event,
-      locations: locations.map((record) => (record.id === first.location.key ? { ...record, isVisited: true } : record)),
+      setupLocations: setupLocations.map((setupLocation) => (setupLocation.id === first.location.key ? { ...setupLocation, isVisited: true } : setupLocation)),
       settings: defaultState().settings,
       now,
     }).plan;
@@ -200,19 +200,19 @@ describe('newLocationMarkers', () => {
 
   test('marks only the locations that are not in the plan', () => {
     const plan = savedPlan();
-    assert.deepEqual(newLocationMarkers([...plan.locations, cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
+    assert.deepEqual(newLocationMarkers([...plan.routeLocations, cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
   });
 
   test("marks a must-visit location that the plan doesn't visit", () => {
     const plan = { ...savedPlan(), order: [0], skipped: [1] };
-    const markers = newLocationMarkers(plan.locations, plan, new Set([plan.locations[0].key, plan.locations[1].key]));
+    const markers = newLocationMarkers(plan.routeLocations, plan, new Set([plan.routeLocations[0].key, plan.routeLocations[1].key]));
     assert.deepEqual(markers.map(({ title }) => title), ['Temple Meads, must visit, not in the route yet']);
   });
 
   test('marks a location that has moved since the plan was made, such as when it was pinned', () => {
     const plan = savedPlan();
-    const moved = { ...plan.locations[0], lat: 51.46 };
-    assert.deepEqual(newLocationMarkers([moved, plan.locations[1]], plan).map(({ location }) => location), [moved]);
+    const moved = { ...plan.routeLocations[0], lat: 51.46 };
+    assert.deepEqual(newLocationMarkers([moved, plan.routeLocations[1]], plan).map(({ location }) => location), [moved]);
   });
 });
 
@@ -251,7 +251,7 @@ describe('timeWarning', () => {
 
   test('measures lateness against the next stop that is not done', () => {
     const plan = savedPlan({ startTime: '15:10' });
-    const allDone = plan.order.map((index) => plan.locations[index].key);
+    const allDone = plan.order.map((index) => plan.routeLocations[index].key);
     // Everything is done, so there's no stop to be late for, and the time
     // left is more than the margin.
     assert.equal(timeWarning(plan, allDone, plan.arrivalTimes.at(-1) + minutes(1)), null);
@@ -259,10 +259,10 @@ describe('timeWarning', () => {
 
   test("doesn't warn when every stop is done and there's no finish to reach", () => {
     const plan = savedPlan();
-    const allDone = plan.order.map((index) => plan.locations[index].key);
+    const allDone = plan.order.map((index) => plan.routeLocations[index].key);
     assert.equal(timeWarning(plan, allDone, plan.deadline - minutes(5)), null);
     const withFinish = savedPlan({ finishText: '51.4556,-2.5894' });
-    const allDoneWithFinish = withFinish.order.map((index) => withFinish.locations[index].key);
+    const allDoneWithFinish = withFinish.order.map((index) => withFinish.routeLocations[index].key);
     assert.match(timeWarning(withFinish, allDoneWithFinish, withFinish.deadline - minutes(5)).message, /^Head to the finish now/);
   });
 
@@ -287,8 +287,8 @@ describe('timeWarning', () => {
   });
 
   test("doesn't warn straight away when the must-visit locations make the plan late", () => {
-    const locations = pinnedRows().map((record) => ({ ...record, isMustVisit: true }));
-    const plan = planFromSetup({ event: { ...defaultState().event, startTime: '15:30' }, locations, settings: defaultState().settings, now }).plan;
+    const setupLocations = pinnedRows().map((setupLocation) => ({ ...setupLocation, isMustVisit: true }));
+    const plan = planFromSetup({ event: { ...defaultState().event, startTime: '15:30' }, setupLocations, settings: defaultState().settings, now }).plan;
     assert.equal(plan.isMustVisitLate, true);
     assert.ok(plan.spareSeconds < 0);
     assert.equal(timeWarning(plan, [], plan.startTime), null);

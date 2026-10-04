@@ -22,7 +22,7 @@ const savedPlan = () => ({
   arrivalTimes: [1],
   endEta: 2,
   spareSeconds: 3,
-  locations: [{ lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: 'a' }],
+  routeLocations: [{ lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: 'a' }],
   start: { lat: 51.4556, lng: -2.5894, label: 'Start', key: 'start' },
   finish: null,
   startTime: 0,
@@ -53,7 +53,7 @@ describe('storage', () => {
     const storage = memoryStorage();
     const state = defaultState();
     state.settings.speedKmh = 3.5;
-    state.locations = [
+    state.setupLocations = [
       { id: 'a', text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
       { id: 'b', text: 'Queen Square, Bristol', isVisited: true },
     ];
@@ -78,10 +78,17 @@ describe('storage', () => {
     }
   });
 
-  test('drops a saved plan that keeps its locations in points, as before they were renamed', () => {
-    const { locations, ...rest } = savedPlan();
-    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), plan: { ...rest, points: locations } }) });
+  test('drops a saved plan that keeps its route locations in points, as before they were renamed', () => {
+    const { routeLocations, ...rest } = savedPlan();
+    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), plan: { ...rest, points: routeLocations } }) });
     assert.equal(loadState(storage).plan, null);
+  });
+
+  test('loads a location list saved as locations, as before it was renamed', () => {
+    const { setupLocations, ...rest } = defaultState();
+    const locations = [{ id: 'a', text: 'Old Kent Road', isMustVisit: true }];
+    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...rest, locations }) });
+    assert.deepEqual(loadState(storage).setupLocations, locations);
   });
 
   test('saves under a single versioned key', () => {
@@ -99,7 +106,7 @@ describe('storage', () => {
   });
 
   test("never saves over state saved by a newer version, and says it's out of date", () => {
-    const newer = JSON.stringify({ version: SCHEMA_VERSION + 1, locations: [{ id: 'a', text: 'A', isMustVisit: true }] });
+    const newer = JSON.stringify({ version: SCHEMA_VERSION + 1, setupLocations: [{ id: 'a', text: 'A', isMustVisit: true }] });
     const storage = memoryStorage({ [STORAGE_KEY]: newer });
     assert.deepEqual(loadState(storage), defaultState());
     assert.equal(isOutOfDate(storage), true);
@@ -124,13 +131,13 @@ describe('storage', () => {
 
   test('fills in missing or invalid fields with the defaults', () => {
     const storage = memoryStorage({
-      [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, settings: { speedKmh: 5.5 }, locations: 'nope', searchResults: [], plan: 'nope' }),
+      [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, settings: { speedKmh: 5.5 }, setupLocations: 'nope', searchResults: [], plan: 'nope' }),
     });
     const state = loadState(storage);
     const defaults = defaultState();
     assert.deepEqual(state.settings, { ...defaults.settings, speedKmh: 5.5 });
     assert.deepEqual(state.event, defaults.event);
-    assert.deepEqual(state.locations, []);
+    assert.deepEqual(state.setupLocations, []);
     assert.deepEqual(state.searchResults, {});
     assert.equal(state.plan, null);
   });
@@ -200,8 +207,8 @@ describe('storage', () => {
 
   test('returns a fresh default state each time', () => {
     const state = defaultState();
-    state.locations.push({ id: 'x', text: 'X' });
-    assert.deepEqual(defaultState().locations, []);
+    state.setupLocations.push({ id: 'x', text: 'X' });
+    assert.deepEqual(defaultState().setupLocations, []);
   });
 });
 
@@ -210,13 +217,13 @@ describe('resetChallenge', () => {
     const state = defaultState();
     state.settings.speedKmh = 3.5;
     state.event = { ...state.event, startText: '51.4556,-2.5894', finishText: '51.4492,-2.5813', startTime: '11:00' };
-    state.locations = [{ id: 'a', text: '51.4545,-2.5879', isVisited: true }];
+    state.setupLocations = [{ id: 'a', text: '51.4545,-2.5879', isVisited: true }];
     state.view = 'map';
     const found = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
     state.searchResults = { [searchKey('Queen Square')]: found, [searchKey('Nowhere')]: { isFound: false, error: 'No match', isTemporary: false } };
     state.plan = { order: [0] };
     const reset = resetChallenge(state);
-    assert.deepEqual(reset.locations, []);
+    assert.deepEqual(reset.setupLocations, []);
     assert.equal(reset.plan, null);
     assert.deepEqual(reset.settings, state.settings);
     assert.deepEqual(reset.event, state.event);
@@ -226,9 +233,9 @@ describe('resetChallenge', () => {
 
   test("doesn't change the original state", () => {
     const state = defaultState();
-    state.locations = [{ id: 'a', text: '51.4545,-2.5879' }];
+    state.setupLocations = [{ id: 'a', text: '51.4545,-2.5879' }];
     resetChallenge(state);
-    assert.equal(state.locations.length, 1);
+    assert.equal(state.setupLocations.length, 1);
   });
 });
 
@@ -323,7 +330,7 @@ describe('loading state saved with schema version 1', () => {
 
   test('drops the location list, the ticks and the plan', () => {
     const state = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(version1) }));
-    assert.deepEqual(state.locations, []);
+    assert.deepEqual(state.setupLocations, []);
     assert.equal(state.doneKeys, undefined);
     assert.equal(state.plan, null);
   });

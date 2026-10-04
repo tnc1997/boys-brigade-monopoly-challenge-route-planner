@@ -1,25 +1,26 @@
 import { searchKey } from './search.js';
 
 /**
- * A location the planner can visit.
+ * A location the route can use, with coordinates: a setup location that's
+ * been pinned, has coordinates or was found, or the route's start or finish.
  *
- * @typedef {object} Location
+ * @typedef {object} RouteLocation
  * @property {number} lat Latitude, from -90 to 90.
  * @property {number} lng Longitude, from -180 to 180.
  * @property {string} label What to call the location: the row's text, or "Location N" for a pinned row without any.
- * @property {string} key A stable key for the location, a v4 UUID. For a row of the location list, it's the row's id, so moving the location doesn't change which location it is. For the start and finish, it's {@link START_KEY} or {@link FINISH_KEY}.
+ * @property {string} key A stable key for the location, a v4 UUID. For a setup location, it's its id, so moving the location doesn't change which location it is. For the start and finish, it's {@link START_KEY} or {@link FINISH_KEY}.
  * @property {string} [matchedName] For a location found by searching, the name of the place that was found, so the team can check it.
  */
 
 /**
- * A row of the location list, as saved. Its text is both what's searched
- * for and the location's name.
+ * A location the team entered in Setup: a row of the location list, as
+ * saved. Its text is both what's searched for and the location's name.
  *
  * Optional fields are left out rather than saved with their default or
  * `null`, so a missing field means its default. Adding one doesn't change
- * the schema version: add it here, and check it in {@link cleanRecords}.
+ * the schema version: add it here, and check it in {@link cleanSetupLocations}.
  *
- * @typedef {object} LocationRecord
+ * @typedef {object} SetupLocation
  * @property {string} id A stable id for the row, a v4 UUID, which ticked-off selfies and plans refer to.
  * @property {string} text The row's text, as typed.
  * @property {import('./planner.js').LatLng} [pin] Where the row was pinned on the map, if it was. A pinned row isn't searched for.
@@ -29,8 +30,9 @@ import { searchKey } from './search.js';
  */
 
 /**
- * Where a row (or the Start or Finish field) is, as far as is known without
- * searching.
+ * The result of getting a route location for a setup location (or the Start
+ * or Finish field): the route location, or why there isn't one yet, as far
+ * as is known without searching.
  *
  * - `empty`: there's no text and no pin, so it's ignored.
  * - `pinned`: it was pinned on the map.
@@ -40,18 +42,9 @@ import { searchKey } from './search.js';
  * - `unknown`: its text hasn't been looked up yet.
  *
  * @typedef {{ status: 'empty' }
- *   | { status: 'pinned' | 'coordinates' | 'found', location: Location }
+ *   | { status: 'pinned' | 'coordinates' | 'found', routeLocation: RouteLocation }
  *   | { status: 'notFound', label: string, error: string }
- *   | { status: 'unknown', label: string, query: string }} Resolved
- */
-
-/**
- * A row of the location list and where it is.
- *
- * @typedef {object} ResolvedRecord
- * @property {LocationRecord} record The row.
- * @property {number} number The row's position in the list, starting at 1.
- * @property {Resolved} resolved Where it is.
+ *   | { status: 'unknown', label: string, query: string }} RouteLocationResult
  */
 
 /** Text that's only coordinates, as `lat,lng` in decimal degrees, with or without a space after the comma. */
@@ -87,21 +80,21 @@ export function newLocationId() {
 }
 
 /**
- * Works out where a row of text is, using its search result if it has one.
- * Text that's only coordinates (like `51.4545,-2.5879`) uses them directly.
- * Any other text is searched for as it is, and is also the name.
+ * Gets the route location for some text, using its search result if it
+ * has one. Text that's only coordinates (like `51.4545,-2.5879`) uses them
+ * directly. Any other text is searched for as it is, and is also the name.
  *
  * @param {string} text The text, as typed.
  * @param {string} key The location's key.
  * @param {import('./search.js').SearchResults} searchResults Search results by {@link searchKey}.
  * @param {object} [options] How to name a location that's only coordinates.
  * @param {string} [options.coordinatesLabel] The name for a location that's only coordinates, like "Start". Defaults to the text.
- * @returns {Resolved} Where it is.
+ * @returns {RouteLocationResult} The route location, or why there isn't one yet.
  * @example
- * resolveText('51.4556,-2.5894', START_KEY, {}, { coordinatesLabel: 'Start' });
- * // { status: 'coordinates', location: { lat: 51.4556, lng: -2.5894, label: 'Start', key: START_KEY } }
+ * routeLocationOfText('51.4556,-2.5894', START_KEY, {}, { coordinatesLabel: 'Start' });
+ * // { status: 'coordinates', routeLocation: { lat: 51.4556, lng: -2.5894, label: 'Start', key: START_KEY } }
  */
-export function resolveText(text, key, searchResults, { coordinatesLabel } = {}) {
+export function routeLocationOfText(text, key, searchResults, { coordinatesLabel } = {}) {
   const label = text.trim();
   if (label === '') {
     return { status: 'empty' };
@@ -118,57 +111,57 @@ export function resolveText(text, key, searchResults, { coordinatesLabel } = {})
     if (lng < -180 || lng > 180) {
       return { status: 'notFound', label, error: `The longitude ${lngText} must be between -180 and 180.` };
     }
-    return { status: 'coordinates', location: { lat, lng, label: coordinatesLabel ?? label, key } };
+    return { status: 'coordinates', routeLocation: { lat, lng, label: coordinatesLabel ?? label, key } };
   }
 
-  const result = searchResults[searchKey(label)];
-  if (!result) {
+  const searchResult = searchResults[searchKey(label)];
+  if (!searchResult) {
     return { status: 'unknown', label, query: label };
   }
-  if (!result.isFound) {
-    return { status: 'notFound', label, error: result.error };
+  if (!searchResult.isFound) {
+    return { status: 'notFound', label, error: searchResult.error };
   }
-  return { status: 'found', location: { lat: result.lat, lng: result.lng, label, key, matchedName: result.name } };
+  return { status: 'found', routeLocation: { lat: searchResult.lat, lng: searchResult.lng, label, key, matchedName: searchResult.name } };
 }
 
 /**
- * Works out where a row of the location list is. A pinned row is where it
- * was pinned, whatever its text, and is called "Location N" if it has no
- * text. Otherwise, the row's text is used as in {@link resolveText}.
+ * Gets the route location for a setup location. A pinned setup location is
+ * where it was pinned, whatever its text, and is called "Location N" if it
+ * has no text. Otherwise, its text is used as in {@link routeLocationOfText}.
  *
- * @param {LocationRecord} record The row.
- * @param {number} number The row's position in the list, starting at 1.
+ * @param {SetupLocation} setupLocation The setup location.
+ * @param {number} number Its position in the location list, starting at 1.
  * @param {import('./search.js').SearchResults} searchResults Search results by {@link searchKey}.
- * @returns {Resolved} Where it is.
+ * @returns {RouteLocationResult} The route location, or why there isn't one yet.
  */
-export function resolveRecord(record, number, searchResults) {
-  if (record.pin) {
-    const label = record.text.trim() || `Location ${number}`;
-    return { status: 'pinned', location: { lat: record.pin.lat, lng: record.pin.lng, label, key: record.id } };
+export function routeLocationOf(setupLocation, number, searchResults) {
+  if (setupLocation.pin) {
+    const label = setupLocation.text.trim() || `Location ${number}`;
+    return { status: 'pinned', routeLocation: { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng, label, key: setupLocation.id } };
   }
-  return resolveText(record.text, record.id, searchResults);
+  return routeLocationOfText(setupLocation.text, setupLocation.id, searchResults);
 }
 
 /**
- * Works out where each row of the location list is.
+ * Gets the route location for each setup location.
  *
- * @param {LocationRecord[]} records The rows, in order.
+ * @param {SetupLocation[]} setupLocations The setup locations, in order.
  * @param {import('./search.js').SearchResults} searchResults Search results by {@link searchKey}.
- * @returns {ResolvedRecord[]} Each row with its position in the list and where it is, in order.
+ * @returns {RouteLocationResult[]} Each one's route location, or why there isn't one yet, in order.
  */
-export function resolveRecords(records, searchResults) {
-  return records.map((record, index) => ({ record, number: index + 1, resolved: resolveRecord(record, index + 1, searchResults) }));
+export function routeLocationsOf(setupLocations, searchResults) {
+  return setupLocations.map((setupLocation, index) => routeLocationOf(setupLocation, index + 1, searchResults));
 }
 
 /**
- * Gets the locations that can be planned: rows that are pinned, have
- * coordinates or were found.
+ * Gets the route locations that can be planned: those of setup locations
+ * that are pinned, have coordinates or were found.
  *
- * @param {ResolvedRecord[]} rows The rows, from {@link resolveRecords}.
- * @returns {Location[]} Their locations, in order.
+ * @param {RouteLocationResult[]} routeLocationResults The results, from {@link routeLocationsOf}.
+ * @returns {RouteLocation[]} Their route locations, in order.
  */
-export function usableLocations(rows) {
-  return rows.flatMap(({ resolved }) => ('location' in resolved ? [resolved.location] : []));
+export function routeLocations(routeLocationResults) {
+  return routeLocationResults.flatMap((routeLocationResult) => ('routeLocation' in routeLocationResult ? [routeLocationResult.routeLocation] : []));
 }
 
 /** The most a location can be worth, so a slip can't make it worth something like 1e+23 points. */
@@ -206,84 +199,84 @@ export function parsePoints(text) {
 }
 
 /**
- * Works out what a row of the location list is worth.
+ * Works out what a setup location is worth.
  *
- * @param {LocationRecord | undefined} record The row, or `undefined` if it's been removed.
+ * @param {SetupLocation | undefined} setupLocation The setup location, or `undefined` if it's been removed.
  * @param {number} pointsPerLocation What a location is worth unless its row says otherwise.
  * @returns {number} Its points.
  */
-export function locationPoints(record, pointsPerLocation) {
-  return record?.points ?? pointsPerLocation;
+export function locationPoints(setupLocation, pointsPerLocation) {
+  return setupLocation?.points ?? pointsPerLocation;
 }
 
 /**
- * Works out what every row of the location list is worth.
+ * Works out what every setup location is worth.
  *
- * @param {LocationRecord[]} records The rows.
+ * @param {SetupLocation[]} setupLocations The setup locations.
  * @param {number} pointsPerLocation What a location is worth unless its row says otherwise.
- * @returns {Map<string, number>} Each row's points by its id.
+ * @returns {Map<string, number>} Each one's points by its id.
  * @example
  * pointsById([{ id: 'a', text: 'A', points: 20 }, { id: 'b', text: 'B' }], 10); // Map { 'a' => 20, 'b' => 10 }
  */
-export function pointsById(records, pointsPerLocation) {
-  return new Map(records.map((record) => [record.id, locationPoints(record, pointsPerLocation)]));
+export function pointsById(setupLocations, pointsPerLocation) {
+  return new Map(setupLocations.map((setupLocation) => [setupLocation.id, locationPoints(setupLocation, pointsPerLocation)]));
 }
 
 /**
- * Whether scores vary, so points are worth showing: when any row has its
- * own points. Until then, every location is worth the same, so the route
- * looks as it does without points.
+ * Whether any setup location has its own points, so points are worth
+ * showing. Until then, every location is worth the same, so the route looks
+ * as it does without points.
  *
- * @param {LocationRecord[]} records The rows.
- * @returns {boolean} Whether any row has its own points.
+ * @param {SetupLocation[]} setupLocations The setup locations.
+ * @returns {boolean} Whether any of them has its own points.
  */
-export function isScored(records) {
-  return records.some(({ points }) => points !== undefined);
+export function hasOwnPoints(setupLocations) {
+  return setupLocations.some(({ points }) => points !== undefined);
 }
 
 /**
- * Gets the keys of the rows that have been visited, whose selfie has been taken.
+ * Gets the keys of the setup locations that have been visited, whose selfie has been taken.
  *
- * @param {LocationRecord[]} records The rows.
- * @returns {string[]} Their ids, which are their locations' keys.
+ * @param {SetupLocation[]} setupLocations The setup locations.
+ * @returns {string[]} Their ids, which are their route locations' keys.
  */
-export function visitedKeys(records) {
-  return records.filter(({ isVisited }) => isVisited).map(({ id }) => id);
+export function visitedKeys(setupLocations) {
+  return setupLocations.filter(({ isVisited }) => isVisited).map(({ id }) => id);
 }
 
 /**
- * Cleans up saved rows of the location list, dropping anything that isn't a
- * row and rows with no text and no pin, so the app can rely on their shape.
+ * Cleans up saved setup locations, dropping anything that isn't one and
+ * those with no text and no pin, so the app can rely on their shape.
  * Optional fields are only kept when they're valid, so an invalid one
  * falls back to its default, and unknown fields are dropped.
  *
- * @param {unknown} records The rows as saved.
- * @returns {LocationRecord[]} The rows.
+ * @param {unknown} setupLocations The setup locations as saved.
+ * @returns {SetupLocation[]} The setup locations.
  */
-export function cleanRecords(records) {
-  if (!Array.isArray(records)) {
+export function cleanSetupLocations(setupLocations) {
+  if (!Array.isArray(setupLocations)) {
     return [];
   }
   const isCoordinate = (value, limit) => typeof value === 'number' && Math.abs(value) <= limit;
   const ids = new Set();
-  return records.flatMap((record) => {
-    if (typeof record?.id !== 'string' || typeof record.text !== 'string' || ids.has(record.id)) {
+  return setupLocations.flatMap((setupLocation) => {
+    if (typeof setupLocation?.id !== 'string' || typeof setupLocation.text !== 'string' || ids.has(setupLocation.id)) {
       return [];
     }
-    ids.add(record.id);
-    /** @type {LocationRecord} */
-    const cleaned = { id: record.id, text: record.text };
-    if (isCoordinate(record.pin?.lat, 90) && isCoordinate(record.pin?.lng, 180)) {
-      cleaned.pin = { lat: record.pin.lat, lng: record.pin.lng };
+    ids.add(setupLocation.id);
+    /** @type {SetupLocation} */
+    const cleaned = { id: setupLocation.id, text: setupLocation.text };
+    if (isCoordinate(setupLocation.pin?.lat, 90) && isCoordinate(setupLocation.pin?.lng, 180)) {
+      cleaned.pin = { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng };
     }
-    if (record.isVisited === true) {
+    if (setupLocation.isVisited === true) {
       cleaned.isVisited = true;
     }
-    if (record.isMustVisit === true) {
+    if (setupLocation.isMustVisit === true) {
       cleaned.isMustVisit = true;
     }
-    if (isPoints(record.points)) {
-      cleaned.points = record.points;
+    if (isPoints(setupLocation.points)) {
+      cleaned.points = setupLocation.points;
     }
     return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
   });

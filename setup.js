@@ -1,4 +1,4 @@
-import { FINISH_KEY, START_KEY, pointsById, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, pointsById, routeLocationOfText, routeLocations, routeLocationsOf, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
 import { SPEED_RANGE } from './settings.js';
 
@@ -9,9 +9,9 @@ import { SPEED_RANGE } from './settings.js';
  * schema may drop a saved plan rather than move it to the new shape.
  *
  * @typedef {import('./planner.js').Plan & {
- *   locations: import('./locations.js').Location[],
- *   start: import('./locations.js').Location,
- *   finish: import('./locations.js').Location | null,
+ *   routeLocations: import('./locations.js').RouteLocation[],
+ *   start: import('./locations.js').RouteLocation,
+ *   finish: import('./locations.js').RouteLocation | null,
  *   startTime: number,
  *   deadline: number,
  *   settings: Pick<import('./storage.js').Settings, 'speedKmh' | 'detourFactor' | 'dwellSeconds' | 'safetyMarginSeconds'>,
@@ -26,25 +26,25 @@ import { SPEED_RANGE } from './settings.js';
  * @typedef {object} SetupResult
  * @property {SavedPlan | null} plan The plan, or `null` if the form has a problem that stops planning.
  * @property {string | null} error What stops planning, or `null` if a plan was made.
- * @property {import('./locations.js').ResolvedRecord[]} rows Every row of the location list and where it is.
- * @property {import('./locations.js').ResolvedRecord[]} leftOut Rows of the location list with text that couldn't be found or hasn't been looked up, so were left out. They don't stop planning.
+ * @property {import('./locations.js').RouteLocationResult[]} routeLocationResults Every setup location's route location, or why there isn't one yet, in list order.
+ * @property {import('./locations.js').RouteLocationResult[]} leftOut The results for setup locations with text that couldn't be found or hasn't been looked up, so were left out. They don't stop planning.
  */
 
 /**
  * Says what's wrong with the Start or Finish field.
  *
  * @param {'Start' | 'Finish'} source Which field it is.
- * @param {import('./locations.js').Resolved} resolved Where the field is.
+ * @param {import('./locations.js').RouteLocationResult} routeLocationResult The field's route location, or why there isn't one yet.
  * @returns {string | null} What's wrong, or `null` if it can be used.
  */
-function fieldError(source, resolved) {
-  switch (resolved.status) {
+function fieldError(source, routeLocationResult) {
+  switch (routeLocationResult.status) {
     case 'empty':
       return `${source}: Enter where the route ${source === 'Start' ? 'starts' : 'finishes'}.`;
     case 'notFound':
-      return `${source}: ${resolved.error}`;
+      return `${source}: ${routeLocationResult.error}`;
     case 'unknown':
-      return `${source}: "${resolved.label}" couldn't be looked up. Check you have signal and try again, or enter its coordinates.`;
+      return `${source}: "${routeLocationResult.label}" couldn't be looked up. Check you have signal and try again, or enter its coordinates.`;
     default:
       return null;
   }
@@ -75,7 +75,7 @@ export function timeToday(time, now) {
  * returned so they can be listed, but don't stop the rest from being
  * planned. The route earns the most points it can, with each location
  * worth its row's points, or the event's Points per location if the row
- * doesn't say. Locations whose selfie is done are kept in the plan's `locations`
+ * doesn't say. Locations whose selfie is done are kept in the plan's `routeLocations`
  * but left out of the route. Must-visit locations still to visit are always
  * in the route, and the plan's `isMustVisitLate` says when they don't all fit
  * before the deadline minus the safety margin.
@@ -86,31 +86,31 @@ export function timeToday(time, now) {
  *
  * @param {object} options The event's details, location list and settings.
  * @param {import('./storage.js').EventDetails} options.event The event's details.
- * @param {import('./locations.js').LocationRecord[]} options.locations The location list.
+ * @param {import('./locations.js').SetupLocation[]} options.setupLocations The location list.
  * @param {import('./storage.js').Settings} options.settings The team's own settings for planning.
  * @param {number} options.now The current time, in milliseconds since the Unix epoch.
  * @param {import('./search.js').SearchResults} [options.searchResults={}] Search results for addresses and place names, by `searchKey`.
  * @param {import('./planner.js').LatLng | null} [options.from=null] The team's current position, to re-plan from.
  * @returns {SetupResult} The plan, or what stops planning, and the rows left out.
  */
-export function planFromSetup({ event, locations, settings, now, from = null, searchResults = {} }) {
-  const rows = resolveRecords(locations, searchResults);
-  const leftOut = rows.filter(({ resolved }) => resolved.status === 'notFound' || resolved.status === 'unknown');
-  const failure = (error) => ({ plan: null, error, rows, leftOut });
+export function planFromSetup({ event, setupLocations, settings, now, from = null, searchResults = {} }) {
+  const routeLocationResults = routeLocationsOf(setupLocations, searchResults);
+  const leftOut = routeLocationResults.filter(({ status }) => status === 'notFound' || status === 'unknown');
+  const failure = (error) => ({ plan: null, error, routeLocationResults, leftOut });
 
-  const usable = usableLocations(rows);
+  const usable = routeLocations(routeLocationResults);
   if (usable.length === 0) {
     return failure('Add at least one location that can be found, or pin one on the map.');
   }
 
   const start = from
-    ? { status: 'pinned', location: { lat: from.lat, lng: from.lng, label: 'Your position', key: START_KEY } }
-    : resolveText(event.startText, START_KEY, searchResults, { coordinatesLabel: 'Start' });
+    ? { status: 'pinned', routeLocation: { lat: from.lat, lng: from.lng, label: 'Your position', key: START_KEY } }
+    : routeLocationOfText(event.startText, START_KEY, searchResults, { coordinatesLabel: 'Start' });
   const startError = fieldError('Start', start);
   if (startError) {
     return failure(startError);
   }
-  const finish = event.finishText.trim() === '' ? null : resolveText(event.finishText, FINISH_KEY, searchResults, { coordinatesLabel: 'Finish' });
+  const finish = event.finishText.trim() === '' ? null : routeLocationOfText(event.finishText, FINISH_KEY, searchResults, { coordinatesLabel: 'Finish' });
   const finishError = finish && fieldError('Finish', finish);
   if (finishError) {
     return failure(finishError);
@@ -140,41 +140,41 @@ export function planFromSetup({ event, locations, settings, now, from = null, se
     dwellSeconds: settings.dwellSeconds,
     safetyMarginSeconds: settings.safetyMarginSeconds,
   };
-  // Plan only the locations still to visit, then map the result back to
-  // indexes into every location, leaving done ones out of `skipped`.
-  const done = new Set(visitedKeys(locations));
-  const remaining = usable.map((location, index) => ({ location, index })).filter(({ location }) => !done.has(location.key));
+  // Plan only the locations still to visit, then map the plan back to
+  // indexes into every route location, leaving done ones out of `skipped`.
+  const done = new Set(visitedKeys(setupLocations));
+  const remaining = usable.map((routeLocation, index) => ({ routeLocation, index })).filter(({ routeLocation }) => !done.has(routeLocation.key));
   // Only locations still to visit can be must-visit, since a ticked-off one
   // has already been visited.
-  const mustVisitKeys = new Set(locations.filter(({ isMustVisit }) => isMustVisit).map(({ id }) => id));
-  const pointsByKey = pointsById(locations, event.pointsPerLocation);
-  const result = plan({
-    start: start.location,
-    locations: remaining.map(({ location }) => location),
-    points: remaining.map(({ location }) => pointsByKey.get(location.key)),
-    mustVisit: remaining.flatMap(({ location }, index) => (mustVisitKeys.has(location.key) ? [index] : [])),
-    finish: finish?.location ?? null,
+  const mustVisitKeys = new Set(setupLocations.filter(({ isMustVisit }) => isMustVisit).map(({ id }) => id));
+  const pointsByKey = pointsById(setupLocations, event.pointsPerLocation);
+  const planned = plan({
+    start: start.routeLocation,
+    locations: remaining.map(({ routeLocation }) => routeLocation),
+    points: remaining.map(({ routeLocation }) => pointsByKey.get(routeLocation.key)),
+    mustVisit: remaining.flatMap(({ routeLocation }, index) => (mustVisitKeys.has(routeLocation.key) ? [index] : [])),
+    finish: finish?.routeLocation ?? null,
     startTime,
     deadline,
     ...planSettings,
   });
-  const toLocationIndex = (index) => remaining[index].index;
+  const toRouteLocationIndex = (index) => remaining[index].index;
 
   return {
     plan: {
-      ...result,
-      order: result.order.map(toLocationIndex),
-      skipped: result.skipped.map(toLocationIndex),
-      locations: usable,
-      start: start.location,
-      finish: finish?.location ?? null,
+      ...planned,
+      order: planned.order.map(toRouteLocationIndex),
+      skipped: planned.skipped.map(toRouteLocationIndex),
+      routeLocations: usable,
+      start: start.routeLocation,
+      finish: finish?.routeLocation ?? null,
       startTime,
       deadline,
       settings: planSettings,
       isFromPosition: from !== null,
     },
     error: null,
-    rows,
+    routeLocationResults,
     leftOut,
   };
 }
@@ -186,18 +186,18 @@ export function planFromSetup({ event, locations, settings, now, from = null, se
  *
  * @param {object} options The event's details and location list.
  * @param {import('./storage.js').EventDetails} options.event The event's details.
- * @param {import('./locations.js').LocationRecord[]} options.locations The location list.
+ * @param {import('./locations.js').SetupLocation[]} options.setupLocations The location list.
  * @param {import('./search.js').SearchResults} [options.searchResults={}] Search results already known, by `searchKey`.
  * @param {boolean} [options.isFromPosition=false] Whether the route starts from the team's position, so the Start field isn't used.
  * @returns {string[]} The addresses and place names to look up.
  */
-export function searchesNeeded({ event, locations, searchResults = {}, isFromPosition = false }) {
-  const resolved = [
-    ...resolveRecords(locations, searchResults).map((row) => row.resolved),
-    ...(isFromPosition ? [] : [resolveText(event.startText, START_KEY, searchResults, { coordinatesLabel: 'Start' })]),
-    resolveText(event.finishText, FINISH_KEY, searchResults, { coordinatesLabel: 'Finish' }),
+export function searchesNeeded({ event, setupLocations, searchResults = {}, isFromPosition = false }) {
+  const routeLocationResults = [
+    ...routeLocationsOf(setupLocations, searchResults),
+    ...(isFromPosition ? [] : [routeLocationOfText(event.startText, START_KEY, searchResults, { coordinatesLabel: 'Start' })]),
+    routeLocationOfText(event.finishText, FINISH_KEY, searchResults, { coordinatesLabel: 'Finish' }),
   ];
-  return resolved.flatMap((result) => (result.status === 'unknown' ? [result.query] : []));
+  return routeLocationResults.flatMap((routeLocationResult) => (routeLocationResult.status === 'unknown' ? [routeLocationResult.query] : []));
 }
 
 /**
