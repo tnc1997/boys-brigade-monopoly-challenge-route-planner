@@ -76,6 +76,10 @@ describe('storage', () => {
     assert.equal(state.plan, null);
   });
 
+  test('has no check-in form by default', () => {
+    assert.equal(defaultState().settings.checkInFormUrl, '');
+  });
+
   test('saves and loads the check-in form URL', () => {
     const storage = memoryStorage();
     const state = defaultState();

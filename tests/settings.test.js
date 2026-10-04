@@ -71,8 +71,4 @@ describe('checkInFormUrl', () => {
       assert.equal(checkInFormUrl(text), null, text);
     }
   });
-
-  test('has no check-in form by default', () => {
-    assert.equal(defaultState().settings.checkInFormUrl, '');
-  });
 });
