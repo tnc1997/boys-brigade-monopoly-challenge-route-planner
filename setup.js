@@ -5,6 +5,8 @@ import { SPEED_RANGE } from './settings.js';
 /**
  * A plan together with the locations and times it was made from, so it can
  * be shown again after the setup form has changed or the page has reloaded.
+ * It's a snapshot that planning can always make again, so a change to the
+ * schema may drop a saved plan rather than move it to the new shape.
  *
  * @typedef {import('./planner.js').Plan & {
  *   points: import('./locations.js').Location[],
@@ -13,9 +15,9 @@ import { SPEED_RANGE } from './settings.js';
  *   startTime: number,
  *   deadline: number,
  *   settings: Pick<import('./storage.js').Settings, 'speedKmh' | 'detourFactor' | 'dwellSeconds' | 'safetyMarginSeconds'>,
- *   isFromPosition?: boolean,
+ *   isFromPosition: boolean,
  * }} SavedPlan
- * `isFromPosition` is whether the plan was made with Re-plan from here. Plans saved before it existed don't have it.
+ * `isFromPosition` is whether the plan was made with Re-plan from here.
  */
 
 /**

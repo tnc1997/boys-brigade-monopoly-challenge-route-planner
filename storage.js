@@ -54,6 +54,9 @@ export const LEGACY_STORAGE_KEYS = ['monopoly-challenge-planner'];
 /**
  * The current schema version. Increase it when the shape of {@link AppState}
  * changes, and move state saved with the previous version in {@link loadState}.
+ * The saved plan can be dropped rather than moved, since planning can make it
+ * again. Adding an optional field to a row of the location list doesn't
+ * change the version (see `LocationRecord`).
  * Version 1 kept the location list as text, one location per line.
  */
 export const SCHEMA_VERSION = 2;
@@ -102,6 +105,27 @@ function browserStorage() {
 }
 
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+/**
+ * Checks that a saved plan has the shape the app relies on to show it, so
+ * a plan saved by another version, or damaged, is dropped rather than
+ * stopping the route being shown.
+ *
+ * @param {unknown} plan The plan as saved.
+ * @returns {plan is import('./setup.js').SavedPlan} Whether it can be used.
+ */
+function isSavedPlan(plan) {
+  const isNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+  return (
+    isObject(plan) &&
+    ['order', 'skipped', 'arrivalTimes', 'points'].every((key) => Array.isArray(plan[key])) &&
+    ['startTime', 'deadline', 'endEta', 'spareSeconds'].every((key) => isNumber(plan[key])) &&
+    isObject(plan.start) &&
+    (plan.finish === null || isObject(plan.finish)) &&
+    isObject(plan.settings) &&
+    typeof plan.isFromPosition === 'boolean'
+  );
+}
 
 /**
  * Takes a saved group of fields, such as the settings, keeping each field
@@ -159,7 +183,7 @@ export function loadState(storage = browserStorage()) {
     locations: cleanRecords(saved.locations),
     view: saved.view === 'map' ? 'map' : 'list',
     searchResults: isObject(saved.searchResults) ? saved.searchResults : {},
-    plan: isObject(saved.plan) ? saved.plan : null,
+    plan: isSavedPlan(saved.plan) ? saved.plan : null,
   };
 }
 

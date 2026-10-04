@@ -15,6 +15,22 @@ const memoryStorage = (initial = {}) => {
   };
 };
 
+/** A plan with every field the app needs to show it. */
+const savedPlan = () => ({
+  order: [0],
+  skipped: [],
+  arrivalTimes: [1],
+  endEta: 2,
+  spareSeconds: 3,
+  points: [{ lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: 'a' }],
+  start: { lat: 51.4556, lng: -2.5894, label: 'Start', key: 'start' },
+  finish: null,
+  startTime: 0,
+  deadline: 4,
+  settings: { speedKmh: 4.5, detourFactor: 1.3, dwellSeconds: 180, safetyMarginSeconds: 900 },
+  isFromPosition: false,
+});
+
 /** A storage that throws on every call, like a blocked or full localStorage. */
 const throwingStorage = {
   getItem: () => {
@@ -41,9 +57,25 @@ describe('storage', () => {
       { id: 'a', text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
       { id: 'b', text: 'Queen Square, Bristol', isVisited: true },
     ];
-    state.plan = { order: [0], arrivalTimes: [1], endEta: 2, spareSeconds: 3, skipped: [] };
+    state.plan = savedPlan();
     assert.equal(saveState(state, storage), true);
     assert.deepEqual(loadState(storage), state);
+  });
+
+  test("drops a saved plan that doesn't have the shape needed to show it", () => {
+    const broken = [
+      'nope',
+      { ...savedPlan(), settings: undefined },
+      { ...savedPlan(), order: 'x' },
+      { ...savedPlan(), deadline: null },
+      { ...savedPlan(), start: null },
+      { ...savedPlan(), finish: undefined },
+      { ...savedPlan(), isFromPosition: undefined },
+    ];
+    for (const plan of broken) {
+      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), plan }) });
+      assert.equal(loadState(storage).plan, null, JSON.stringify(plan));
+    }
   });
 
   test('saves under a single versioned key', () => {

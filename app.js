@@ -385,7 +385,7 @@ function buildRows() {
 /** Redraws the map if the locations not in the route yet have changed, or been renamed, so typing doesn't keep rebuilding it or closing an open popup. */
 function updateMapIfChanged() {
   const locations = usableLocations(resolveRecords(state.locations, state.searchResults));
-  if (newLocationsText(newLocationMarkers(locations, currentPlan())) !== drawnNewLocations) {
+  if (newLocationsText(newLocationMarkers(locations, state.plan)) !== drawnNewLocations) {
     updateMap();
   }
 }
@@ -610,15 +610,6 @@ function newLocationsText(markers) {
 }
 
 /**
- * The current plan, if there is a usable one.
- *
- * @returns {import('./setup.js').SavedPlan | null} The plan, or `null` if there isn't one or it was saved by an older version without settings.
- */
-function currentPlan() {
-  return state.plan?.settings ? state.plan : null;
-}
-
-/**
  * Shows what stops planning, or hides the message.
  *
  * @param {string | null} error The message, or `null` to hide it.
@@ -735,7 +726,7 @@ function showCountdown() {
 function showTime() {
   showCountdown();
   // Redraw the route when the day changes, so an older plan gets its note.
-  if (state.plan?.settings && isPlanForToday(state.plan, Date.now()) !== wasPlanForToday) {
+  if (state.plan && isPlanForToday(state.plan, Date.now()) !== wasPlanForToday) {
     showPlan();
   }
   showTimeWarning();
@@ -748,7 +739,7 @@ function showTime() {
  * its numbers, and cleared once read so it can't disagree with the banner.
  */
 function showTimeWarning() {
-  const warning = state.plan?.settings ? timeWarning(state.plan, visitedKeys(state.locations), Date.now()) : null;
+  const warning = state.plan ? timeWarning(state.plan, visitedKeys(state.locations), Date.now()) : null;
   timeWarningText.textContent = warning?.message ?? '';
   timeWarningBanner.classList.toggle('hidden', warning === null);
   const wording = warning ? warning.message.replace(/\d+/g, '#') : null;
@@ -765,8 +756,7 @@ function showTimeWarning() {
 /** Shows the current plan as a list of stops, then any skipped and done locations. */
 function showPlan() {
   const { plan } = state;
-  // Plans saved before walk settings were kept with the plan can't be shown, so they need planning again.
-  const hasPlan = Boolean(plan?.settings);
+  const hasPlan = plan !== null;
   replan.classList.toggle('hidden', !hasPlan);
   replan.classList.toggle('flex', hasPlan);
   updateMap();
@@ -1173,7 +1163,7 @@ function updateMap() {
   if (!routeMap || mapContainer.closest('[hidden]')) {
     return;
   }
-  const plan = currentPlan();
+  const { plan } = state;
   const route = plan ? mapRoute(plan, visitedKeys(state.locations), (time) => timeFormat.format(time)) : { path: [], markers: [] };
   const newMarkers = newLocationMarkers(usableLocations(resolveRecords(state.locations, state.searchResults)), plan);
   route.markers.push(...newMarkers);
@@ -1249,7 +1239,7 @@ function stopPinning() {
 function placePin(latLng) {
   const location = pinRow(pinTarget.id, '', latLng);
   stopPinning();
-  const action = state.plan?.settings ? 'Re-plan from here' : 'Plan route';
+  const action = state.plan ? 'Re-plan from here' : 'Plan route';
   showPinStatus(`Pinned ${location.label}. Press ${action} to use the pin in the route.`, location.key);
 }
 
@@ -1269,7 +1259,7 @@ pinDialog.addEventListener('close', () => {
     return;
   }
   const location = pinRow(null, pinLabel.value.trim(), latLng);
-  const action = state.plan?.settings ? 'Re-plan from here' : 'Plan route';
+  const action = state.plan ? 'Re-plan from here' : 'Plan route';
   showPinStatus(`Added ${location.label} to the location list. Press ${action} to include it in the route.`, location.key);
 });
 
@@ -1370,7 +1360,7 @@ settingsButton.addEventListener('click', () => {
   isSelfieTimeEdited = false;
   // Check the link as filled in, since setting a value doesn't fire input.
   checkInFormField.dispatchEvent(new Event('input'));
-  settingsSave.textContent = state.plan?.settings ? 'Save and re-plan' : 'Save';
+  settingsSave.textContent = state.plan ? 'Save and re-plan' : 'Save';
   settingsDialog.showModal();
 });
 
@@ -1432,7 +1422,7 @@ settingsDialog.addEventListener('close', () => {
   }
   // Re-plan with the new settings, keeping ticks: from the Start field if
   // the team hasn't set off yet, otherwise from their position and now.
-  if (state.plan?.settings) {
+  if (state.plan) {
     const now = Date.now();
     // A plan's times are on the day it was made, so only today's counts.
     const isPlanForToday = new Date(state.plan.deadline).toDateString() === new Date(now).toDateString();
@@ -1440,7 +1430,7 @@ settingsDialog.addEventListener('close', () => {
       startTime: state.event.startTime,
       deadline: state.event.deadline,
       hasVisited: state.locations.some(({ isVisited }) => isVisited),
-      isReplannedFromPositionToday: Boolean(state.plan.isFromPosition) && isPlanForToday,
+      isReplannedFromPositionToday: state.plan.isFromPosition && isPlanForToday,
       now,
     });
     if (startingPoint === 'position') {
