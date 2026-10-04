@@ -930,12 +930,12 @@ function showPlan() {
   const { done, total } = progress(plan, visited);
   // Count only stops still to visit, since a stop on this route may have
   // been ticked off since it was planned.
-  const stopsToVisit = route.stops.filter(({ location }) => !visited.includes(location.key)).length;
+  const toVisit = route.stops.filter(({ location }) => !visited.includes(location.key));
+  const stopsToVisit = toVisit.length;
   const remaining = total - done;
   const locations = (count) => (count === 1 ? 'location' : 'locations');
   const visiting = done === 0 ? `${stopsToVisit} of ${total} ${locations(total)}` : `${stopsToVisit} of ${remaining} ${locations(remaining)} still to do`;
   // Points only show once scores vary, so the route otherwise looks as it does without them.
-  const toVisit = route.stops.filter(({ location }) => !visited.includes(location.key));
   const points = isScored(state.locations) ? ` (${plural(totalPoints(toVisit.map(({ location }) => location.key)), 'point')})` : '';
   const summary = element('p', 'text-sm', remaining === 0 && total > 0 ? `All ${total} selfies done!` : `Visiting ${visiting}${points}, ${ending}.`);
   // A plan's times are on the day it was made, so an older plan needs planning again.
