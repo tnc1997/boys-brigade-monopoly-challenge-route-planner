@@ -139,6 +139,14 @@ describe('storage', () => {
     assert.deepEqual(settings, defaults.settings);
   });
 
+  test('makes each location worth 10 points by default, and only loads whole numbers of points', () => {
+    assert.equal(defaultState().event.pointsPerLocation, 10);
+    for (const [pointsPerLocation, expected] of [[20, 20], [0, 0], [2.5, 10], [-5, 10], ['20', 10]]) {
+      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, event: { pointsPerLocation } }) });
+      assert.equal(loadState(storage).event.pointsPerLocation, expected, String(pointsPerLocation));
+    }
+  });
+
   test('has no check-in form by default', () => {
     assert.equal(defaultState().event.checkInFormUrl, '');
   });
@@ -281,6 +289,7 @@ describe('loading state saved with schema version 1', () => {
       startTime: '11:00',
       deadline: '15:30',
       checkInFormUrl: 'https://forms.example.com/check-in',
+      pointsPerLocation: 10,
     });
     assert.deepEqual(state.settings, { speedKmh: 3.5, detourFactor: 1.3, dwellSeconds: 300, safetyMarginSeconds: 900 });
     assert.equal(state.view, 'map');

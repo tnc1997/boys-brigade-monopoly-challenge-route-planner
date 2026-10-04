@@ -1,4 +1,4 @@
-import { cleanRecords } from './locations.js';
+import { cleanRecords, isPoints } from './locations.js';
 import { searchKey } from './search.js';
 import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
 
@@ -24,6 +24,7 @@ import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
  * @property {string} startTime When the route starts, as `HH:MM` local time, or an empty string to start when Plan route is pressed.
  * @property {string} deadline The time the team must have finished by, at the finish if there is one, as `HH:MM` local time.
  * @property {string} checkInFormUrl The organisers' online check-in form, as an http or https URL, or an empty string if there isn't one.
+ * @property {number} pointsPerLocation What each location is worth unless its row says otherwise, a whole number of 0 or more.
  */
 
 /**
@@ -76,6 +77,7 @@ export function defaultState() {
       startTime: '',
       deadline: '16:00',
       checkInFormUrl: '',
+      pointsPerLocation: 10,
     },
     settings: {
       speedKmh: 4.5,
@@ -189,6 +191,9 @@ export function loadState(storage = browserStorage()) {
   const event = withDefaults(defaults.event, saved.event);
   // The form is opened in a new tab, so only ever load an http or https URL.
   event.checkInFormUrl = checkInFormUrl(event.checkInFormUrl) ?? '';
+  if (!isPoints(event.pointsPerLocation)) {
+    event.pointsPerLocation = defaults.event.pointsPerLocation;
+  }
   return {
     version: SCHEMA_VERSION,
     event,

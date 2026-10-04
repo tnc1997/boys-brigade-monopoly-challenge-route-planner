@@ -25,6 +25,7 @@ import { searchKey } from './search.js';
  * @property {import('./planner.js').LatLng} [pin] Where the row was pinned on the map, if it was. A pinned row isn't searched for.
  * @property {true} [isVisited] Whether the location has been visited, with its selfie taken.
  * @property {true} [isMustVisit] Whether the route must include the location, while it's still to visit.
+ * @property {number} [points] What the location is worth, a whole number of 0 or more, if it isn't worth the event's Points per location.
  */
 
 /**
@@ -171,6 +172,59 @@ export function usableLocations(rows) {
 }
 
 /**
+ * Whether a value can be a number of points: a whole number of 0 or more.
+ *
+ * @param {unknown} value The value.
+ * @returns {value is number} Whether it can be.
+ */
+export function isPoints(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+/**
+ * Reads a number of points typed into a field. Blank means the location is
+ * worth the event's Points per location.
+ *
+ * @param {string} text The field's text.
+ * @returns {{ isValid: true, points: number | null } | { isValid: false, error: string }} The points, or `null` for blank, or what's wrong.
+ * @example
+ * parsePoints(' 20 '); // { isValid: true, points: 20 }
+ * parsePoints(''); // { isValid: true, points: null }
+ * parsePoints('2.5'); // { isValid: false, error: 'Enter a whole number of points, 0 or more, or leave it blank.' }
+ */
+export function parsePoints(text) {
+  const trimmed = text.trim();
+  if (trimmed === '') {
+    return { isValid: true, points: null };
+  }
+  const points = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN;
+  return isPoints(points) ? { isValid: true, points } : { isValid: false, error: 'Enter a whole number of points, 0 or more, or leave it blank.' };
+}
+
+/**
+ * Works out what a row of the location list is worth.
+ *
+ * @param {LocationRecord | undefined} record The row, or `undefined` if it's been removed.
+ * @param {number} pointsPerLocation What a location is worth unless its row says otherwise.
+ * @returns {number} Its points.
+ */
+export function locationPoints(record, pointsPerLocation) {
+  return record?.points ?? pointsPerLocation;
+}
+
+/**
+ * Whether scores vary, so points are worth showing: when any row has its
+ * own points. Until then, every location is worth the same, so the route
+ * looks as it does without points.
+ *
+ * @param {LocationRecord[]} records The rows.
+ * @returns {boolean} Whether any row has its own points.
+ */
+export function isScored(records) {
+  return records.some(({ points }) => points !== undefined);
+}
+
+/**
  * Gets the keys of the rows that have been visited, whose selfie has been taken.
  *
  * @param {LocationRecord[]} records The rows.
@@ -210,6 +264,9 @@ export function cleanRecords(records) {
     }
     if (record.isMustVisit === true) {
       cleaned.isMustVisit = true;
+    }
+    if (isPoints(record.points)) {
+      cleaned.points = record.points;
     }
     return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
   });
