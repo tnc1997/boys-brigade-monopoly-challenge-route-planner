@@ -1190,6 +1190,9 @@ async function planRoute(from) {
     showSetupError(result.error);
     showPlanStatus(result.plan ? planResultText(result) : null, Boolean(result.plan?.isMustVisitLate));
     if (result.plan) {
+      // The route now uses the rows' points, so it no longer needs the
+      // pending message to re-plan for them.
+      clearTimeout(pointsTimer);
       state.plan = result.plan;
       saveState(state);
       shouldFitMap = true;
