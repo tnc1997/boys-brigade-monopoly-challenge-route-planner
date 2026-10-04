@@ -671,6 +671,13 @@ locationRows.addEventListener('change', (event) => {
     }
     return;
   }
+  // An invalid value isn't saved, so when the field is left with one, put
+  // back the saved value rather than leave it there, hidden once More closes.
+  if (event.target instanceof HTMLInputElement && event.target.dataset.field === 'points' && !parsePoints(event.target.value).isValid) {
+    event.target.value = row.record.points === undefined ? '' : String(row.record.points);
+    savePoints(row, event.target);
+    return;
+  }
   if (event.target instanceof HTMLInputElement && event.target.dataset.field === 'text') {
     lookUpFinished(resolveRecord(row.record, state.locations.indexOf(row.record) + 1, state.searchResults));
   }
