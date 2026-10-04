@@ -816,20 +816,22 @@ function checkInLink(location, isDone) {
  * points shows straight away, without planning again.
  *
  * @param {string} key The location's key, which is its row's id.
- * @returns {number} Its points.
+ * @returns {number | null} Its points, or `null` if its row has been removed since the route was planned, so it no longer counts.
  */
 function pointsOf(key) {
-  return locationPoints(state.locations.find(({ id }) => id === key), state.event.pointsPerLocation);
+  const record = state.locations.find(({ id }) => id === key);
+  return record ? locationPoints(record, state.event.pointsPerLocation) : null;
 }
 
 /**
- * Adds up what locations are worth.
+ * Adds up what locations are worth, leaving out those whose rows have been
+ * removed.
  *
  * @param {string[]} keys The locations' keys.
  * @returns {number} Their total points.
  */
 function totalPoints(keys) {
-  return keys.reduce((total, key) => total + pointsOf(key), 0);
+  return keys.reduce((total, key) => total + (pointsOf(key) ?? 0), 0);
 }
 
 /**
@@ -841,6 +843,8 @@ function totalPoints(keys) {
  */
 function stopItem(stop, isFinish) {
   const isDone = !isFinish && visitedKeys(state.locations).includes(stop.location.key);
+  // Points show once scores vary, and not for the finish or a removed row.
+  const points = !isFinish && isScored(state.locations) ? pointsOf(stop.location.key) : null;
   const item = element('li', `flex gap-3 rounded-md p-3 ring-1 ${isDone ? 'bg-accent-soft ring-accent-line' : 'ring-line'}`);
   const badgeColours = isFinish ? 'bg-ink text-surface' : isDone ? 'bg-accent-line text-accent-ink' : 'bg-accent text-white';
   const badge = element(
@@ -855,7 +859,7 @@ function stopItem(stop, isFinish) {
   const timing = element(
     'p',
     'text-sm text-muted',
-    `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk${!isFinish && isScored(state.locations) ? ` · ${plural(pointsOf(stop.location.key), 'point')}` : ''}`,
+    `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk${points === null ? '' : ` · ${plural(points, 'point')}`}`,
   );
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
