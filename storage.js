@@ -1,3 +1,5 @@
+import { checkInFormUrl } from './settings.js';
+
 /**
  * Settings for planning, which can be changed during the challenge.
  *
@@ -7,6 +9,7 @@
  * @property {number} dwellSeconds Time spent at each stop taking the selfie, in seconds.
  * @property {number} safetyMarginSeconds Spare time to keep before the deadline, in seconds.
  * @property {string} deadline The time the team must have finished by, as `HH:MM` local time.
+ * @property {string} checkInFormUrl The organisers' online check-in form, as an http or https URL, or an empty string if there isn't one.
  */
 
 /**
@@ -61,6 +64,7 @@ export function defaultState() {
       dwellSeconds: 180,
       safetyMarginSeconds: 900,
       deadline: '16:00',
+      checkInFormUrl: '',
     },
     setup: {
       locationsText: '',
@@ -115,9 +119,12 @@ export function loadState(storage = browserStorage()) {
   if (!isObject(saved) || saved.version !== SCHEMA_VERSION) {
     return defaults;
   }
+  const settings = { ...defaults.settings, ...(isObject(saved.settings) ? saved.settings : {}) };
+  // The form is opened in a new tab, so only ever load an http or https URL.
+  settings.checkInFormUrl = (typeof settings.checkInFormUrl === 'string' && checkInFormUrl(settings.checkInFormUrl)) || '';
   return {
     version: SCHEMA_VERSION,
-    settings: { ...defaults.settings, ...(isObject(saved.settings) ? saved.settings : {}) },
+    settings,
     setup: { ...defaults.setup, ...(isObject(saved.setup) ? saved.setup : {}) },
     doneKeys: Array.isArray(saved.doneKeys) ? saved.doneKeys.filter((key) => typeof key === 'string') : [],
     view: saved.view === 'map' ? 'map' : 'list',

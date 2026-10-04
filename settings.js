@@ -45,3 +45,29 @@ export function settingsSummary({ speedKmh, dwellSeconds }) {
   const selfie = Number.isFinite(minutes) ? `${Number.isInteger(minutes) ? minutes : minutes.toFixed(1)} min/selfie` : 'selfie time not set';
   return `${preset ? `${preset.name} ` : ''}${speed} · ${selfie}`;
 }
+
+/**
+ * Reads a check-in form URL as typed in the settings panel. Only http and
+ * https links are accepted, since the form is opened in a new tab and other
+ * schemes (such as `javascript:`) could run code or fail to open.
+ *
+ * @param {string} text The URL as typed.
+ * @returns {string | null} The URL, an empty string if none was given, or `null` if it isn't an http or https URL.
+ * @example
+ * checkInFormUrl(' https://forms.example.com/check-in '); // 'https://forms.example.com/check-in'
+ * checkInFormUrl(''); // ''
+ * checkInFormUrl('javascript:alert(1)'); // null
+ */
+export function checkInFormUrl(text) {
+  const trimmed = text.trim();
+  if (trimmed === '') {
+    return '';
+  }
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+}

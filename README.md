@@ -56,7 +56,7 @@ Press **Re-plan from here** at any time. It plans again from where you are now a
 - **After a bus or train:** re-plan from where you get off.
 - **When you're running behind,** or the red banner says so.
 - **When the pace changes,** for example if people leave or the group tires. Open **⚙ Settings**, choose **Slow** (3.5 km/h), **Medium** (4.5 km/h), **Fast** (5.5 km/h) or use the slider, then press **Save and re-plan**.
-- **When the finish changes.** The settings panel also lets you change the selfie time, safety margin (spare time kept before the deadline), detour factor (how much further walking is than a straight line) and deadline.
+- **When the finish changes.** The settings panel also lets you change the selfie time, safety margin (spare time kept before the deadline), detour factor (how much further walking is than a straight line), deadline and, if the organisers have one, the link to their online check-in form.
 
 The line under the Route heading shows what the plan assumes, such as "Planning for Medium 4.5 km/h · 3 min/selfie".
 
@@ -97,7 +97,7 @@ npm run build # build the minified styles.css
 | `setup.js` | Turning the setup form into a plan |
 | `route.js` | Describing the plan for the list, the map, the warning banner and the countdown |
 | `map.js` | The Leaflet map |
-| `settings.js` | Walking speed presets and the settings summary |
+| `settings.js` | Walking speed presets, the settings summary and checking the check-in form URL |
 | `storage.js` | Saving the state in the browser |
 | `sw.js` | The service worker that keeps the app working offline |
 

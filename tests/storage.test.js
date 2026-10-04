@@ -76,6 +76,21 @@ describe('storage', () => {
     assert.equal(state.plan, null);
   });
 
+  test('saves and loads the check-in form URL', () => {
+    const storage = memoryStorage();
+    const state = defaultState();
+    state.settings.checkInFormUrl = 'https://forms.example.com/check-in';
+    saveState(state, storage);
+    assert.equal(loadState(storage).settings.checkInFormUrl, 'https://forms.example.com/check-in');
+  });
+
+  test('only loads an http or https check-in form URL', () => {
+    for (const checkInFormUrl of ['javascript:alert(1)', 'ftp://example.com', 42, null]) {
+      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, settings: { checkInFormUrl } }) });
+      assert.equal(loadState(storage).settings.checkInFormUrl, '', String(checkInFormUrl));
+    }
+  });
+
   test('only accepts list or map as the view', () => {
     for (const [view, expected] of [['map', 'map'], ['list', 'list'], ['table', 'list'], [undefined, 'list']]) {
       const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, view }) });
