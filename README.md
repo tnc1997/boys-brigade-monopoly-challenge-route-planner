@@ -56,7 +56,7 @@ Press **Re-plan from here** at any time. It plans again from where you are now a
 - **After a bus or train:** re-plan from where you get off.
 - **When you're running behind,** or the red banner says so.
 - **When the pace changes,** for example if people leave or the group tires. Open **⚙ Settings**, choose **Slow** (3.5 km/h), **Medium** (4.5 km/h), **Fast** (5.5 km/h) or use the slider, then press **Save and re-plan**.
-- **When the finish changes.** The settings panel also lets you change the selfie time, safety margin (spare time kept before the deadline), detour factor (how much further walking is than a straight line), deadline and, if the organisers have one, the link to their online check-in form.
+- **When the finish changes.** The settings panel also lets you change the selfie time, safety margin (spare time kept before the deadline), detour factor (how much further walking is than a straight line) and deadline. It also has a place for the link to the organisers' online check-in form, for a Check in button that's coming soon.
 
 The line under the Route heading shows what the plan assumes, such as "Planning for Medium 4.5 km/h · 3 min/selfie".
 
