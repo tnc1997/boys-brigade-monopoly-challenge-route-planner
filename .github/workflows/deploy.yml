@@ -36,6 +36,19 @@ jobs:
         run: |
           mkdir _site
           cp index.html *.js styles.css _site/
+          # Name the deploy after its files, so a new sw.js saves a complete new set
+          # whenever they change, but a push that doesn't change them (such as to
+          # the README or tests) doesn't ask teams to update.
+          version=$(cd _site && sha256sum * | sha256sum | cut -c1-16)
+          sed -i "s/^const DEPLOY_VERSION = 'local';$/const DEPLOY_VERSION = '${version}';/" _site/sw.js
+          grep -q "^const DEPLOY_VERSION = '${version}';$" _site/sw.js
+          # Mark each file with the deploy, so the service worker can tell when a
+          # server still has a copy from another deploy.
+          for file in _site/*.js; do
+            [ "$file" = _site/sw.js ] || printf '\n// deploy: %s\n' "$version" >> "$file"
+          done
+          printf '\n/* deploy: %s */\n' "$version" >> _site/styles.css
+          printf '<!-- deploy: %s -->\n' "$version" >> _site/index.html
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
 

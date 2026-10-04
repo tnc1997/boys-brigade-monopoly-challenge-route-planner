@@ -55,6 +55,8 @@ let clearAlertTimer;
 let wasPlanForToday = true;
 const countdown = /** @type {HTMLSpanElement} */ (document.getElementById('countdown'));
 const offlineBadge = /** @type {HTMLSpanElement} */ (document.getElementById('offline-badge'));
+const updateAvailable = /** @type {HTMLDivElement} */ (document.getElementById('update-available'));
+const updateReloadButton = /** @type {HTMLButtonElement} */ (document.getElementById('update-reload'));
 const countdownDeadline = /** @type {HTMLSpanElement} */ (document.getElementById('countdown-deadline'));
 
 /** The settings panel's other fields, bound to `state.event` or `state.settings` by their data attributes. */
@@ -1709,10 +1711,73 @@ window.addEventListener('online', () => {
 });
 window.addEventListener('offline', showConnection);
 
+/** The new deploy's service worker, once it's saved its files and is waiting to take over. */
+let waitingWorker = /** @type {ServiceWorker | null} */ (null);
+
+/**
+ * Shows the update prompt for a new deploy. The page keeps the files it
+ * loaded until the team taps Reload, so it never mixes files from two deploys.
+ *
+ * @param {ServiceWorker} worker The new deploy's service worker, which is waiting.
+ */
+function offerUpdate(worker) {
+  // A page that isn't controlled yet loaded its files from the network, and
+  // the first service worker takes over without waiting.
+  if (!navigator.serviceWorker.controller) {
+    return;
+  }
+  waitingWorker = worker;
+  updateAvailable.classList.remove('hidden');
+}
+
+/**
+ * Offers the update once a new deploy's service worker has saved its files.
+ *
+ * @param {ServiceWorker} worker The new deploy's service worker, which is installing.
+ */
+function offerUpdateOnceInstalled(worker) {
+  worker.addEventListener('statechange', () => {
+    if (worker.state === 'installed') {
+      offerUpdate(worker);
+    }
+  });
+}
+
+updateReloadButton.addEventListener('click', () => {
+  updateReloadButton.disabled = true;
+  waitingWorker?.postMessage({ type: 'SKIP_WAITING' });
+});
+
 // Save the app's files so it opens and works without signal after the first visit.
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => {
-    // The app still works online without it.
+  navigator.serviceWorker
+    .register('sw.js')
+    .then((registration) => {
+      if (registration.waiting) {
+        offerUpdate(registration.waiting);
+      }
+      // The browser may have started installing it before the page asked.
+      if (registration.installing) {
+        offerUpdateOnceInstalled(registration.installing);
+      }
+      registration.addEventListener('updatefound', () => {
+        if (registration.installing) {
+          offerUpdateOnceInstalled(registration.installing);
+        }
+      });
+    })
+    .catch(() => {
+      // The app still works online without it.
+    });
+  // Once a new deploy's service worker has taken over, reload every tab
+  // that loaded an older deploy, not just the one where Reload was tapped,
+  // so an old tab can't save its state over the new deploy's. A page that
+  // wasn't controlled loaded its files from the network, so it's up to date.
+  const wasControlled = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (wasControlled) {
+      window.location.reload();
+    }
   });
 }
 
