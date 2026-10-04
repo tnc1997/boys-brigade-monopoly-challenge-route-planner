@@ -1733,6 +1733,19 @@ function offerUpdate(worker) {
   updateAvailable.classList.remove('hidden');
 }
 
+/**
+ * Offers the update once a new deploy's service worker has saved its files.
+ *
+ * @param {ServiceWorker} worker The new deploy's service worker, which is installing.
+ */
+function offerUpdateOnceInstalled(worker) {
+  worker.addEventListener('statechange', () => {
+    if (worker.state === 'installed') {
+      offerUpdate(worker);
+    }
+  });
+}
+
 updateReloadButton.addEventListener('click', () => {
   isUpdating = true;
   updateReloadButton.disabled = true;
@@ -1747,13 +1760,14 @@ if ('serviceWorker' in navigator) {
       if (registration.waiting) {
         offerUpdate(registration.waiting);
       }
+      // The browser may have started installing it before the page asked.
+      if (registration.installing) {
+        offerUpdateOnceInstalled(registration.installing);
+      }
       registration.addEventListener('updatefound', () => {
-        const worker = registration.installing;
-        worker?.addEventListener('statechange', () => {
-          if (worker.state === 'installed') {
-            offerUpdate(worker);
-          }
-        });
+        if (registration.installing) {
+          offerUpdateOnceInstalled(registration.installing);
+        }
       });
     })
     .catch(() => {
