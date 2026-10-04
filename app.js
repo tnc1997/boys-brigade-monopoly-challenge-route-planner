@@ -847,17 +847,6 @@ document.getElementById('new-challenge').addEventListener('click', () => {
 });
 
 /**
- * Describes what the settings panel can change that affects planning, so
- * saving can tell when only the check-in form URL, which doesn't, changed.
- *
- * @returns {string} The planning settings and finish, as JSON.
- */
-function planningInputs() {
-  const { checkInFormUrl: _, ...settings } = state.settings;
-  return JSON.stringify([settings, state.setup.finishText]);
-}
-
-/**
  * Shows a walking speed in the settings panel: the slider, its value and
  * which preset (if any) it matches.
  *
