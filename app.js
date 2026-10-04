@@ -584,6 +584,9 @@ function removeRow(item, record) {
   showRows();
 }
 
+/** Waits for a pause in typing points before showing them in the route. */
+let pointsTimer;
+
 /**
  * Saves the points typed into a row's Points field, or says what's wrong
  * with them on the row, without saving.
@@ -607,8 +610,12 @@ function savePoints({ item, record }, field) {
   }
   saveState(state);
   showRow(item, state.locations.indexOf(record) + 1);
-  // Points are shown from the rows, so the route shows them straight away.
-  showPlan();
+  // Points are shown from the rows, so the route's list shows them once
+  // typing pauses. They don't change the map.
+  clearTimeout(pointsTimer);
+  if (state.plan) {
+    pointsTimer = setTimeout(() => showPlan({ isMapUnchanged: true }), 250);
+  }
 }
 
 locationRows.addEventListener('input', (event) => {
@@ -916,13 +923,21 @@ function showTimeWarning() {
   }
 }
 
-/** Shows the current plan as a list of stops, then any skipped and done locations. */
-function showPlan() {
+/**
+ * Shows the current plan as a list of stops, then any skipped and done
+ * locations, and on the map.
+ *
+ * @param {object} [options] What to leave alone.
+ * @param {boolean} [options.isMapUnchanged=false] Whether only the list has changed, such as a location's points, so the map needn't be redrawn, which would close an open popup.
+ */
+function showPlan({ isMapUnchanged = false } = {}) {
   const { plan } = state;
   const hasPlan = plan !== null;
   replan.classList.toggle('hidden', !hasPlan);
   replan.classList.toggle('flex', hasPlan);
-  updateMap();
+  if (!isMapUnchanged) {
+    updateMap();
+  }
   showTimeWarning();
   if (!hasPlan) {
     stopList.replaceChildren(element('p', 'text-sm text-muted', 'Add your locations above and press Plan route.'));
