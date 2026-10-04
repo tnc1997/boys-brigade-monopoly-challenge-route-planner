@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { parseLocations } from '../locations.js';
-import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning, toggleDone } from '../route.js';
+import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, markDone, newLocationMarkers, plural, progress, timeWarning, toggleDone } from '../route.js';
 import { planFromSetup } from '../setup.js';
 import { defaultState } from '../storage.js';
 
@@ -122,6 +122,22 @@ describe('toggleDone', () => {
   test("doesn't change the original list", () => {
     const doneKeys = ['a'];
     toggleDone(doneKeys, 'b');
+    assert.deepEqual(doneKeys, ['a']);
+  });
+});
+
+describe('markDone', () => {
+  test('marks a location as done', () => {
+    assert.deepEqual(markDone(['a'], 'b'), ['a', 'b']);
+  });
+
+  test('leaves a location that was done as done', () => {
+    assert.deepEqual(markDone(['a', 'b'], 'a'), ['a', 'b']);
+  });
+
+  test("doesn't change the original list", () => {
+    const doneKeys = ['a'];
+    markDone(doneKeys, 'b');
     assert.deepEqual(doneKeys, ['a']);
   });
 });

@@ -47,6 +47,33 @@ export function settingsSummary({ speedKmh, dwellSeconds }) {
 }
 
 /**
+ * The default selfie time. It's longer when there's a check-in form, to
+ * allow for uploading the selfie to it.
+ *
+ * @param {boolean} hasCheckInForm Whether a check-in form URL is set.
+ * @returns {number} The selfie time in seconds.
+ */
+export function defaultDwellSeconds(hasCheckInForm) {
+  return hasCheckInForm ? 300 : 180;
+}
+
+/**
+ * Changes the selfie time to the new default when the check-in form URL is
+ * set or cleared, unless it's been changed from the old default.
+ *
+ * @param {number} dwellSeconds The selfie time in seconds.
+ * @param {boolean} hadCheckInForm Whether a check-in form URL was set.
+ * @param {boolean} hasCheckInForm Whether a check-in form URL is set now.
+ * @returns {number} The selfie time to use, in seconds.
+ * @example
+ * dwellSecondsForCheckInForm(180, false, true); // 300
+ * dwellSecondsForCheckInForm(240, false, true); // 240
+ */
+export function dwellSecondsForCheckInForm(dwellSeconds, hadCheckInForm, hasCheckInForm) {
+  return dwellSeconds === defaultDwellSeconds(hadCheckInForm) ? defaultDwellSeconds(hasCheckInForm) : dwellSeconds;
+}
+
+/**
  * Reads a check-in form URL as typed in the settings panel. Only http and
  * https links are accepted, since the form is opened in a new tab and other
  * schemes (such as `javascript:`) could run code or fail to open.
