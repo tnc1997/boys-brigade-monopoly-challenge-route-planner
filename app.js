@@ -418,10 +418,19 @@ function buildRows() {
   showRows();
 }
 
+/**
+ * Gets the keys of the must-visit rows still to visit.
+ *
+ * @returns {Set<string>} Their ids, which are their locations' keys.
+ */
+function mustVisitKeys() {
+  return new Set(state.locations.filter(({ isMustVisit, isVisited }) => isMustVisit && !isVisited).map(({ id }) => id));
+}
+
 /** Redraws the map if the locations not in the route yet have changed, or been renamed, so typing doesn't keep rebuilding it or closing an open popup. */
 function updateMapIfChanged() {
   const locations = usableLocations(resolveRecords(state.locations, state.searchResults));
-  if (newLocationsText(newLocationMarkers(locations, state.plan)) !== drawnNewLocations) {
+  if (newLocationsText(newLocationMarkers(locations, state.plan, mustVisitKeys())) !== drawnNewLocations) {
     updateMap();
   }
 }
@@ -586,6 +595,11 @@ locationRows.addEventListener('change', (event) => {
     }
     saveState(state);
     showRow(row.item, state.locations.indexOf(row.record) + 1);
+    updateMapIfChanged();
+    // The route only changes when it's planned again.
+    if (state.plan) {
+      showPlanStatus('Press Re-plan from here to update the route with your must-visit locations.');
+    }
     return;
   }
   lookUpFinished(resolveRecord(row.record, state.locations.indexOf(row.record) + 1, state.searchResults));
@@ -1240,7 +1254,7 @@ function updateMap() {
   }
   const { plan } = state;
   const route = plan ? mapRoute(plan, visitedKeys(state.locations), (time) => timeFormat.format(time)) : { path: [], markers: [] };
-  const newMarkers = newLocationMarkers(usableLocations(resolveRecords(state.locations, state.searchResults)), plan);
+  const newMarkers = newLocationMarkers(usableLocations(resolveRecords(state.locations, state.searchResults)), plan, mustVisitKeys());
   route.markers.push(...newMarkers);
   drawnNewLocations = newLocationsText(newMarkers);
   showRoute(routeMap, route, shouldFitMap);

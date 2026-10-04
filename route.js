@@ -211,21 +211,32 @@ export function mapRoute(plan, visitedKeys, formatTime) {
 /**
  * Makes markers for the locations in the location list that aren't in the
  * plan yet, or have moved since it was made, such as a row just added or
- * pinned on the map, so the team can see them before planning again. To
- * remove one, remove its row from the location list.
+ * pinned on the map, so the team can see them before planning again. A
+ * must-visit location that the plan doesn't visit, such as one just marked
+ * Must visit, is marked too. To remove one, remove its row from the
+ * location list.
  *
  * @param {import('./locations.js').Location[]} locations The locations in the location list that can be planned.
  * @param {import('./setup.js').SavedPlan | null} plan The plan, or `null` if there isn't one.
- * @returns {import('./map.js').MapMarker[]} A marker for each location that isn't in the plan, or is somewhere else in it.
+ * @param {Set<string>} [mustVisitKeys] Keys of the must-visit locations still to visit.
+ * @returns {import('./map.js').MapMarker[]} A marker for each location that isn't in the plan, is somewhere else in it, or must be visited but isn't in the route.
  * @example
  * newLocationMarkers([{ lat: 51.45174, lng: -2.6034, label: 'Cabot Tower', key: 'a' }], null);
  * // [{ kind: 'new', location: { lat: 51.45174, … }, label: '+', title: 'Cabot Tower, not in the route yet' }]
  */
-export function newLocationMarkers(locations, plan) {
+export function newLocationMarkers(locations, plan, mustVisitKeys = new Set()) {
   const planned = new Map(plan?.points.map((point) => [point.key, point]));
+  const routeKeys = new Set(plan?.order.map((index) => plan.points[index].key));
+  const isMoved = ({ key, lat, lng }) => planned.get(key)?.lat !== lat || planned.get(key)?.lng !== lng;
+  const isMissingMustVisit = ({ key }) => plan !== null && mustVisitKeys.has(key) && !routeKeys.has(key);
   return locations
-    .filter(({ key, lat, lng }) => planned.get(key)?.lat !== lat || planned.get(key)?.lng !== lng)
-    .map((location) => ({ kind: 'new', location, label: '+', title: `${location.label}, not in the route yet` }));
+    .filter((location) => isMoved(location) || isMissingMustVisit(location))
+    .map((location) => ({
+      kind: 'new',
+      location,
+      label: '+',
+      title: `${location.label}${isMissingMustVisit(location) ? ', must visit' : ''}, not in the route yet`,
+    }));
 }
 
 /**

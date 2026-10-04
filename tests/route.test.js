@@ -203,6 +203,12 @@ describe('newLocationMarkers', () => {
     assert.deepEqual(newLocationMarkers([...plan.points, cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
   });
 
+  test("marks a must-visit location that the plan doesn't visit", () => {
+    const plan = { ...savedPlan(), order: [0], skipped: [1] };
+    const markers = newLocationMarkers(plan.points, plan, new Set([plan.points[0].key, plan.points[1].key]));
+    assert.deepEqual(markers.map(({ title }) => title), ['Temple Meads, must visit, not in the route yet']);
+  });
+
   test('marks a location that has moved since the plan was made, such as when it was pinned', () => {
     const plan = savedPlan();
     const moved = { ...plan.points[0], lat: 51.46 };
