@@ -78,6 +78,12 @@ describe('storage', () => {
     }
   });
 
+  test('drops a saved plan that keeps its locations in points, as before they were renamed', () => {
+    const { locations, ...rest } = savedPlan();
+    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), plan: { ...rest, points: locations } }) });
+    assert.equal(loadState(storage).plan, null);
+  });
+
   test('saves under a single versioned key', () => {
     const storage = memoryStorage();
     saveState(defaultState(), storage);
