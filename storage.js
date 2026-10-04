@@ -55,9 +55,6 @@ export const LEGACY_STORAGE_KEYS = ['monopoly-challenge-planner'];
  */
 export const SCHEMA_VERSION = 2;
 
-/** Castle Park, where the challenge started in 2026, as coordinates. */
-const CASTLE_PARK = '51.4556,-2.5894';
-
 /**
  * Creates the state for a new challenge.
  *
@@ -75,7 +72,8 @@ export function defaultState() {
       checkInFormUrl: '',
     },
     setup: {
-      startText: CASTLE_PARK,
+      // Castle Park, where the challenge started in 2026.
+      startText: '51.4556,-2.5894',
       finishText: '',
       startTimeText: '',
     },
@@ -151,16 +149,21 @@ export function loadState(storage = browserStorage()) {
  * Moves state saved with schema version 1, which kept the location list as
  * text, to the current version. The list was from the 2026 challenge, so it
  * isn't moved to rows, and nor are the ticks and the plan, which refer to
- * it. The settings and the rest of the setup form are kept.
+ * it. The settings and the rest of the setup form are kept, with only the
+ * coordinates from a Start or Finish that had them.
  *
  * @param {Record<string, any>} saved The state as saved with version 1.
  * @returns {Record<string, any>} The state without the location list, still to be checked like any other saved state.
  */
 function fromVersion1(saved) {
   const { locationsText, ...setup } = isObject(saved.setup) ? saved.setup : {};
-  // Version 1 named the default start, which is now only coordinates.
-  if (setup.startText === 'Castle Park 51.4556,-2.5894') {
-    setup.startText = CASTLE_PARK;
+  // Version 1 allowed a name or a Google Maps link around coordinates,
+  // which would now be looked up as text, so keep only the coordinates.
+  for (const field of ['startText', 'finishText']) {
+    const coordinates = typeof setup[field] === 'string' ? setup[field].match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/) : null;
+    if (coordinates) {
+      setup[field] = `${coordinates[1]},${coordinates[2]}`;
+    }
   }
   return { ...saved, setup, locations: [], doneKeys: [], plan: null };
 }

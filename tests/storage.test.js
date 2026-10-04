@@ -225,6 +225,13 @@ describe('loading state saved with schema version 1', () => {
     assert.equal(loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) })).setup.startText, defaultState().setup.startText);
   });
 
+  test('keeps only the coordinates from a start or finish with a name or Google Maps link', () => {
+    const saved = { ...version1, setup: { ...version1.setup, startText: 'Queen Square 51.4512, -2.5973', finishText: 'https://www.google.com/maps?q=51.4517,-2.6034' } };
+    const { setup } = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) }));
+    assert.equal(setup.startText, '51.4512,-2.5973');
+    assert.equal(setup.finishText, '51.4517,-2.6034');
+  });
+
   test('drops the location list, the ticks and the plan', () => {
     const state = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(version1) }));
     assert.deepEqual(state.locations, []);
