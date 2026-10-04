@@ -343,11 +343,16 @@ function showRow(item, number) {
   }
 }
 
+/** Shows the Start and Finish fields' statuses. */
+function showFieldStatuses() {
+  showDescription(startStatus, describeResolved(resolveText(state.setup.startText, 'start', state.searchResults), { canPin: false }));
+  showDescription(finishStatus, describeResolved(resolveText(state.setup.finishText, 'finish', state.searchResults), { canPin: false }));
+}
+
 /** Shows every row's labels and status, and the Start and Finish fields' statuses, and redraws the map if they've changed it. */
 function showRows() {
   [...locationRows.children].forEach((item, index) => showRow(/** @type {HTMLLIElement} */ (item), index + 1));
-  showDescription(startStatus, describeResolved(resolveText(state.setup.startText, 'start', state.searchResults), { canPin: false }));
-  showDescription(finishStatus, describeResolved(resolveText(state.setup.finishText, 'finish', state.searchResults), { canPin: false }));
+  showFieldStatuses();
   updateMapIfChanged();
 }
 
@@ -372,7 +377,9 @@ function updateMapIfChanged() {
 /**
  * Looks up an address or place name, unless it's already being looked up.
  * The result is saved unless the lookup failed for a reason that may pass,
- * such as no signal, in which case it's tried again later.
+ * such as no signal, in which case it's tried again later. Call
+ * {@link showRows} afterwards to show that it's being looked up, once
+ * however many are started.
  *
  * @param {string} query The address or place name.
  * @returns {Promise<void>} Resolves once it's been looked up.
@@ -397,7 +404,6 @@ function lookUp(query) {
     });
     lookups.set(key, lookup);
   }
-  showRows();
   return lookups.get(key);
 }
 
@@ -408,6 +414,7 @@ function retryLookups() {
       lookUp(query);
     }
   }
+  showRows();
 }
 
 /**
@@ -422,6 +429,7 @@ function lookUpFinished(resolved, { canPin = true } = {}) {
   if (resolved.status === 'unknown') {
     announcedLookups.set(searchKey(resolved.query), { label: resolved.label, canPin });
     lookUp(resolved.query);
+    showRows();
   }
 }
 
@@ -878,7 +886,7 @@ form.addEventListener('input', (event) => {
     saveField(event.target);
   }
   if (event.target === startField || event.target === finishField) {
-    showRows();
+    showFieldStatuses();
   }
 });
 
@@ -931,6 +939,7 @@ async function planRoute(from) {
     for (const query of searchesNeeded({ setup: state.setup, locations: state.locations, searchResults: state.searchResults, isFromPosition: from !== null })) {
       lookUp(query);
     }
+    showRows();
     while (lookups.size > 0) {
       planButton.textContent = `Waiting for ${plural(lookups.size, 'search', 'searches')}…`;
       await Promise.race(lookups.values());
