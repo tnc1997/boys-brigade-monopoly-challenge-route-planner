@@ -112,30 +112,6 @@ describe('createSearchQueue', () => {
     assert.deepEqual(clock.waits, [REQUEST_INTERVAL_MS - 1000]);
   });
 
-  test('shares the result of a search already queued with the same key', async () => {
-    const { fetch, urls } = fakeFetch(() => ({ body: [queenSquare] }));
-    const clock = fakeClock();
-    const queue = createSearchQueue({ fetch, now: clock.now, sleep: clock.sleep });
-    const first = queue.search('Queen Square');
-    const second = queue.search(' queen  square ');
-    assert.equal(first, second);
-    assert.equal(queue.size(), 1);
-    await first;
-    assert.equal(urls.length, 1);
-  });
-
-  test('counts the searches queued or being sent, and searches again once one is done', async () => {
-    const { fetch, urls } = fakeFetch(() => ({ body: [queenSquare] }));
-    const clock = fakeClock();
-    const queue = createSearchQueue({ fetch, now: clock.now, sleep: clock.sleep });
-    const searches = [queue.search('Queen Square'), queue.search('Temple Meads')];
-    assert.equal(queue.size(), 2);
-    await Promise.all(searches);
-    assert.equal(queue.size(), 0);
-    await queue.search('Queen Square');
-    assert.equal(urls.length, 3);
-  });
-
   test('keeps going after a search fails', async () => {
     let calls = 0;
     const fetch = async () => {

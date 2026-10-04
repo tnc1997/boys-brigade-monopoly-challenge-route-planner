@@ -107,14 +107,13 @@ export async function searchPlace(query, { fetch = globalThis.fetch } = {}) {
  *
  * @typedef {object} SearchQueue
  * @property {(query: string) => Promise<SearchResult>} search Looks up an address or place name, after any searches already queued.
- * @property {() => number} size How many searches are queued or being sent.
  */
 
 /**
  * Creates a queue that looks up addresses and place names one at a time,
  * with at least {@link REQUEST_INTERVAL_MS} between requests, following
- * Nominatim's usage policy. A search with the same {@link searchKey} as one
- * that's already queued isn't sent again, but shares its result.
+ * Nominatim's usage policy. It sends every search it's given, so don't give
+ * it one that's already queued.
  *
  * @param {object} [options] Options for testing.
  * @param {typeof fetch} [options.fetch] The fetch function to use. Defaults to the global `fetch`.
@@ -130,18 +129,11 @@ export function createSearchQueue({
   now = Date.now,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 } = {}) {
-  /** @type {Map<string, Promise<SearchResult>>} */
-  const queued = new Map();
   let lastRequestTime = -Infinity;
   let tail = Promise.resolve();
 
   return {
     search(query) {
-      const key = searchKey(query);
-      const existing = queued.get(key);
-      if (existing) {
-        return existing;
-      }
       const result = tail.then(async () => {
         const waitMs = lastRequestTime + REQUEST_INTERVAL_MS - now();
         if (waitMs > 0) {
@@ -151,11 +143,7 @@ export function createSearchQueue({
         return searchPlace(query, { fetch });
       });
       tail = result.catch(() => {});
-      queued.set(key, result);
-      const remove = () => queued.delete(key);
-      result.then(remove, remove);
       return result;
     },
-    size: () => queued.size,
   };
 }

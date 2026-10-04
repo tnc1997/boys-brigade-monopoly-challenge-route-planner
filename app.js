@@ -90,7 +90,7 @@ let pinTarget = null;
 /** Sends lookups one at a time, following Nominatim's usage policy. */
 const searchQueue = createSearchQueue();
 
-/** Lookups that are queued or being sent, by search key. */
+/** Lookups that are queued or being sent, by search key, so the same search is only sent once at a time. */
 const lookups = new Map();
 
 /** Why lookups failed for a reason that may pass, such as no signal, by search key. These aren't saved, and are tried again. */
