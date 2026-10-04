@@ -317,7 +317,14 @@ function showRow(item, number) {
   pin.setAttribute('aria-label', `Pin location ${number} on the map`);
   remove.setAttribute('aria-label', `Remove location ${number}`);
   const resolved = record ? resolveRecord(record, number, state.searchResults) : { status: 'empty' };
-  showDescription(status, describeResolved(resolved));
+  const description = describeResolved(resolved);
+  // Only rebuild the status when it changes, so a focused ✕ isn't replaced.
+  const shown = `${number} ${resolved.status} ${description.text}`;
+  if (status.dataset.shown === shown) {
+    return;
+  }
+  status.dataset.shown = shown;
+  showDescription(status, description);
   if (resolved.status === 'pinned') {
     const clear = element('button', 'inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-base text-accent-ink hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent', '✕');
     clear.type = 'button';
