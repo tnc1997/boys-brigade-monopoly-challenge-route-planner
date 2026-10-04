@@ -88,13 +88,15 @@ const BASE = `${ORIGIN}/boys-brigade-monopoly-challenge-route-planner/`;
 const APP_FILE_URLS = listIn('APP_FILES').map((file) => new URL(file, BASE).href);
 
 /**
- * A fake of the site, serving each file with the deploy it came from, or
- * an error for the paths in `failing`.
+ * A fake of the site, serving each file with the deploy it came from, marked
+ * as the Deploy workflow marks it, or an error for the paths in `failing`. A
+ * path in `stale` is served from the deploy given, as a CDN with an old copy would.
  */
 const newServer = (deploy) => {
   const server = {
     deploy,
     failing: new Set(),
+    stale: new Map(),
     requests: [],
     fetch: async (input, init) => {
       const request = new Request(input, init);
@@ -103,7 +105,8 @@ const newServer = (deploy) => {
       if (server.failing.has(pathname)) {
         return new Response('', { status: 503 });
       }
-      return new Response(`${server.deploy} ${pathname}`);
+      const deploy = server.stale.get(pathname) ?? server.deploy;
+      return new Response(`${deploy} ${pathname}\n// deploy: ${deploy}\n`);
     },
   };
   return server;
@@ -131,15 +134,6 @@ const newCacheStorage = () => {
     keys: async () => [...stores.keys()],
     delete: async (name) => stores.delete(name),
     match: async (input, { cacheName }) => stores.get(cacheName)?.get(keyOf(input))?.clone(),
-    /** Adds the files as a whole: if any fails, none are added, like Cache.addAll. */
-    addAllWith: (fetch) => async (name, requests) => {
-      const responses = await Promise.all(requests.map((request) => fetch(request)));
-      if (responses.some((response) => !response.ok)) {
-        throw new TypeError('addAll failed');
-      }
-      const entries = stores.get(name);
-      requests.forEach((request, index) => entries.set(request.url, responses[index]));
-    },
   };
 };
 
@@ -148,13 +142,6 @@ const newWorker = ({ server, cacheStorage, version = server.deploy }) => {
   const listeners = {};
   const worker = { skippedWaiting: false };
   const fetch = (input, init) => server.fetch(input, init);
-  const caches = {
-    ...cacheStorage,
-    open: async (name) => {
-      const cache = await cacheStorage.open(name);
-      return { ...cache, addAll: (requests) => cacheStorage.addAllWith(fetch)(name, requests) };
-    },
-  };
   const self = {
     location: { href: new URL('sw.js', BASE).href },
     addEventListener: (type, listener) => {
@@ -172,7 +159,7 @@ const newWorker = ({ server, cacheStorage, version = server.deploy }) => {
       super(typeof input === 'string' ? new URL(input, self.location.href) : input, init);
     }
   };
-  vm.runInNewContext(source, { self, caches, fetch, Request: WorkerRequest, Response, URL });
+  vm.runInNewContext(source, { self, caches: cacheStorage, fetch, Request: WorkerRequest, Response, URL });
 
   /** Dispatches a lifecycle event, resolving once everything it waits on has finished. */
   const lifecycle = async (type, data) => {
@@ -208,13 +195,33 @@ describe('service worker deploys', () => {
     assert.deepEqual(server.requests, []);
   });
 
-  test("saves the whole set at install, bypassing the browser's HTTP cache", async () => {
+  test("saves the whole set at install, bypassing the browser's HTTP cache and the CDN's copy", async () => {
     const server = newServer('a');
     const cacheStorage = newCacheStorage();
     await newWorker({ server, cacheStorage }).install();
     const appRequests = server.requests.filter((request) => request.url.startsWith(ORIGIN));
-    assert.deepEqual(appRequests.map((request) => request.url).sort(), [...APP_FILE_URLS].sort());
+    assert.deepEqual(appRequests.map((request) => request.url).sort(), APP_FILE_URLS.map((url) => `${url}?v=a`).sort());
     assert.ok(appRequests.every((request) => request.cache === 'reload'));
+    assert.deepEqual([...cacheStorage.stores.get('monopoly-challenge-route-planner-a').keys()].filter((url) => url.startsWith(ORIGIN)).sort(), [...APP_FILE_URLS].sort());
+  });
+
+  test('fails to install, saving nothing, while a server still has a file from the last deploy', async () => {
+    const server = newServer('a');
+    const cacheStorage = newCacheStorage();
+    const a = newWorker({ server, cacheStorage });
+    await a.install();
+    await a.activate();
+    server.deploy = 'b';
+    server.stale.set(new URL('route.js', BASE).pathname, 'a');
+    const b = newWorker({ server, cacheStorage });
+    await assert.rejects(b.install(), /route\.js is from another deploy/);
+    assert.ok(!cacheStorage.stores.has('monopoly-challenge-route-planner-b'));
+    assert.ok((await loadPage(a)).every((file) => file.startsWith('a ')));
+    // Once the CDN catches up, the browser's next try succeeds.
+    server.stale.clear();
+    await b.install();
+    await b.activate();
+    assert.ok((await loadPage(b)).every((file) => file.startsWith('b ')));
   });
 
   test("doesn't mix deploys when a new deploy's files only partly load", async () => {
@@ -228,6 +235,7 @@ describe('service worker deploys', () => {
     server.failing.add(new URL('route.js', BASE).pathname);
     const b = newWorker({ server, cacheStorage });
     await assert.rejects(b.install());
+    assert.ok(!cacheStorage.stores.has('monopoly-challenge-route-planner-b'));
     const files = await loadPage(a);
     assert.ok(files.every((file) => file.startsWith('a ')), files.join('\n'));
   });
@@ -279,8 +287,8 @@ describe('service worker deploys', () => {
     const worker = newWorker({ server, cacheStorage: newCacheStorage() });
     await worker.install();
     server.deploy = 'b';
-    assert.equal(await worker.load(`${BASE}app.js?v=1`), `a ${new URL(BASE).pathname}app.js`);
-    assert.equal(await worker.load(`${BASE}?source=pwa`), `a ${new URL(BASE).pathname}`);
+    assert.match(await worker.load(`${BASE}app.js?v=1`), new RegExp(`^a ${new URL(BASE).pathname}app\\.js\\n`));
+    assert.match(await worker.load(`${BASE}?source=pwa`), new RegExp(`^a ${new URL(BASE).pathname}\\n`));
   });
 
   test('uses the network if the browser has cleared the saved set', async () => {
@@ -310,10 +318,14 @@ describe('service worker deploys', () => {
 });
 
 describe('service worker deploy version', () => {
-  test("is a placeholder the Deploy workflow replaces with a hash of the deploy's files", () => {
+  test("is a placeholder the Deploy workflow replaces with a hash of the deploy's files, and marks each file with", () => {
     assert.match(sw, /^const DEPLOY_VERSION = 'local';$/m);
     const workflow = readFileSync(new URL('.github/workflows/deploy.yml', root), 'utf8');
     assert.match(workflow, /version=\$\(cd _site && sha256sum \* \| sha256sum \| cut -c1-16\)/);
     assert.match(workflow, /sed -i "s\/\^const DEPLOY_VERSION = 'local';\$\/const DEPLOY_VERSION = '\$\{version\}';\/" _site\/sw\.js/);
+    for (const marker of [String.raw`// deploy: %s`, String.raw`/* deploy: %s */`, String.raw`<!-- deploy: %s -->`]) {
+      assert.ok(workflow.includes(marker), `${marker} is missing from the Deploy workflow`);
+    }
+    assert.match(sw, /\.includes\(`deploy: \$\{DEPLOY_VERSION\}`\)/);
   });
 });

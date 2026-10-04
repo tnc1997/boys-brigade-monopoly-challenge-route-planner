@@ -111,6 +111,32 @@ async function saveResponse(key, response) {
 }
 
 /**
+ * Saves the app's files from this deploy, checking each one is. The
+ * browser's HTTP cache is bypassed, and the query string gets past any copy
+ * of the last deploy on GitHub Pages' CDN. Each file is only saved once every
+ * file has loaded, so the cache only ever holds files from this deploy.
+ *
+ * @returns {Promise<void>} Resolves once they're saved, or rejects if any couldn't be loaded or is from another deploy.
+ */
+async function saveAppFiles() {
+  const responses = await Promise.all(
+    APP_FILES.map(async (file) => {
+      const response = await fetch(new Request(`${file}?v=${DEPLOY_VERSION}`, { cache: 'reload' }));
+      if (!response.ok) {
+        throw new TypeError(`${file} couldn't be loaded`);
+      }
+      // The Deploy workflow adds this to the end of each file.
+      if (DEPLOY_VERSION !== 'local' && !(await response.clone().text()).includes(`deploy: ${DEPLOY_VERSION}`)) {
+        throw new TypeError(`${file} is from another deploy`);
+      }
+      return response;
+    }),
+  );
+  const cache = await caches.open(CACHE_NAME);
+  await Promise.all(APP_FILES.map((file, index) => cache.put(new URL(file, self.location.href).href, responses[index])));
+}
+
+/**
  * Makes sure a library file is saved in the current cache. It reuses a
  * copy from this app's other caches, such as the one from before a deploy,
  * and only downloads it if there isn't one. A failure doesn't throw, so the app's own
@@ -137,10 +163,9 @@ async function saveLibraryFile(url) {
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
-      const cache = await caches.open(CACHE_NAME);
-      // All or nothing, bypassing the browser's HTTP cache, so the whole set
-      // comes from this deploy.
-      await cache.addAll(APP_FILES.map((file) => new Request(file, { cache: 'reload' })));
+      // If a server still has a file from another deploy, the install fails
+      // and the browser tries again later.
+      await saveAppFiles();
       await Promise.all(LIBRARY_FILES.map(saveLibraryFile));
       // Otherwise this waits for the page to ask, so the page that's open
       // keeps the set it loaded.
