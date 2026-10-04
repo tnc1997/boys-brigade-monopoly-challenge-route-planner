@@ -847,6 +847,17 @@ document.getElementById('new-challenge').addEventListener('click', () => {
 });
 
 /**
+ * Describes what the settings panel can change that affects planning, so
+ * saving can tell when only the check-in form URL, which doesn't, changed.
+ *
+ * @returns {string} The planning settings and finish, as JSON.
+ */
+function planningInputs() {
+  const { checkInFormUrl: _, ...settings } = state.settings;
+  return JSON.stringify([settings, state.setup.finishText]);
+}
+
+/**
  * Shows a walking speed in the settings panel: the slider, its value and
  * which preset (if any) it matches.
  *
@@ -929,6 +940,8 @@ settingsDialog.addEventListener('close', () => {
   if (settingsDialog.returnValue !== 'save') {
     return;
   }
+  const planningInputsBefore = planningInputs();
+  const checkInFormUrlBefore = state.settings.checkInFormUrl;
   if (isSpeedChanged) {
     state.settings.speedKmh = Number(speedSlider.value);
   }
@@ -951,7 +964,10 @@ settingsDialog.addEventListener('close', () => {
   showCountdown();
   // Re-plan with the new settings, keeping ticks: from the Start field if
   // the team hasn't set off yet, otherwise from their position and now.
-  if (state.plan?.settings) {
+  // Skip it if only the check-in form URL changed, since it doesn't affect
+  // planning, but still re-plan when nothing changed, as the button says.
+  const isOnlyCheckInFormChanged = planningInputs() === planningInputsBefore && state.settings.checkInFormUrl !== checkInFormUrlBefore;
+  if (state.plan?.settings && !isOnlyCheckInFormChanged) {
     const now = Date.now();
     // A plan's times are on the day it was made, so only today's counts.
     const isPlanForToday = new Date(state.plan.deadline).toDateString() === new Date(now).toDateString();
