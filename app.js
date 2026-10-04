@@ -605,7 +605,9 @@ function savePoints({ item, record }, field) {
   field.setAttribute('aria-invalid', String(!parsed.isValid));
   error.textContent = parsed.isValid ? '' : parsed.error;
   error.hidden = parsed.isValid;
-  if (!parsed.isValid || !record) {
+  // Leaving a field with an invalid value puts back the saved points, which
+  // doesn't change them, so there's nothing to re-plan for.
+  if (!parsed.isValid || !record || (parsed.points ?? undefined) === record.points) {
     return;
   }
   if (parsed.points === null) {
@@ -616,10 +618,14 @@ function savePoints({ item, record }, field) {
   saveState(state);
   showRow(item, state.locations.indexOf(record) + 1);
   // Points are shown from the rows, so the route's list shows them once
-  // typing pauses. They don't change the map.
+  // typing pauses. They don't change the map, and the route only changes
+  // when it's planned again.
   clearTimeout(pointsTimer);
   if (state.plan) {
-    pointsTimer = setTimeout(() => showPlan({ isMapUnchanged: true }), 250);
+    pointsTimer = setTimeout(() => {
+      showPlan({ isMapUnchanged: true });
+      showPlanStatus('Press Re-plan from here to update the route with your new points.');
+    }, 250);
   }
 }
 
