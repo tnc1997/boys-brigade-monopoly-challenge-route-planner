@@ -4,7 +4,7 @@ import { FINISH_KEY, START_KEY, newLocationId, resolveRecord, resolveRecords, re
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
-import { defaultState, loadState, resetChallenge, saveState } from './storage.js';
+import { defaultState, isOutOfDate, loadState, resetChallenge, saveState } from './storage.js';
 
 /** The app's state, loaded from the previous visit if there was one. */
 const state = loadState();
@@ -1469,6 +1469,8 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+// Saved state from a newer version can't be read, and isn't saved over.
+document.getElementById('out-of-date').classList.toggle('hidden', !isOutOfDate());
 fillForm();
 showConnection();
 showCountdown();

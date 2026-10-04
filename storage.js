@@ -104,6 +104,15 @@ function browserStorage() {
   }
 }
 
+/**
+ * Storage holding state saved by a newer version of the app, which this
+ * version can't read. It's never saved over, so the newer state isn't lost
+ * if an older copy of the app runs, such as after a deploy is rolled back.
+ *
+ * @type {WeakSet<StateStorage>}
+ */
+const storageFromNewerVersion = new WeakSet();
+
 const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
@@ -147,7 +156,8 @@ function withDefaults(defaults, saved) {
 /**
  * Loads the saved state. Anything missing, unreadable or saved with an
  * unknown schema version falls back to the defaults, so the app always gets
- * a complete state. State saved by an earlier version under one of the
+ * a complete state. State saved by a newer version is never saved over (see
+ * {@link isOutOfDate}). State saved by an earlier version under one of the
  * {@link LEGACY_STORAGE_KEYS} is moved to {@link STORAGE_KEY}, and state
  * saved with schema version 1 keeps everything but the location list, the
  * ticks and the plan.
@@ -166,6 +176,9 @@ export function loadState(storage = browserStorage()) {
     saved = text ? JSON.parse(text) : null;
   } catch {
     return defaults;
+  }
+  if (isObject(saved) && typeof saved.version === 'number' && saved.version > SCHEMA_VERSION && storage) {
+    storageFromNewerVersion.add(storage);
   }
   if (!isObject(saved) || (saved.version !== SCHEMA_VERSION && saved.version !== 1)) {
     return defaults;
@@ -226,8 +239,20 @@ function fromVersion1(saved) {
 }
 
 /**
+ * Whether the saved state is from a newer version of the app than this
+ * one, so this visit uses the defaults and nothing is saved over it.
+ *
+ * @param {StateStorage | null} [storage] Where the state was loaded from. Defaults to the browser's localStorage.
+ * @returns {boolean} Whether this version is out of date for the saved state.
+ */
+export function isOutOfDate(storage = browserStorage()) {
+  return storage !== null && storageFromNewerVersion.has(storage);
+}
+
+/**
  * Saves the state. Failing to save (for example when storage is full or
- * blocked) doesn't throw, so the app keeps working for this visit.
+ * blocked) doesn't throw, so the app keeps working for this visit. State
+ * saved by a newer version of the app is never saved over.
  *
  * @param {AppState} state The state to save.
  * @param {StateStorage | null} [storage] Where to save to. Defaults to the browser's localStorage.
@@ -235,7 +260,7 @@ function fromVersion1(saved) {
  */
 export function saveState(state, storage = browserStorage()) {
   try {
-    if (!storage) {
+    if (!storage || storageFromNewerVersion.has(storage)) {
       return false;
     }
     storage.setItem(STORAGE_KEY, JSON.stringify({ ...state, version: SCHEMA_VERSION }));

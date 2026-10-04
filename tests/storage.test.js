@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { searchKey } from '../search.js';
-import { LEGACY_STORAGE_KEYS, SCHEMA_VERSION, STORAGE_KEY, clearState, defaultState, loadState, resetChallenge, saveState } from '../storage.js';
+import { LEGACY_STORAGE_KEYS, SCHEMA_VERSION, STORAGE_KEY, clearState, defaultState, isOutOfDate, loadState, resetChallenge, saveState } from '../storage.js';
 
 /** An in-memory stand-in for localStorage. */
 const memoryStorage = (initial = {}) => {
@@ -89,6 +89,24 @@ describe('storage', () => {
     for (const version of [0, SCHEMA_VERSION + 1, 'one', undefined]) {
       const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), version, view: 'map' }) });
       assert.deepEqual(loadState(storage), defaultState());
+    }
+  });
+
+  test("never saves over state saved by a newer version, and says it's out of date", () => {
+    const newer = JSON.stringify({ version: SCHEMA_VERSION + 1, locations: [{ id: 'a', text: 'A', isMustVisit: true }] });
+    const storage = memoryStorage({ [STORAGE_KEY]: newer });
+    assert.deepEqual(loadState(storage), defaultState());
+    assert.equal(isOutOfDate(storage), true);
+    assert.equal(saveState(defaultState(), storage), false);
+    assert.equal(storage.items.get(STORAGE_KEY), newer);
+  });
+
+  test("isn't out of date for state saved by this or an earlier version", () => {
+    for (const version of [1, SCHEMA_VERSION]) {
+      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), version }) });
+      loadState(storage);
+      assert.equal(isOutOfDate(storage), false, String(version));
+      assert.equal(saveState(defaultState(), storage), true);
     }
   });
 
