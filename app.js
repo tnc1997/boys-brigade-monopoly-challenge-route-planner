@@ -437,10 +437,11 @@ function buildRows() {
   const focusedId = rowOf(document.activeElement)?.item.dataset.id;
   const focusedField = document.activeElement instanceof HTMLElement ? (document.activeElement.dataset.field ?? 'text') : 'text';
   locationRows.replaceChildren(...state.locations.map(rowItem), rowItem(null));
+  // Show the rows first, so a field in an open options panel can take focus.
+  showRows();
   if (focusedId !== undefined) {
     locationRows.querySelector(`li[data-id="${CSS.escape(focusedId)}"] [data-field="${CSS.escape(focusedField)}"]`)?.focus();
   }
-  showRows();
 }
 
 /**
