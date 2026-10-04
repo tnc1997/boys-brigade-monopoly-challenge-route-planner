@@ -310,9 +310,10 @@ describe('service worker deploys', () => {
 });
 
 describe('service worker deploy version', () => {
-  test('is a placeholder the Deploy workflow replaces with the commit', () => {
+  test("is a placeholder the Deploy workflow replaces with a hash of the deploy's files", () => {
     assert.match(sw, /^const DEPLOY_VERSION = 'local';$/m);
     const workflow = readFileSync(new URL('.github/workflows/deploy.yml', root), 'utf8');
-    assert.match(workflow, /sed -i "s\/\^const DEPLOY_VERSION = 'local';\$\/const DEPLOY_VERSION = '\$\{GITHUB_SHA\}';\/" _site\/sw\.js/);
+    assert.match(workflow, /version=\$\(cd _site && sha256sum \* \| sha256sum \| cut -c1-16\)/);
+    assert.match(workflow, /sed -i "s\/\^const DEPLOY_VERSION = 'local';\$\/const DEPLOY_VERSION = '\$\{version\}';\/" _site\/sw\.js/);
   });
 });
