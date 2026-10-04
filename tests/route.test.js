@@ -231,10 +231,15 @@ describe('newLocationMarkers', () => {
     ]);
   });
 
-  test('marks only the locations that are not in the plan, by key', () => {
+  test('marks only the locations that are not in the plan', () => {
+    const plan = savedPlan();
+    assert.deepEqual(newLocationMarkers([...plan.points, cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
+  });
+
+  test('marks a location that has moved since the plan was made, such as when it was pinned', () => {
     const plan = savedPlan();
     const moved = { ...plan.points[0], lat: 51.46 };
-    assert.deepEqual(newLocationMarkers([moved, plan.points[1], cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
+    assert.deepEqual(newLocationMarkers([moved, plan.points[1]], plan).map(({ location }) => location), [moved]);
   });
 });
 
