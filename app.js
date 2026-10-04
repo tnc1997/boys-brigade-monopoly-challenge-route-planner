@@ -582,6 +582,11 @@ function removeRow(item, record) {
     showPinStatus(PIN_HINT);
   }
   showRows();
+  // A removed row's stop no longer counts towards the route's points, and
+  // removing the only row with its own points stops them being shown.
+  if (state.plan) {
+    showPlan({ isMapUnchanged: true });
+  }
 }
 
 /** Waits for a pause in typing points before showing them in the route. */
