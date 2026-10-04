@@ -192,13 +192,14 @@ describe('storage', () => {
 });
 
 describe('resetChallenge', () => {
-  test('clears the locations, ticks and plan, keeping everything else', () => {
+  test('clears the locations, ticks and plan, keeping everything else apart from searches that found nothing', () => {
     const state = defaultState();
     state.settings.speedKmh = 3.5;
     state.event = { ...state.event, startText: '51.4556,-2.5894', finishText: '51.4492,-2.5813', startTime: '11:00' };
     state.locations = [{ id: 'a', text: '51.4545,-2.5879', isVisited: true }];
     state.view = 'map';
-    state.searchResults = { 'queen square': { isFound: false, error: 'No match', isTemporary: false } };
+    const found = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
+    state.searchResults = { [searchKey('Queen Square')]: found, [searchKey('Nowhere')]: { isFound: false, error: 'No match', isTemporary: false } };
     state.plan = { order: [0] };
     const reset = resetChallenge(state);
     assert.deepEqual(reset.locations, []);
@@ -206,7 +207,7 @@ describe('resetChallenge', () => {
     assert.deepEqual(reset.settings, state.settings);
     assert.deepEqual(reset.event, state.event);
     assert.equal(reset.view, 'map');
-    assert.deepEqual(reset.searchResults, state.searchResults);
+    assert.deepEqual(reset.searchResults, { [searchKey('Queen Square')]: found });
   });
 
   test("doesn't change the original state", () => {

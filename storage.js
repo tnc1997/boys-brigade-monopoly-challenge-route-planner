@@ -316,9 +316,11 @@ export function clearState(storage = browserStorage()) {
 }
 
 /**
- * Starts a new challenge: clears the location list, the ticks and the plan,
- * but keeps the settings, the start, finish and start time, the chosen tab
- * and saved search results (which can be reused).
+ * Starts a new challenge: clears the location list (with its ticks) and the
+ * plan, but keeps the event's details, the settings and the chosen tab. Saved
+ * search results that found a place are kept, since they can be reused, but
+ * those that didn't are dropped, so a place OpenStreetMap has added since
+ * can be found.
  *
  * @param {AppState} state The current state. This isn't changed.
  * @returns {AppState} The state for a new challenge.
@@ -327,6 +329,7 @@ export function resetChallenge(state) {
   return {
     ...state,
     locations: [],
+    searchResults: Object.fromEntries(Object.entries(state.searchResults).filter(([, result]) => result.isFound)),
     plan: null,
   };
 }

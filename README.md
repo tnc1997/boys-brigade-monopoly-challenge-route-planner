@@ -58,7 +58,7 @@ Press **Re-plan from here** at any time. It plans again from where you are now a
 
 The line under the Route heading shows what the plan assumes, such as "Planning for Medium 4.5 km/h · 3 min/selfie".
 
-To start over with a new list, press **New challenge**. It keeps your settings.
+To start over with a new list, press **New challenge**. It keeps your settings, and forgets which locations weren't found, so they're looked up again.
 
 ## Rules to remember
 

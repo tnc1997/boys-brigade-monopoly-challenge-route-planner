@@ -27,7 +27,11 @@
  */
 export const SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
 
-/** The area searched, as Nominatim's `left,top,right,bottom`: Bristol and its outskirts. */
+/**
+ * The area searched, as Nominatim's `left,top,right,bottom`: Bristol and its
+ * outskirts. Saved search results are only right for this area, so if it
+ * changes, saved results should be cleared when they're loaded.
+ */
 export const BRISTOL_VIEWBOX = '-2.73,51.54,-2.45,51.39';
 
 /** The shortest time between requests: Nominatim's limit is 1 request per second, so this leaves a generous buffer. */
