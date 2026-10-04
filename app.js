@@ -451,20 +451,6 @@ function announceLookup(key) {
 }
 
 /**
- * Unticks a row of the location list whose place has changed, since its
- * selfie was taken somewhere else.
- *
- * @param {import('./locations.js').LocationRecord} record The row.
- */
-function untick(record) {
-  if (state.doneKeys.includes(record.id)) {
-    state.doneKeys = state.doneKeys.filter((key) => key !== record.id);
-    saveState(state);
-    showPlan();
-  }
-}
-
-/**
  * Saves a pin for a row of the location list. Pinning the empty row at the
  * end, or a row that's been removed since, adds a new row.
  *
@@ -481,7 +467,6 @@ function pinRow(id, text, { lat, lng }) {
   }
   record.pin = { lat, lng };
   saveState(state);
-  untick(record);
   buildRows();
   const number = state.locations.indexOf(record) + 1;
   return /** @type {{ location: import('./locations.js').Location }} */ (resolveRecord(record, number, state.searchResults)).location;
@@ -539,13 +524,7 @@ locationRows.addEventListener('change', (event) => {
   if (!row?.record) {
     return;
   }
-  const { record } = row;
-  // Changing an unpinned row's text changes its place, but changing a
-  // pinned row's text only renames it.
-  if (!record.pin) {
-    untick(record);
-  }
-  lookUpFinished(resolveRecord(record, state.locations.indexOf(record) + 1, state.searchResults));
+  lookUpFinished(resolveRecord(row.record, state.locations.indexOf(row.record) + 1, state.searchResults));
 });
 
 // A row that's been emptied, without a pin, is removed once focus leaves
