@@ -965,10 +965,7 @@ settingsDialog.addEventListener('close', () => {
   showCountdown();
   // Re-plan with the new settings, keeping ticks: from the Start field if
   // the team hasn't set off yet, otherwise from their position and now.
-  // Skip it if only the check-in form URL changed, since it doesn't affect
-  // planning, but still re-plan when nothing changed, as the button says.
-  const isOnlyCheckInFormChanged = planningInputs() === planningInputsBefore && state.settings.checkInFormUrl !== checkInFormUrlBefore;
-  if (state.plan?.settings && !isOnlyCheckInFormChanged) {
+  if (state.plan?.settings) {
     const now = Date.now();
     // A plan's times are on the day it was made, so only today's counts.
     const isPlanForToday = new Date(state.plan.deadline).toDateString() === new Date(now).toDateString();
