@@ -7,7 +7,7 @@ import { searchKey } from './search.js';
  * @property {number} lat Latitude, from -90 to 90.
  * @property {number} lng Longitude, from -180 to 180.
  * @property {string} label What to call the location: the row's text, or "Location N" for a pinned row without any.
- * @property {string} key A stable key for the location, for remembering which selfies are done. For a row of the location list, it's the row's id, so moving the location doesn't change which location it is.
+ * @property {string} key A stable key for the location, a v4 UUID. For a row of the location list, it's the row's id, so moving the location doesn't change which location it is. For the start and finish, it's {@link START_KEY} or {@link FINISH_KEY}.
  * @property {string} [matchedName] For a location found by searching, the name of the place that was found, so the team can check it.
  */
 
@@ -51,30 +51,32 @@ import { searchKey } from './search.js';
 const COORDINATES = /^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$/;
 
 /**
- * Makes the key a position is remembered by, from its coordinates to 6
- * decimal places, so the same place written differently gets the same key.
- *
- * @param {number} lat Latitude.
- * @param {number} lng Longitude.
- * @returns {string} The key, like `51.451740,-2.603400`.
- * @example
- * locationKey(51.45174, -2.6034); // '51.451740,-2.603400'
+ * The key of the route's start, whether that's the Start field or the
+ * team's position. Like every location's key, it's a v4 UUID, but a fixed
+ * one, which can't clash with a row's random id.
  */
-export function locationKey(lat, lng) {
-  // Round first, so a value like -0.0000001 gives 0.000000 rather than
-  // -0.000000.
-  const format = (value) => Number(value.toFixed(6)).toFixed(6);
-  return `${format(lat)},${format(lng)}`;
-}
+export const START_KEY = 'ae9af498-cc10-4b09-93c4-9a6d712f7fb7';
+
+/** The key of the route's finish, a fixed v4 UUID like {@link START_KEY}. */
+export const FINISH_KEY = '54fb4fd9-ae1a-45ec-907a-72c8ef4fc9d2';
 
 /**
- * Makes a new id for a row of the location list.
+ * Makes a new id for a row of the location list: a random v4 UUID.
  *
- * @returns {string} The id.
+ * @returns {string} The id, like `3b241101-e2bb-4255-8caf-4136c566a962`.
  */
 export function newLocationId() {
-  // randomUUID is only available in secure contexts, such as https and localhost.
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  // randomUUID is only available in secure contexts, such as https and
+  // localhost, so make one from random bytes elsewhere.
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  const bytes = globalThis.crypto?.getRandomValues?.(new Uint8Array(16)) ?? Uint8Array.from({ length: 16 }, () => Math.floor(Math.random() * 256));
+  // Mark it as version 4 (random), RFC 4122 variant.
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**
@@ -89,8 +91,8 @@ export function newLocationId() {
  * @param {string} [options.coordinatesLabel] The name for a location that's only coordinates, like "Start". Defaults to the text.
  * @returns {Resolved} Where it is.
  * @example
- * resolveText('51.4556,-2.5894', 'start', {}, { coordinatesLabel: 'Start' });
- * // { status: 'coordinates', location: { lat: 51.4556, lng: -2.5894, label: 'Start', key: 'start' } }
+ * resolveText('51.4556,-2.5894', START_KEY, {}, { coordinatesLabel: 'Start' });
+ * // { status: 'coordinates', location: { lat: 51.4556, lng: -2.5894, label: 'Start', key: START_KEY } }
  */
 export function resolveText(text, key, searchResults, { coordinatesLabel } = {}) {
   const label = text.trim().replace(/\s+/g, ' ');

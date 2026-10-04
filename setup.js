@@ -1,4 +1,4 @@
-import { locationKey, resolveRecords, resolveText, usableLocations } from './locations.js';
+import { FINISH_KEY, START_KEY, resolveRecords, resolveText, usableLocations } from './locations.js';
 import { plan } from './planner.js';
 import { SPEED_RANGE } from './settings.js';
 
@@ -99,13 +99,13 @@ export function planFromSetup({ setup, locations, settings, now, doneKeys = [], 
   }
 
   const start = from
-    ? { status: 'pinned', location: { lat: from.lat, lng: from.lng, label: 'Your position', key: locationKey(from.lat, from.lng) } }
-    : resolveText(setup.startText, 'start', searchResults, { coordinatesLabel: 'Start' });
+    ? { status: 'pinned', location: { lat: from.lat, lng: from.lng, label: 'Your position', key: START_KEY } }
+    : resolveText(setup.startText, START_KEY, searchResults, { coordinatesLabel: 'Start' });
   const startError = fieldError('Start', start);
   if (startError) {
     return failure(startError);
   }
-  const finish = setup.finishText.trim() === '' ? null : resolveText(setup.finishText, 'finish', searchResults, { coordinatesLabel: 'Finish' });
+  const finish = setup.finishText.trim() === '' ? null : resolveText(setup.finishText, FINISH_KEY, searchResults, { coordinatesLabel: 'Finish' });
   const finishError = finish && fieldError('Finish', finish);
   if (finishError) {
     return failure(finishError);
@@ -183,8 +183,8 @@ export function planFromSetup({ setup, locations, settings, now, doneKeys = [], 
 export function searchesNeeded({ setup, locations, searchResults = {}, isFromPosition = false }) {
   const resolved = [
     ...resolveRecords(locations, searchResults).map((row) => row.resolved),
-    ...(isFromPosition ? [] : [resolveText(setup.startText, 'start', searchResults, { coordinatesLabel: 'Start' })]),
-    resolveText(setup.finishText, 'finish', searchResults, { coordinatesLabel: 'Finish' }),
+    ...(isFromPosition ? [] : [resolveText(setup.startText, START_KEY, searchResults, { coordinatesLabel: 'Start' })]),
+    resolveText(setup.finishText, FINISH_KEY, searchResults, { coordinatesLabel: 'Finish' }),
   ];
   return resolved.flatMap((result) => (result.status === 'unknown' ? [result.query] : []));
 }

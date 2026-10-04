@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
+import { START_KEY } from '../locations.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, startTimeToday, timeToday } from '../setup.js';
 import { defaultState } from '../storage.js';
 
@@ -117,7 +118,7 @@ describe('planFromSetup', () => {
     const later = new Date(2026, 9, 3, 13, 15).getTime();
     const { plan, error } = planFromSetup({ ...setupWith({ startText: 'not a location', startTimeText: '11:00' }), now: later, from });
     assert.equal(error, null);
-    assert.deepEqual(plan.start, { lat: 51.4492, lng: -2.5813, label: 'Your position', key: '51.449200,-2.581300' });
+    assert.deepEqual(plan.start, { lat: 51.4492, lng: -2.5813, label: 'Your position', key: START_KEY });
     assert.equal(plan.startTime, later);
   });
 

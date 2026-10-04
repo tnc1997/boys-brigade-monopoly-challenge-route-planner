@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, markDone, newLocationMarkers, plural, progress, timeWarning, toggleDone } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations } from './locations.js';
+import { FINISH_KEY, START_KEY, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -345,8 +345,8 @@ function showRow(item, number) {
 
 /** Shows the Start and Finish fields' statuses. */
 function showFieldStatuses() {
-  showDescription(startStatus, describeResolved(resolveText(state.setup.startText, 'start', state.searchResults), { canPin: false }));
-  showDescription(finishStatus, describeResolved(resolveText(state.setup.finishText, 'finish', state.searchResults), { canPin: false }));
+  showDescription(startStatus, describeResolved(resolveText(state.setup.startText, START_KEY, state.searchResults), { canPin: false }));
+  showDescription(finishStatus, describeResolved(resolveText(state.setup.finishText, FINISH_KEY, state.searchResults), { canPin: false }));
 }
 
 /** Shows every row's labels and status, and the Start and Finish fields' statuses, and redraws the map if they've changed it. */
@@ -575,8 +575,11 @@ locationRows.addEventListener('click', (event) => {
 });
 
 // The Start and Finish fields are looked up once they're finished, too.
-for (const field of [startField, finishField]) {
-  field.addEventListener('change', () => lookUpFinished(resolveText(field.value, field.id, state.searchResults), { canPin: false }));
+for (const [field, key] of /** @type {const} */ ([
+  [startField, START_KEY],
+  [finishField, FINISH_KEY],
+])) {
+  field.addEventListener('change', () => lookUpFinished(resolveText(field.value, key, state.searchResults), { canPin: false }));
 }
 
 /**

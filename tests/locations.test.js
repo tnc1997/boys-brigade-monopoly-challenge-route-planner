@@ -1,25 +1,39 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { cleanRecords, locationKey, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations } from '../locations.js';
+import { FINISH_KEY, START_KEY, cleanRecords, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations } from '../locations.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
 
-describe('locationKey', () => {
-  test('gives the same key to the same coordinates written differently', () => {
-    assert.equal(locationKey(51.4545, -2.5879), locationKey(51.454500001, -2.58790000));
-    assert.equal(locationKey(51.4545, -2.5879), '51.454500,-2.587900');
+/** A v4 UUID, RFC 4122 variant. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+describe('newLocationId', () => {
+  test('makes a different v4 UUID each time', () => {
+    const ids = new Set(Array.from({ length: 100 }, newLocationId));
+    assert.equal(ids.size, 100);
+    assert.ok([...ids].every((id) => UUID_V4.test(id)));
   });
 
-  test('never gives -0', () => {
-    assert.equal(locationKey(51.4779, -0.0000001), '51.477900,0.000000');
+  test('makes v4 UUIDs without randomUUID, which needs a secure context', () => {
+    const { randomUUID } = crypto;
+    crypto.randomUUID = undefined;
+    try {
+      const ids = new Set(Array.from({ length: 100 }, newLocationId));
+      assert.equal(ids.size, 100);
+      assert.ok([...ids].every((id) => UUID_V4.test(id)), [...ids][0]);
+    } finally {
+      delete crypto.randomUUID;
+    }
+    assert.equal(crypto.randomUUID, randomUUID);
   });
 });
 
-describe('newLocationId', () => {
-  test('makes a different id each time', () => {
-    const ids = new Set(Array.from({ length: 100 }, newLocationId));
-    assert.equal(ids.size, 100);
+describe('START_KEY and FINISH_KEY', () => {
+  test('are different fixed v4 UUIDs', () => {
+    assert.match(START_KEY, UUID_V4);
+    assert.match(FINISH_KEY, UUID_V4);
+    assert.notEqual(START_KEY, FINISH_KEY);
   });
 });
 
