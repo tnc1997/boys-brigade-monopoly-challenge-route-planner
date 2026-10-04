@@ -812,15 +812,17 @@ function checkInLink(location, isDone) {
 }
 
 /**
- * Works out what a location is worth, from its row now, so changing a row's
- * points shows straight away, without planning again.
+ * Works out what each location is worth, from the rows now, so changing a
+ * row's points shows straight away, without planning again. Points only show
+ * once scores vary, so the route otherwise looks as it does without them.
  *
- * @param {string} key The location's key, which is its row's id.
- * @returns {number | null} Its points, or `null` if its row has been removed since the route was planned, so it no longer counts.
+ * @returns {Map<string, number> | null} Each row's points by its id, or `null` if scores don't vary. A location whose row has been removed since planning isn't in it, so it no longer counts.
  */
-function pointsOf(key) {
-  const record = state.locations.find(({ id }) => id === key);
-  return record ? locationPoints(record, state.event.pointsPerLocation) : null;
+function currentPoints() {
+  if (!isScored(state.locations)) {
+    return null;
+  }
+  return new Map(state.locations.map((record) => [record.id, locationPoints(record, state.event.pointsPerLocation)]));
 }
 
 /**
@@ -828,10 +830,11 @@ function pointsOf(key) {
  * removed.
  *
  * @param {string[]} keys The locations' keys.
+ * @param {Map<string, number>} points Each row's points by its id, from {@link currentPoints}.
  * @returns {number} Their total points.
  */
-function totalPoints(keys) {
-  return keys.reduce((total, key) => total + (pointsOf(key) ?? 0), 0);
+function totalPoints(keys, points) {
+  return keys.reduce((total, key) => total + (points.get(key) ?? 0), 0);
 }
 
 /**
@@ -839,12 +842,13 @@ function totalPoints(keys) {
  *
  * @param {import('./route.js').RouteStop} stop The stop.
  * @param {boolean} isFinish Whether this is the walk to the finish.
+ * @param {Map<string, number> | null} points Each row's points by its id, from {@link currentPoints}.
  * @returns {HTMLLIElement} The list item.
  */
-function stopItem(stop, isFinish) {
+function stopItem(stop, isFinish, points) {
   const isDone = !isFinish && visitedKeys(state.locations).includes(stop.location.key);
   // Points show once scores vary, and not for the finish or a removed row.
-  const points = !isFinish && isScored(state.locations) ? pointsOf(stop.location.key) : null;
+  const stopPoints = isFinish ? undefined : points?.get(stop.location.key);
   const item = element('li', `flex gap-3 rounded-md p-3 ring-1 ${isDone ? 'bg-accent-soft ring-accent-line' : 'ring-line'}`);
   const badgeColours = isFinish ? 'bg-ink text-surface' : isDone ? 'bg-accent-line text-accent-ink' : 'bg-accent text-white';
   const badge = element(
@@ -859,7 +863,7 @@ function stopItem(stop, isFinish) {
   const timing = element(
     'p',
     'text-sm text-muted',
-    `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk${points === null ? '' : ` · ${plural(points, 'point')}`}`,
+    `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk${stopPoints === undefined ? '' : ` · ${plural(stopPoints, 'point')}`}`,
   );
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
@@ -935,9 +939,9 @@ function showPlan() {
   const remaining = total - done;
   const locations = (count) => (count === 1 ? 'location' : 'locations');
   const visiting = done === 0 ? `${stopsToVisit} of ${total} ${locations(total)}` : `${stopsToVisit} of ${remaining} ${locations(remaining)} still to do`;
-  // Points only show once scores vary, so the route otherwise looks as it does without them.
-  const points = isScored(state.locations) ? ` (${plural(totalPoints(toVisit.map(({ location }) => location.key)), 'point')})` : '';
-  const summary = element('p', 'text-sm', remaining === 0 && total > 0 ? `All ${total} selfies done!` : `Visiting ${visiting}${points}, ${ending}.`);
+  const points = currentPoints();
+  const pointsText = points ? ` (${plural(totalPoints(toVisit.map(({ location }) => location.key), points), 'point')})` : '';
+  const summary = element('p', 'text-sm', remaining === 0 && total > 0 ? `All ${total} selfies done!` : `Visiting ${visiting}${pointsText}, ${ending}.`);
   // A plan's times are on the day it was made, so an older plan needs planning again.
   wasPlanForToday = isPlanForToday(plan, Date.now());
   if (!wasPlanForToday) {
@@ -950,9 +954,9 @@ function showPlan() {
 
   const stops = element('ol', 'mt-3 flex flex-col gap-2');
   stops.setAttribute('aria-label', 'Stops in order');
-  stops.append(...route.stops.map((stop) => stopItem(stop, false)));
+  stops.append(...route.stops.map((stop) => stopItem(stop, false, points)));
   if (route.finish) {
-    stops.append(stopItem(route.finish, true));
+    stops.append(stopItem(route.finish, true, points));
   }
   const sections = [summary, counter];
   if (state.event.checkInFormUrl && remaining > 0) {
@@ -1098,8 +1102,9 @@ function mustVisitLateText(plan) {
  * @returns {string} The message, like "Planned 22 stops."
  */
 function planResultText(result) {
-  const { order, points } = result.plan;
-  const scored = isScored(state.locations) ? ` · ${plural(totalPoints(order.map((index) => points[index].key)), 'point')}` : '';
+  const { order, points: locations } = result.plan;
+  const points = currentPoints();
+  const scored = points ? ` · ${plural(totalPoints(order.map((index) => locations[index].key), points), 'point')}` : '';
   const parts = [`Planned ${plural(order.length, 'stop')}${scored}.`];
   if (result.leftOut.length > 0) {
     const labels = result.leftOut.map(({ number, resolved }) => ('label' in resolved ? resolved.label : `Location ${number}`));
