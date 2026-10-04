@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, cleanRecords, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from '../locations.js';
+import { FINISH_KEY, START_KEY, cleanRecords, isPoints, isScored, locationPoints, newLocationId, parsePoints, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from '../locations.js';
 import { searchKey } from '../search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
@@ -117,6 +117,40 @@ describe('resolveRecord', () => {
   });
 });
 
+describe('isPoints', () => {
+  test('accepts whole numbers from 0 to 9999', () => {
+    assert.deepEqual([0, 5, 20, 9999, 10000, 1e23, 1.5, -1, NaN, Infinity, '5', null].map(isPoints), [true, true, true, true, false, false, false, false, false, false, false, false]);
+  });
+});
+
+describe('parsePoints', () => {
+  test('reads whole numbers, with blank meaning Points per location', () => {
+    assert.deepEqual(parsePoints(' 20 '), { isValid: true, points: 20 });
+    assert.deepEqual(parsePoints('0'), { isValid: true, points: 0 });
+    assert.deepEqual(parsePoints('  '), { isValid: true, points: null });
+  });
+
+  test('says what is wrong with anything else', () => {
+    for (const text of ['2.5', '-1', 'ten', '1e3', '+5', '10000', '100000000000000000000000']) {
+      assert.deepEqual(parsePoints(text), { isValid: false, error: 'Enter a whole number of points from 0 to 9999, or leave it blank.' }, text);
+    }
+  });
+});
+
+describe('locationPoints and isScored', () => {
+  test("uses a row's own points, or Points per location", () => {
+    assert.equal(locationPoints({ id: 'a', text: 'A', points: 20 }, 10), 20);
+    assert.equal(locationPoints({ id: 'a', text: 'A', points: 0 }, 10), 0);
+    assert.equal(locationPoints({ id: 'a', text: 'A' }, 10), 10);
+    assert.equal(locationPoints(undefined, 10), 10);
+  });
+
+  test('says scores vary once any row has its own points, even if it equals the default', () => {
+    assert.equal(isScored([{ id: 'a', text: 'A' }]), false);
+    assert.equal(isScored([{ id: 'a', text: 'A' }, { id: 'b', text: 'B', points: 10 }]), true);
+  });
+});
+
 describe('visitedKeys', () => {
   test("gets the ids of the visited rows", () => {
     assert.deepEqual(visitedKeys([{ id: 'a', text: 'A', isVisited: true }, { id: 'b', text: 'B' }]), ['a']);
@@ -152,6 +186,17 @@ describe('cleanRecords', () => {
   test('drops blank rows, rows without an id and repeated ids', () => {
     const records = [{ id: 'a', text: ' ' }, { text: 'No id' }, { id: 'b', text: 'B' }, { id: 'b', text: 'Again' }, null, 'text'];
     assert.deepEqual(cleanRecords(records), [{ id: 'b', text: 'B' }]);
+  });
+
+  test('keeps points only when they are a whole number from 0 to 9999', () => {
+    const records = [
+      { id: 'a', text: 'A', points: 20 },
+      { id: 'b', text: 'B', points: 0 },
+      { id: 'c', text: 'C', points: 2.5 },
+      { id: 'd', text: 'D', points: -1 },
+      { id: 'e', text: 'E', points: '20' },
+    ];
+    assert.deepEqual(cleanRecords(records), [{ id: 'a', text: 'A', points: 20 }, { id: 'b', text: 'B', points: 0 }, { id: 'c', text: 'C' }, { id: 'd', text: 'D' }, { id: 'e', text: 'E' }]);
   });
 
   test('keeps isMustVisit only when it is true', () => {
