@@ -667,3 +667,165 @@ describe('plan with must-visit points', () => {
     }
   });
 });
+
+describe('plan with scores', () => {
+  // Points walked at 3.6 km/h (1 m/s) with no detour, so each kilometre takes
+  // exactly 1000 s.
+  const kmFrom = (northKm, eastKm = 0) => ({
+    lat: castlePark.lat + (northKm * 1000) / 111195,
+    lng: castlePark.lng + (eastKm * 1000) / (111195 * Math.cos((castlePark.lat * Math.PI) / 180)),
+  });
+  const startTime = Date.parse('2026-10-03T11:00:00+01:00');
+  const options = (budgetSeconds, overrides) => ({
+    start: castlePark,
+    startTime,
+    deadline: startTime + (budgetSeconds + 600) * 1000,
+    speedKmh: 3.6,
+    detourFactor: 1,
+    dwellSeconds: 100,
+    safetyMarginSeconds: 600,
+    ...overrides,
+  });
+  const random = (seed) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const randomOptions = (next, { count, hasFinish }) => {
+    const randomPoints = Array.from({ length: count }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+    return options(2000 + next() * 12000, {
+      points: randomPoints,
+      scores: randomPoints.map(() => 1 + Math.floor(next() * 30)),
+      finish: hasFinish ? kmFrom(next() * 6 - 3, next() * 6 - 3) : null,
+    });
+  };
+  const score = (order, scores) => order.reduce((total, index) => total + scores[index], 0);
+  // A far point to the north, which takes 3100 s on its own, and two near
+  // points to the south, which take 1200 s together. Only one or the other
+  // fits in 3200 s.
+  const points = [kmFrom(3), kmFrom(-0.5), kmFrom(-1)];
+
+  test('visits a high-scoring point over two low-scoring ones that score less together', () => {
+    const result = plan(options(3200, { points, scores: [30, 10, 10] }));
+    assert.deepEqual(result.order, [0]);
+    assert.deepEqual(result.skipped, [1, 2]);
+    assert.ok(result.spareSeconds >= 0);
+  });
+
+  test('visits two low-scoring points over a high-scoring one when they score more together', () => {
+    const result = plan(options(3200, { points, scores: [15, 10, 10] }));
+    assert.deepEqual(result.order, [1, 2]);
+    assert.deepEqual(result.skipped, [0]);
+  });
+
+  test('visits the quicker route when two routes score the same', () => {
+    const result = plan(options(3200, { points, scores: [20, 10, 10] }));
+    assert.deepEqual(result.order, [1, 2]);
+  });
+
+  test('includes a must-visit point over points that score more', () => {
+    const result = plan(options(3200, { points, scores: [1, 50, 50], mustVisit: [0] }));
+    assert.deepEqual(result.order, [0]);
+    assert.equal(result.isMustVisitLate, false);
+  });
+
+  test('plans the same must-visit points in the same order whatever they score, on random routes', () => {
+    const next = random(47);
+    for (let run = 0; run < 150; run += 1) {
+      const randomPoints = Array.from({ length: 4 + Math.floor(next() * 10) }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+      // A short budget, so the must-visit points are often late and the
+      // route is only them.
+      const planOptions = options(1000 + next() * 15000, {
+        points: randomPoints,
+        mustVisit: randomPoints.map((_, index) => index),
+        finish: next() < 0.5 ? null : kmFrom(next() * 6 - 3, next() * 6 - 3),
+      });
+      const scored = plan({ ...planOptions, scores: randomPoints.map(() => Math.floor(next() * 50)) });
+      assert.deepEqual(scored.order, plan(planOptions).order, `run ${run} differs`);
+    }
+  });
+
+  test('greedy insertion adds the point that scores the most for each second it adds', () => {
+    // The point 1 km east adds 1100 s for 1 point. The point 2 km west adds
+    // 2100 s for 10 points, so it's added first, and then the other no
+    // longer fits.
+    const greedyOptions = options(2500, { points: [kmFrom(0, 1), kmFrom(0, -2)], scores: [1, 10] });
+    assert.deepEqual(greedyInsertion(greedyOptions), [1]);
+  });
+
+  test('greedy insertion still adds points that fit after one that scores more per second does not', () => {
+    // The point 2 km west scores the most per second, but doesn't fit.
+    const greedyOptions = options(1500, { points: [kmFrom(0, 1), kmFrom(0, -2)], scores: [1, 100] });
+    assert.deepEqual(greedyInsertion(greedyOptions), [0]);
+  });
+
+  test('plans the same routes with all scores equal as without scores, on random routes', () => {
+    const next = random(45);
+    for (let run = 0; run < 150; run += 1) {
+      const randomPoints = Array.from({ length: 3 + Math.floor(next() * 25) }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+      const planOptions = options(2000 + next() * 15000, {
+        points: randomPoints,
+        mustVisit: randomPoints.map((_, index) => index).filter(() => next() < 0.1),
+        finish: next() < 0.5 ? null : kmFrom(next() * 6 - 3, next() * 6 - 3),
+        timeLimitMs: Infinity,
+      });
+      // 0 points each too, which shouldn't stop the route visiting as many as fit.
+      const equalScore = Math.floor(next() * 20);
+      assert.deepEqual(plan({ ...planOptions, scores: randomPoints.map(() => equalScore) }), plan(planOptions), `run ${run} differs`);
+    }
+  });
+
+  /**
+   * Finds the most any route can score, by trying every order. Adding a
+   * stop never makes a route quicker, so an order that doesn't fit can't be
+   * extended into one that does, and is skipped.
+   */
+  const bestPossible = (options) => {
+    let best = 0;
+    const extend = (order, used) => {
+      best = Math.max(best, score(order, options.scores));
+      for (let index = 0; index < options.points.length; index += 1) {
+        if (used.has(index)) {
+          continue;
+        }
+        const candidate = [...order, index];
+        if (evaluateRoute({ ...options, stops: candidate.map((point) => options.points[point]) }).isWithinBudget) {
+          used.add(index);
+          extend(candidate, used);
+          used.delete(index);
+        }
+      }
+    };
+    extend([], new Set());
+    return best;
+  };
+
+  // plan() is a heuristic, so it can't always find the best route, but
+  // starting from several routes keeps it close.
+  test('scores the most possible on at least 98% of small random cases, and never less than 90% of it', () => {
+    const next = random(22);
+    const runs = 300;
+    let matches = 0;
+    for (let run = 0; run < runs; run += 1) {
+      const planOptions = randomOptions(next, { count: 3 + Math.floor(next() * 6), hasFinish: next() < 0.5 });
+      const best = bestPossible(planOptions);
+      const scored = score(plan(planOptions).order, planOptions.scores);
+      assert.ok(scored <= best, `run ${run} scores more than is possible`);
+      assert.ok(scored >= best * 0.9, `run ${run} scores ${scored} of a possible ${best}`);
+      matches += scored === best ? 1 : 0;
+    }
+    assert.ok(matches >= runs * 0.98, `matched the best route on ${matches} of ${runs} cases`);
+  });
+
+  test('stays within budget and the time limit for 30 locations with varied scores', () => {
+    const next = random(30);
+    const randomPoints = Array.from({ length: 30 }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+    const planOptions = options(5 * 3600, { points: randomPoints, scores: randomPoints.map(() => Math.floor(next() * 50)), finish: castlePark, dwellSeconds: 180 });
+    const started = performance.now();
+    const result = plan(planOptions);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 600, `took ${elapsed.toFixed(0)} ms`);
+    assert.ok(result.spareSeconds >= 0);
+  });
+});

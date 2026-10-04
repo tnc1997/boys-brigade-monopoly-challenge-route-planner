@@ -1,4 +1,4 @@
-import { FINISH_KEY, START_KEY, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, pointsById, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
 import { SPEED_RANGE } from './settings.js';
 
@@ -73,7 +73,9 @@ export function timeToday(time, now) {
  * Plans the route from the setup form and the location list. Rows of the
  * location list that couldn't be found or haven't been looked up are
  * returned so they can be listed, but don't stop the rest from being
- * planned. Locations whose selfie is done are kept in the plan's `points`
+ * planned. The route scores the most points it can, with each location
+ * worth its row's points, or the event's Points per location if the row
+ * doesn't say. Locations whose selfie is done are kept in the plan's `points`
  * but left out of the route. Must-visit locations still to visit are always
  * in the route, and the plan's `isMustVisitLate` says when they don't all fit
  * before the deadline minus the safety margin.
@@ -145,9 +147,11 @@ export function planFromSetup({ event, locations, settings, now, from = null, se
   // Only locations still to visit can be must-visit, since a ticked-off one
   // has already been visited.
   const mustVisitKeys = new Set(locations.filter(({ isMustVisit }) => isMustVisit).map(({ id }) => id));
+  const pointsByKey = pointsById(locations, event.pointsPerLocation);
   const result = plan({
     start: start.location,
     points: remaining.map(({ point }) => point),
+    scores: remaining.map(({ point }) => pointsByKey.get(point.key)),
     mustVisit: remaining.flatMap(({ point }, index) => (mustVisitKeys.has(point.key) ? [index] : [])),
     finish: finish?.location ?? null,
     startTime,

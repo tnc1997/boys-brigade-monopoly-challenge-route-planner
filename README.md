@@ -1,6 +1,6 @@
 # Boys' Brigade Monopoly Challenge Route Planner
 
-A phone-friendly route planner for the Boys' Brigade Monopoly Challenge in Bristol. Enter the list of locations at the start, and it plans a walking route that fits in as many group selfies as possible before the deadline, ending at the finish if there is one. During the day you can tick off selfies, see the route and your position on a map, change the pace and re-plan from wherever you are.
+A phone-friendly route planner for the Boys' Brigade Monopoly Challenge in Bristol. Enter the list of locations at the start, and it plans a walking route that scores as many points as possible from group selfies before the deadline, ending at the finish if there is one. During the day you can tick off selfies, see the route and your position on a map, change the pace and re-plan from wherever you are.
 
 **Open it on your phone:** https://tnc1997.github.io/boys-brigade-monopoly-challenge-route-planner/
 
@@ -35,9 +35,9 @@ Each row is looked up with OpenStreetMap when you've finished it: when you press
 
 Rows you add after planning show on the map as a dashed **+** until you press **Plan route** or **Re-plan from here**. To remove a location, tap the row's ✕, and plan again if it's already in the route.
 
-**Must visit.** For a location the route has to include, tap the row's **More** and tick **Must visit**. The route then always includes it, even if leaving it out would fit in more selfies, and other stops are planned around it. If the must-visit locations alone can't be visited before the deadline (less the safety margin), the route is just them, in the shortest order, and a warning says when they'd finish. Untick some to fit others in. A location that's already ticked off doesn't need visiting again, so Must visit no longer applies to it.
+**Must visit.** For a location the route has to include, tap the row's **More** and tick **Must visit**. The route then always includes it, even if leaving it out would score more points, and other stops are planned around it. If the must-visit locations alone can't be visited before the deadline (less the safety margin), the route is just them, in the shortest order, and a warning says when they'd finish. Untick some to fit others in. A location that's already ticked off doesn't need visiting again, so Must visit no longer applies to it.
 
-**Points.** If the sheet scores locations differently, set **Points per location** in **⚙ Settings** to what most are worth (10 by default), and enter any location's own value under its row's **More**, in **Points**. Leave Points blank to use Points per location. Once any location has its own points, each stop shows what it's worth and the route shows a total, like "Planned 22 stops · 230 points". The planner doesn't use points to choose the route yet.
+**Points.** If the sheet scores locations differently, set **Points per location** in **⚙ Settings** to what most are worth (10 by default), and enter any location's own value under its row's **More**, in **Points**. Leave Points blank to use Points per location. Once any location has its own points, each stop shows what it's worth and the route shows a total, like "Planned 22 stops · 230 points". The route scores as many points as it can, so it may skip two nearby locations for one far-off location worth more than both. Of routes worth the same, it picks the one with the most stops, then the quickest. After changing a location's points, press **Re-plan from here** to update the route; changing Points per location re-plans straight away.
 
 **Coordinates** on their own (like `51.4545,-2.5879`, from long-pressing a spot in Google Maps) are used directly, without a lookup. Anything else on the row is looked up, so to give a location a name and an exact spot, type its name and pin it with 📍. In **Start** and **Finish**, coordinates on their own are called "Start" and "Finish". Google Maps links and what3words addresses can't be used: pin those locations on the map instead.
 
@@ -75,7 +75,7 @@ The planner only knows about walking. If you take a bus or train, press **Re-pla
 
 ## How it works
 
-- **Planning:** the planner estimates walking time from the straight-line distance multiplied by the detour factor, at the walking speed, plus the selfie time at each stop. It builds a route by adding the location that costs the least extra time, then improves it by reversing sections (2-opt) and by swapping one stop for others. It repeats this from several starting points, all within 200 ms, and keeps the best route.
+- **Planning:** the planner estimates walking time from the straight-line distance multiplied by the detour factor, at the walking speed, plus the selfie time at each stop. It builds a route by adding the location that scores the most points for each second of extra time, then improves it by reversing sections (2-opt) and by swapping one stop for others. It repeats this from several starting points, all within 200 ms, and keeps the best route.
 - **Your data stays on the phone:** everything you enter is saved in the browser only.
 - **External services:** address searches go to [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/), and map tiles come from [OpenStreetMap](https://www.openstreetmap.org/copyright) (© OpenStreetMap contributors). Both are free within their usage policies, which the code follows.
 

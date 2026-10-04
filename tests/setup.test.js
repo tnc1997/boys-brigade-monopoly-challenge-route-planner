@@ -115,6 +115,20 @@ describe('planFromSetup', () => {
     assert.equal(plan.isMustVisitLate, true);
   });
 
+  test('visits the location worth the most points when only one fits', () => {
+    // With the start time at 15:24, either location fits on its own, but not
+    // both. Old Kent Road is the quicker.
+    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24' })).plan.order, [0]);
+    const locations = pinnedRows().map((record) => (record.id === 'b' ? { ...record, points: 50 } : record));
+    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', locations })).plan.order, [1]);
+  });
+
+  test("counts a location without its own points as worth the event's Points per location", () => {
+    const locations = pinnedRows().map((record) => (record.id === 'a' ? { ...record, points: 5 } : record));
+    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', pointsPerLocation: 10, locations })).plan.order, [1]);
+    assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', pointsPerLocation: 1, locations })).plan.order, [0]);
+  });
+
   test("ignores Must visit on a location that's been visited", () => {
     const locations = pinnedRows().map((record) => (record.id === 'b' ? { ...record, isMustVisit: true, isVisited: true } : record));
     const { plan } = planFromSetup(setupWith({ startTime: '15:40', locations }));

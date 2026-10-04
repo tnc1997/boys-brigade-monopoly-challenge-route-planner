@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, isScored, locationPoints, newLocationId, parsePoints, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, isScored, locationPoints, newLocationId, parsePoints, pointsById, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -592,6 +592,9 @@ function removeRow(item, record) {
 /** Waits for a pause in typing points before showing them in the route. */
 let pointsTimer;
 
+/** Whether a location the route plans for is worth different points since the route was planned. */
+let isReplanForPointsNeeded = false;
+
 /**
  * Saves the points typed into a row's Points field, or says what's wrong
  * with them on the row, without saving.
@@ -605,9 +608,12 @@ function savePoints({ item, record }, field) {
   field.setAttribute('aria-invalid', String(!parsed.isValid));
   error.textContent = parsed.isValid ? '' : parsed.error;
   error.hidden = parsed.isValid;
-  if (!parsed.isValid || !record) {
+  // Leaving a field with an invalid value puts back the saved points, which
+  // doesn't change them, so there's nothing to re-plan for.
+  if (!parsed.isValid || !record || (parsed.points ?? undefined) === record.points) {
     return;
   }
+  const worth = locationPoints(record, state.event.pointsPerLocation);
   if (parsed.points === null) {
     delete record.points;
   } else {
@@ -616,10 +622,24 @@ function savePoints({ item, record }, field) {
   saveState(state);
   showRow(item, state.locations.indexOf(record) + 1);
   // Points are shown from the rows, so the route's list shows them once
-  // typing pauses. They don't change the map.
+  // typing pauses. They don't change the map, and the route only changes
+  // when it's planned again, which only matters when a location still to
+  // visit is worth something different, not when a blank field is given
+  // Points per location.
   clearTimeout(pointsTimer);
   if (state.plan) {
-    pointsTimer = setTimeout(() => showPlan({ isMapUnchanged: true }), 250);
+    const isPlanned = !record.isVisited && state.plan.points.some(({ key }) => key === record.id);
+    if (isPlanned && locationPoints(record, state.event.pointsPerLocation) !== worth) {
+      isReplanForPointsNeeded = true;
+    }
+    pointsTimer = setTimeout(() => {
+      showPlan({ isMapUnchanged: true });
+      if (isReplanForPointsNeeded && state.plan) {
+        // Keep the warning that the must-visit locations don't fit in front.
+        const late = state.plan.isMustVisitLate ? `${mustVisitLateText(state.plan)} ` : '';
+        showPlanStatus(`${late}Press Re-plan from here to update the route with your new points.`, state.plan.isMustVisitLate);
+      }
+    }, 250);
   }
 }
 
@@ -841,7 +861,7 @@ function currentPoints() {
   if (!isScored(state.locations)) {
     return null;
   }
-  return new Map(state.locations.map((record) => [record.id, locationPoints(record, state.event.pointsPerLocation)]));
+  return pointsById(state.locations, state.event.pointsPerLocation);
 }
 
 /**
@@ -1184,6 +1204,10 @@ async function planRoute(from) {
     showSetupError(result.error);
     showPlanStatus(result.plan ? planResultText(result) : null, Boolean(result.plan?.isMustVisitLate));
     if (result.plan) {
+      // The route now uses the rows' points, so it no longer needs the
+      // pending message to re-plan for them.
+      clearTimeout(pointsTimer);
+      isReplanForPointsNeeded = false;
       state.plan = result.plan;
       saveState(state);
       shouldFitMap = true;
