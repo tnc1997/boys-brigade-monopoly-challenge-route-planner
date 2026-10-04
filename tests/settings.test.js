@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { SPEED_PRESETS, SPEED_RANGE, settingsSummary, speedPreset } from '../settings.js';
+import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, settingsSummary, speedPreset } from '../settings.js';
 import { defaultState } from '../storage.js';
 
 describe('speedPreset', () => {
@@ -50,5 +50,25 @@ describe('settingsSummary', () => {
 
   test('says when a setting is missing', () => {
     assert.equal(settingsSummary({ speedKmh: NaN, dwellSeconds: NaN }), 'speed not set · selfie time not set');
+  });
+});
+
+describe('checkInFormUrl', () => {
+  test('accepts http and https URLs, trimming spaces', () => {
+    assert.equal(checkInFormUrl(' https://forms.example.com/check-in?team=1 '), 'https://forms.example.com/check-in?team=1');
+    assert.equal(checkInFormUrl('http://example.com/form'), 'http://example.com/form');
+    assert.equal(checkInFormUrl('HTTPS://Example.com'), 'https://example.com/');
+  });
+
+  test('returns an empty string when no URL is given', () => {
+    for (const text of ['', '   ']) {
+      assert.equal(checkInFormUrl(text), '', JSON.stringify(text));
+    }
+  });
+
+  test('rejects other schemes and text that is not a URL', () => {
+    for (const text of ['javascript:alert(1)', 'data:text/html,hi', 'ftp://example.com/form', 'mailto:team@example.com', 'forms.example.com/check-in', 'not a url']) {
+      assert.equal(checkInFormUrl(text), null, text);
+    }
   });
 });

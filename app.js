@@ -2,7 +2,7 @@ import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForT
 import { searchPlaces } from './search.js';
 import { addLocationLine, parseLocations, pinLine } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
-import { SPEED_PRESETS, SPEED_RANGE, settingsSummary, speedPreset } from './settings.js';
+import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
 import { defaultState, loadState, resetChallenge, saveState } from './storage.js';
 
@@ -32,6 +32,7 @@ const speedField = /** @type {HTMLInputElement} */ (document.getElementById('spe
 const speedValue = /** @type {HTMLOutputElement} */ (document.getElementById('settings-speed-value'));
 const settingsSave = /** @type {HTMLButtonElement} */ (document.getElementById('settings-save'));
 const settingsSummaryText = /** @type {HTMLParagraphElement} */ (document.getElementById('settings-summary'));
+const checkInFormField = /** @type {HTMLInputElement} */ (document.getElementById('settings-check-in-form'));
 const timeWarningBanner = /** @type {HTMLDivElement} */ (document.getElementById('time-warning'));
 const timeWarningText = /** @type {HTMLParagraphElement} */ (document.getElementById('time-warning-text'));
 const timeWarningAlert = /** @type {HTMLParagraphElement} */ (document.getElementById('time-warning-alert'));
@@ -909,8 +910,16 @@ settingsButton.addEventListener('click', () => {
       field.value = field.dataset.scale ? String(value / Number(field.dataset.scale)) : String(value);
     }
   }
+  // Check the link as filled in, since setting a value doesn't fire input.
+  checkInFormField.dispatchEvent(new Event('input'));
   settingsSave.textContent = state.plan?.settings ? 'Save and re-plan' : 'Save';
   settingsDialog.showModal();
+});
+
+// A url field accepts any scheme, such as javascript:, so also check that
+// the check-in form is an http or https link.
+checkInFormField.addEventListener('input', () => {
+  checkInFormField.setCustomValidity(checkInFormUrl(checkInFormField.value) === null ? 'Enter a link starting with http:// or https://.' : '');
 });
 
 // Cancel is a plain button, so pressing Enter in a field submits with Save
@@ -924,13 +933,16 @@ settingsDialog.addEventListener('close', () => {
   if (isSpeedChanged) {
     state.settings.speedKmh = Number(speedSlider.value);
   }
-  // The fields are required and range-checked, so the dialog only closes
-  // with "save" when they're valid.
+  // The fields are range-checked, and the check-in form URL checked by its
+  // input listener, so the dialog only closes with "save" when they're valid.
   for (const field of panelFields) {
     if (field.dataset.panelSetup) {
       state.setup[field.dataset.panelSetup] = field.value;
     } else if (field.type === 'number') {
       state.settings[field.dataset.panelSetting] = Number(field.value) * Number(field.dataset.scale ?? 1);
+    } else if (field === checkInFormField) {
+      // Keep the saved link rather than clearing it if an invalid one gets through.
+      state.settings.checkInFormUrl = checkInFormUrl(field.value) ?? state.settings.checkInFormUrl;
     } else {
       state.settings[field.dataset.panelSetting] = field.value;
     }
