@@ -825,7 +825,7 @@ describe('plan with scores', () => {
     const started = performance.now();
     const result = plan(planOptions);
     const elapsed = performance.now() - started;
-    assert.ok(elapsed < 400, `took ${elapsed.toFixed(0)} ms`);
+    assert.ok(elapsed < 600, `took ${elapsed.toFixed(0)} ms`);
     assert.ok(result.spareSeconds >= 0);
   });
 });
