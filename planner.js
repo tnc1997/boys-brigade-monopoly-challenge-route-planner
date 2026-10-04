@@ -480,10 +480,11 @@ export function plan({ timeLimitMs = 200, ...options }) {
   const context = routeContext(options);
   const stopAt = performance.now() + timeLimitMs;
   const mustVisit = mustVisitRoute(context);
-  // Without must-visit points, an empty route can still be over budget,
-  // when even the walk to the finish doesn't fit.
+  // An empty route can be over budget too, when even the walk to the finish
+  // doesn't fit, so the must-visit points are only late when the route
+  // would fit without them.
   const isOverBudget = routeSeconds(mustVisit, context) > context.budgetSeconds;
-  const isMustVisitLate = isOverBudget && mustVisit.length > 0;
+  const isMustVisitLate = isOverBudget && routeSeconds([], context) <= context.budgetSeconds;
   let route = mustVisit;
   if (!isOverBudget) {
     // A poor starting route can leave the improvements stuck, so also start

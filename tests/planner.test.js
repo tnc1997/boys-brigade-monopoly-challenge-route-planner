@@ -628,17 +628,25 @@ describe('plan with must-visit points', () => {
 
   test("ends at the finish when the must-visit points don't fit", () => {
     const line = [kmFrom(3), kmFrom(1), kmFrom(2)];
-    const finish = kmFrom(4);
-    const result = plan(options(2000, { points: line, mustVisit: [0, 1, 2], finish }));
+    // The finish alone, 3.5 km away, fits in 3700 s, but not with the
+    // must-visit points on the way, which take 3800 s.
+    const finish = kmFrom(3.5);
+    const result = plan(options(3700, { points: line, mustVisit: [0, 1, 2], finish }));
     assert.equal(result.isMustVisitLate, true);
     assert.deepEqual(result.order, [1, 2, 0]);
-    assert.ok(Math.abs(result.endEta - (startTime + (4000 + 300) * 1000)) < 1000, `ends ${result.endEta - startTime} ms after the start`);
+    assert.ok(Math.abs(result.endEta - (startTime + 3800 * 1000)) < 1000, `ends ${result.endEta - startTime} ms after the start`);
   });
 
   test("isn't late without must-visit points, even when nothing fits", () => {
     const result = plan(options(3200, { points, finish: kmFrom(10) }));
     assert.deepEqual(result.order, []);
     assert.equal(result.isMustVisitLate, false);
+  });
+
+  test("isn't late when even the walk to the finish doesn't fit", () => {
+    const result = plan(options(3200, { points, mustVisit: [1], finish: kmFrom(10) }));
+    assert.equal(result.isMustVisitLate, false);
+    assert.ok(result.spareSeconds < 0);
   });
 
   test('always includes every must-visit point that fits, and never removes one to fit others in, on random routes', () => {
