@@ -397,7 +397,9 @@ function showRow(item, number) {
   more.textContent = ['More', ...summary].join(' · ');
   more.setAttribute('aria-label', [`More options for location ${number}`, ...summary.map((text) => text.toLowerCase())].join(', '));
   // Blank uses Points per location, which can change.
-  /** @type {HTMLInputElement} */ (options.querySelector('[data-field="points"]')).placeholder = String(state.event.pointsPerLocation);
+  const pointsField = /** @type {HTMLInputElement} */ (options.querySelector('[data-field="points"]'));
+  pointsField.placeholder = String(state.event.pointsPerLocation);
+  pointsField.setAttribute('aria-label', `Points for location ${number}`);
   more.setAttribute('aria-expanded', String(isOpen));
   options.hidden = !isOpen;
   /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(record?.isMustVisit);
