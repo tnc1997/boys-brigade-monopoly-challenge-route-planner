@@ -253,15 +253,25 @@ describe('service worker deploys', () => {
     assert.ok((await loadPage(b)).every((file) => file.startsWith('b ')));
   });
 
-  test('takes over straight away from the service worker that fetched from the network first', async () => {
-    const server = newServer('a');
+  for (const cacheName of ['monopoly-challenge-route-planner-v2', 'monopoly-challenge-route-planner-v1', 'monopoly-challenge-planner-v1']) {
+    test(`takes over straight away from the service worker that fetched from the network first, with ${cacheName}`, async () => {
+      const server = newServer('a');
+      const cacheStorage = newCacheStorage();
+      await cacheStorage.open(cacheName);
+      const worker = newWorker({ server, cacheStorage });
+      await worker.install();
+      assert.equal(worker.skippedWaiting, true);
+      await worker.activate();
+      assert.ok(!cacheStorage.stores.has(cacheName));
+    });
+  }
+
+  test("waits to take over from another site's network-first cache", async () => {
     const cacheStorage = newCacheStorage();
-    await cacheStorage.open('monopoly-challenge-route-planner-v2');
-    const worker = newWorker({ server, cacheStorage });
+    await cacheStorage.open('another-site-v1');
+    const worker = newWorker({ server: newServer('a'), cacheStorage });
     await worker.install();
-    assert.equal(worker.skippedWaiting, true);
-    await worker.activate();
-    assert.ok(!cacheStorage.stores.has('monopoly-challenge-route-planner-v2'));
+    assert.equal(worker.skippedWaiting, false);
   });
 
   test('serves the saved file for any query string, and the saved page for the start URL', async () => {

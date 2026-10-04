@@ -38,11 +38,12 @@ const CACHE_PREFIX = 'monopoly-challenge-route-planner-';
 const LEGACY_CACHE_PREFIXES = ['monopoly-challenge-planner-'];
 
 /**
- * The cache of the last service worker that fetched the app's files from the
- * network first. Pages it controls have no update prompt, so a new service
- * worker takes over from it straight away.
+ * Matches the caches of the service workers that fetched the app's files
+ * from the network first, named v1 and v2 under either prefix. Pages they
+ * control have no update prompt, so a new service worker takes over from
+ * them straight away.
  */
-const NETWORK_FIRST_CACHE_NAME = `${CACHE_PREFIX}v2`;
+const NETWORK_FIRST_CACHE_PATTERN = /-v\d+$/;
 
 /** Each deploy saves its files in a cache of its own. */
 const CACHE_NAME = `${CACHE_PREFIX}${DEPLOY_VERSION}`;
@@ -143,7 +144,7 @@ self.addEventListener('install', (event) => {
       await Promise.all(LIBRARY_FILES.map(saveLibraryFile));
       // Otherwise this waits for the page to ask, so the page that's open
       // keeps the set it loaded.
-      if (await caches.has(NETWORK_FIRST_CACHE_NAME)) {
+      if ((await appCacheNames()).some((name) => NETWORK_FIRST_CACHE_PATTERN.test(name))) {
         await self.skipWaiting();
       }
     })(),
