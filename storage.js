@@ -1,7 +1,7 @@
 import { checkInFormUrl } from './settings.js';
 
 /**
- * Settings for planning, which can be changed during the challenge.
+ * Settings, which can be changed during the challenge. All but the check-in form URL affect planning.
  *
  * @typedef {object} Settings
  * @property {number} speedKmh Walking speed of the whole group in km/h.
