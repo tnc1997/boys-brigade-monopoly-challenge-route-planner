@@ -154,6 +154,13 @@ describe('cleanRecords', () => {
     assert.deepEqual(cleanRecords(records), [{ id: 'b', text: 'B' }]);
   });
 
+  test('keeps isMustVisit only when it is true', () => {
+    assert.deepEqual(cleanRecords([{ id: 'a', text: 'A', isMustVisit: true }, { id: 'b', text: 'B', isMustVisit: 1 }]), [
+      { id: 'a', text: 'A', isMustVisit: true },
+      { id: 'b', text: 'B' },
+    ]);
+  });
+
   test('keeps isVisited only when it is true', () => {
     assert.deepEqual(cleanRecords([{ id: 'a', text: 'A', isVisited: true }, { id: 'b', text: 'B', isVisited: false }, { id: 'c', text: 'C', isVisited: 'yes' }]), [
       { id: 'a', text: 'A', isVisited: true },

@@ -24,6 +24,7 @@ import { searchKey } from './search.js';
  * @property {string} text The row's text, as typed.
  * @property {import('./planner.js').LatLng} [pin] Where the row was pinned on the map, if it was. A pinned row isn't searched for.
  * @property {true} [isVisited] Whether the location has been visited, with its selfie taken.
+ * @property {true} [isMustVisit] Whether the route must include the location, while it's still to visit.
  */
 
 /**
@@ -206,6 +207,9 @@ export function cleanRecords(records) {
     }
     if (record.isVisited === true) {
       cleaned.isVisited = true;
+    }
+    if (record.isMustVisit === true) {
+      cleaned.isMustVisit = true;
     }
     return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
   });

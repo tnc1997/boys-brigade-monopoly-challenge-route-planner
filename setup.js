@@ -74,7 +74,9 @@ export function timeToday(time, now) {
  * location list that couldn't be found or haven't been looked up are
  * returned so they can be listed, but don't stop the rest from being
  * planned. Locations whose selfie is done are kept in the plan's `points`
- * but left out of the route.
+ * but left out of the route. Must-visit locations still to visit are always
+ * in the route, and the plan's `isMustVisitLate` says when they don't all fit
+ * before the deadline minus the safety margin.
  *
  * To re-plan during the challenge, pass the team's position as `from`: the
  * route then starts there and now, instead of at the Start field and start
@@ -140,9 +142,13 @@ export function planFromSetup({ event, locations, settings, now, from = null, se
   // indexes into every location, leaving done ones out of `skipped`.
   const done = new Set(visitedKeys(locations));
   const remaining = points.map((point, index) => ({ point, index })).filter(({ point }) => !done.has(point.key));
+  // Only locations still to visit can be must-visit, since a ticked-off one
+  // has already been visited.
+  const mustVisitKeys = new Set(locations.filter(({ isMustVisit }) => isMustVisit).map(({ id }) => id));
   const result = plan({
     start: start.location,
     points: remaining.map(({ point }) => point),
+    mustVisit: remaining.flatMap(({ point }, index) => (mustVisitKeys.has(point.key) ? [index] : [])),
     finish: finish?.location ?? null,
     startTime,
     deadline,

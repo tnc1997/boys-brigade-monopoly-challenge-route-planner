@@ -107,6 +107,21 @@ describe('planFromSetup', () => {
     assert.equal(plan.arrivalTimes.length, 1);
   });
 
+  test('always includes must-visit locations still to visit', () => {
+    // With the start time at 15:40, nothing fits on its own merit.
+    const locations = pinnedRows().map((record) => (record.id === 'b' ? { ...record, isMustVisit: true } : record));
+    const { plan } = planFromSetup(setupWith({ startTime: '15:40', locations }));
+    assert.deepEqual(plan.order, [1]);
+    assert.equal(plan.isMustVisitLate, true);
+  });
+
+  test("ignores Must visit on a location that's been visited", () => {
+    const locations = pinnedRows().map((record) => (record.id === 'b' ? { ...record, isMustVisit: true, isVisited: true } : record));
+    const { plan } = planFromSetup(setupWith({ startTime: '15:40', locations }));
+    assert.deepEqual(plan.order, []);
+    assert.equal(plan.isMustVisitLate, false);
+  });
+
   test('maps skipped locations back to their place in the list', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
     const locations = pinnedRows().map((record) => (record.id === firstPlan.points[0].key ? { ...record, isVisited: true } : record));
