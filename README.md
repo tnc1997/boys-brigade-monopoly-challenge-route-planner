@@ -37,6 +37,8 @@ Rows you add after planning show on the map as a dashed **+** until you press **
 
 **Must visit.** For a location the route has to include, tap the row's **More** and tick **Must visit**. The route then always includes it, even if leaving it out would fit in more selfies, and other stops are planned around it. If the must-visit locations alone can't be visited before the deadline (less the safety margin), the route is just them, in the shortest order, and a warning says when they'd finish. Untick some to fit others in. A location that's already ticked off doesn't need visiting again, so Must visit no longer applies to it.
 
+**Points.** If the sheet scores locations differently, set **Points per location** in **⚙ Settings** to what most are worth (10 by default), and enter any location's own value under its row's **More**, in **Points**. Leave Points blank to use Points per location. Once any location has its own points, each stop shows what it's worth and the route shows a total, like "Planned 22 stops · 230 points". The planner doesn't use points to choose the route yet.
+
 **Coordinates** on their own (like `51.4545,-2.5879`, from long-pressing a spot in Google Maps) are used directly, without a lookup. Anything else on the row is looked up, so to give a location a name and an exact spot, type its name and pin it with 📍. In **Start** and **Finish**, coordinates on their own are called "Start" and "Finish". Google Maps links and what3words addresses can't be used: pin those locations on the map instead.
 
 **Only one phone should look up a fresh list of addresses.** OpenStreetMap's free address search allows 1 request per second for everyone using the planner together, and the planner waits 1.5 seconds between lookups. If several phones enter the same new list at once, they can go over that limit. Each phone saves its results, so each location is only looked up once and re-planning works without signal. See the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/).
@@ -56,7 +58,7 @@ Press **Re-plan from here** at any time. It plans again from where you are now a
 - **After a bus or train:** re-plan from where you get off.
 - **When you're running behind,** or the red banner says so.
 - **When the pace changes,** for example if people leave or the group tires. Open **⚙ Settings**, choose **Slow** (3.5 km/h), **Medium** (4.5 km/h), **Fast** (5.5 km/h) or use the slider, then press **Save and re-plan**.
-- **When the finish changes.** The settings panel also lets you change the selfie time, safety margin (spare time kept before the deadline), detour factor (how much further walking is than a straight line) and deadline. It also has a place for the link to the organisers' online check-in form. With one set, each stop gets a **Check in** button, and the default selfie time goes up from 3 to 5 minutes to allow for uploading. A selfie time you've set yourself is kept.
+- **When the finish changes.** The settings panel also lets you change the selfie time, safety margin (spare time kept before the deadline), detour factor (how much further walking is than a straight line), deadline and Points per location. It also has a place for the link to the organisers' online check-in form. With one set, each stop gets a **Check in** button, and the default selfie time goes up from 3 to 5 minutes to allow for uploading. A selfie time you've set yourself is kept.
 
 The line under the Route heading shows what the plan assumes, such as "Planning for Medium 4.5 km/h · 3 min/selfie".
 

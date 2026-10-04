@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, isScored, locationPoints, newLocationId, parsePoints, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -309,6 +309,7 @@ function rowItem(record) {
     'min-h-11 min-w-0 flex-1 rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30',
   );
   field.type = 'text';
+  field.dataset.field = 'text';
   field.value = record?.text ?? '';
   field.autocomplete = 'off';
   field.spellcheck = false;
@@ -343,7 +344,26 @@ function rowItem(record) {
   mustVisitBox.type = 'checkbox';
   mustVisitBox.dataset.field = 'isMustVisit';
   mustVisit.append(mustVisitBox, 'Must visit');
-  options.append(mustVisit);
+  const points = element('div', 'flex flex-col gap-1 pb-2');
+  const pointsLine = element('label', 'flex items-center gap-2 text-sm');
+  const pointsField = element(
+    'input',
+    'min-h-11 w-24 rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 aria-invalid:border-danger',
+  );
+  // A text field rather than a number field, which would accept and hide
+  // values like 2.5 or 1e3, so what's wrong can be shown.
+  pointsField.type = 'text';
+  pointsField.inputMode = 'numeric';
+  pointsField.autocomplete = 'off';
+  pointsField.dataset.field = 'points';
+  pointsField.value = record?.points === undefined ? '' : String(record.points);
+  const pointsError = element('p', 'text-xs text-danger');
+  pointsError.id = `location-points-error-${id}`;
+  pointsError.hidden = true;
+  pointsField.setAttribute('aria-describedby', pointsError.id);
+  pointsLine.append('Points', pointsField);
+  points.append(pointsLine, pointsError);
+  options.append(mustVisit, points);
   // The empty row at the end has nothing to remove or set options for. It
   // keeps the space for ✕ so the fields line up.
   remove.classList.toggle('invisible', record === null);
@@ -372,8 +392,12 @@ function showRow(item, number) {
   // Must visit no longer applies once the location's been visited. The box
   // stays ticked, so it applies again if the tick is undone.
   const isMustVisit = Boolean(record?.isMustVisit && !record.isVisited);
-  more.textContent = isMustVisit ? 'More · Must visit' : 'More';
-  more.setAttribute('aria-label', `More options for location ${number}${isMustVisit ? ', must visit' : ''}`);
+  // Say what's set under More while it's closed.
+  const summary = [...(isMustVisit ? ['Must visit'] : []), ...(record?.points === undefined ? [] : [plural(record.points, 'point')])];
+  more.textContent = ['More', ...summary].join(' · ');
+  more.setAttribute('aria-label', [`More options for location ${number}`, ...summary.map((text) => text.toLowerCase())].join(', '));
+  // Blank uses Points per location, which can change.
+  /** @type {HTMLInputElement} */ (options.querySelector('[data-field="points"]')).placeholder = String(state.event.pointsPerLocation);
   more.setAttribute('aria-expanded', String(isOpen));
   options.hidden = !isOpen;
   /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(record?.isMustVisit);
@@ -411,9 +435,10 @@ function showRows() {
 /** Builds the location list's rows from the state, with an empty row at the end, keeping focus in the same row. */
 function buildRows() {
   const focusedId = rowOf(document.activeElement)?.item.dataset.id;
+  const focusedField = document.activeElement instanceof HTMLElement ? (document.activeElement.dataset.field ?? 'text') : 'text';
   locationRows.replaceChildren(...state.locations.map(rowItem), rowItem(null));
   if (focusedId !== undefined) {
-    locationRows.querySelector(`li[data-id="${CSS.escape(focusedId)}"] input`)?.focus();
+    locationRows.querySelector(`li[data-id="${CSS.escape(focusedId)}"] [data-field="${CSS.escape(focusedField)}"]`)?.focus();
   }
   showRows();
 }
@@ -556,9 +581,43 @@ function removeRow(item, record) {
   showRows();
 }
 
+/**
+ * Saves the points typed into a row's Points field, or says what's wrong
+ * with them on the row, without saving.
+ *
+ * @param {{ item: HTMLLIElement, record: import('./locations.js').LocationRecord | null }} row The row.
+ * @param {HTMLInputElement} field Its Points field.
+ */
+function savePoints({ item, record }, field) {
+  const parsed = parsePoints(field.value);
+  const error = /** @type {HTMLParagraphElement} */ (item.querySelector(`#${CSS.escape(field.getAttribute('aria-describedby'))}`));
+  field.setAttribute('aria-invalid', String(!parsed.isValid));
+  error.textContent = parsed.isValid ? '' : parsed.error;
+  error.hidden = parsed.isValid;
+  if (!parsed.isValid || !record) {
+    return;
+  }
+  if (parsed.points === null) {
+    delete record.points;
+  } else {
+    record.points = parsed.points;
+  }
+  saveState(state);
+  showRow(item, state.locations.indexOf(record) + 1);
+  // Points are shown from the rows, so the route shows them straight away.
+  showPlan();
+}
+
 locationRows.addEventListener('input', (event) => {
   const row = rowOf(event.target);
-  if (!row || !(event.target instanceof HTMLInputElement) || event.target.type !== 'text') {
+  if (!row || !(event.target instanceof HTMLInputElement)) {
+    return;
+  }
+  if (event.target.dataset.field === 'points') {
+    savePoints(row, event.target);
+    return;
+  }
+  if (event.target.dataset.field !== 'text') {
     return;
   }
   let { record } = row;
@@ -602,7 +661,9 @@ locationRows.addEventListener('change', (event) => {
     }
     return;
   }
-  lookUpFinished(resolveRecord(row.record, state.locations.indexOf(row.record) + 1, state.searchResults));
+  if (event.target instanceof HTMLInputElement && event.target.dataset.field === 'text') {
+    lookUpFinished(resolveRecord(row.record, state.locations.indexOf(row.record) + 1, state.searchResults));
+  }
 });
 
 // A row that's been emptied, without a pin, is removed once focus leaves
@@ -622,12 +683,15 @@ locationRows.addEventListener('focusout', (event) => {
 });
 
 // Enter moves to the next row, rather than submitting the form, which
-// finishes the row and looks it up.
+// finishes the row and looks it up. In a row's other fields, it does
+// nothing, rather than planning the route.
 locationRows.addEventListener('keydown', (event) => {
   const row = rowOf(event.target);
-  if (row && event.target instanceof HTMLInputElement && event.target.type === 'text' && event.key === 'Enter' && !event.isComposing) {
+  if (row && event.target instanceof HTMLInputElement && event.key === 'Enter' && !event.isComposing) {
     event.preventDefault();
-    row.item.nextElementSibling?.querySelector('input')?.focus();
+    if (event.target.dataset.field === 'text') {
+      row.item.nextElementSibling?.querySelector('[data-field="text"]')?.focus();
+    }
   }
 });
 
@@ -745,6 +809,27 @@ function checkInLink(location, isDone) {
 }
 
 /**
+ * Works out what a location is worth, from its row now, so changing a row's
+ * points shows straight away, without planning again.
+ *
+ * @param {string} key The location's key, which is its row's id.
+ * @returns {number} Its points.
+ */
+function pointsOf(key) {
+  return locationPoints(state.locations.find(({ id }) => id === key), state.event.pointsPerLocation);
+}
+
+/**
+ * Adds up what locations are worth.
+ *
+ * @param {string[]} keys The locations' keys.
+ * @returns {number} Their total points.
+ */
+function totalPoints(keys) {
+  return keys.reduce((total, key) => total + pointsOf(key), 0);
+}
+
+/**
  * Creates the list item for a stop, or for the walk to the finish.
  *
  * @param {import('./route.js').RouteStop} stop The stop.
@@ -767,7 +852,7 @@ function stopItem(stop, isFinish) {
   const timing = element(
     'p',
     'text-sm text-muted',
-    `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk`,
+    `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk${!isFinish && isScored(state.locations) ? ` · ${plural(pointsOf(stop.location.key), 'point')}` : ''}`,
   );
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
@@ -842,7 +927,10 @@ function showPlan() {
   const remaining = total - done;
   const locations = (count) => (count === 1 ? 'location' : 'locations');
   const visiting = done === 0 ? `${stopsToVisit} of ${total} ${locations(total)}` : `${stopsToVisit} of ${remaining} ${locations(remaining)} still to do`;
-  const summary = element('p', 'text-sm', remaining === 0 && total > 0 ? `All ${total} selfies done!` : `Visiting ${visiting}, ${ending}.`);
+  // Points only show once scores vary, so the route otherwise looks as it does without them.
+  const toVisit = route.stops.filter(({ location }) => !visited.includes(location.key));
+  const points = isScored(state.locations) ? ` (${plural(totalPoints(toVisit.map(({ location }) => location.key)), 'point')})` : '';
+  const summary = element('p', 'text-sm', remaining === 0 && total > 0 ? `All ${total} selfies done!` : `Visiting ${visiting}${points}, ${ending}.`);
   // A plan's times are on the day it was made, so an older plan needs planning again.
   wasPlanForToday = isPlanForToday(plan, Date.now());
   if (!wasPlanForToday) {
@@ -1003,7 +1091,9 @@ function mustVisitLateText(plan) {
  * @returns {string} The message, like "Planned 22 stops."
  */
 function planResultText(result) {
-  const parts = [`Planned ${plural(result.plan.order.length, 'stop')}.`];
+  const { order, points } = result.plan;
+  const scored = isScored(state.locations) ? ` · ${plural(totalPoints(order.map((index) => points[index].key)), 'point')}` : '';
+  const parts = [`Planned ${plural(order.length, 'stop')}${scored}.`];
   if (result.leftOut.length > 0) {
     const labels = result.leftOut.map(({ number, resolved }) => ('label' in resolved ? resolved.label : `Location ${number}`));
     parts.push(`Left out because ${result.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`);
@@ -1487,6 +1577,7 @@ settingsDialog.addEventListener('close', () => {
     state.settings.speedKmh = Number(speedSlider.value);
   }
   const savedCheckInFormUrl = state.event.checkInFormUrl;
+  const savedPointsPerLocation = state.event.pointsPerLocation;
   // The fields are range-checked, and the check-in form URL checked by its
   // input listener, so the dialog only closes with "save" when they're valid.
   for (const field of panelFields) {
@@ -1505,8 +1596,9 @@ settingsDialog.addEventListener('close', () => {
   showRows();
   showSettingsSummary();
   showCountdown();
-  // Show or hide the Check in buttons now, even if re-planning fails.
-  if (state.event.checkInFormUrl !== savedCheckInFormUrl) {
+  // Show or hide the Check in buttons, and show new points, now, even if
+  // re-planning fails.
+  if (state.event.checkInFormUrl !== savedCheckInFormUrl || state.event.pointsPerLocation !== savedPointsPerLocation) {
     showPlan();
   }
   // Re-plan with the new settings, keeping ticks: from the Start field if
