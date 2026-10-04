@@ -104,3 +104,5 @@ npm run build # build the minified styles.css
 | `sw.js` | The service worker that keeps the app working offline |
 
 Pushes to `main` are tested by the **Test** workflow and deployed to GitHub Pages by the **Deploy** workflow.
+
+The Deploy workflow stamps the commit into `sw.js`, so each deploy installs a new service worker that saves the whole app as one set. A page keeps the set it loaded until the team taps **Reload** in the update prompt, so it never mixes files from two deploys. Running locally with `npm start`, `sw.js` is unstamped and the app's files come from the network, so edits show on reload.

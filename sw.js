@@ -1,19 +1,27 @@
 /*
  * Service worker that keeps the app working without signal.
  *
- * The app's own files are saved when the service worker installs, and
- * Leaflet when it installs or activates, or else the first time the page
- * loads it. The app's files are then fetched from the network first, so a new
- * deploy is picked up whenever there's signal, with the saved copy used
- * offline. Leaflet is versioned, so the saved copy is used first.
+ * Each deploy stamps its version into this file, so every deploy installs a
+ * new service worker, which saves a complete set of the app's files from that
+ * deploy. The app's files are always served from that set, never one at a
+ * time from the network, so a page load can't mix files from different
+ * deploys, whatever the signal. A new set is only used once the new service
+ * worker takes over: when the team taps Reload in the update prompt, or when
+ * every tab of the app has been closed. Leaflet is saved when the service
+ * worker installs or activates, or else the first time the page loads it.
+ * It's versioned, so the saved copy is used first.
  *
  * Map tiles and address searches are left alone. OpenStreetMap's tile usage
  * policy doesn't allow saving tiles for offline use, so they're only cached
  * by the browser as usual: https://operations.osmfoundation.org/policies/tiles/
  */
 
-/** How long to wait for the network before using the saved copy of the app's files, in milliseconds. */
-const NETWORK_TIMEOUT_MS = 4000;
+/**
+ * The deploy this service worker belongs to. The Deploy workflow replaces
+ * it with the commit being deployed. Unstamped, as when running locally with
+ * `npm start`, the app's files come from the network, so edits show straight away.
+ */
+const DEPLOY_VERSION = 'local';
 
 /**
  * The start of this app's cache names. Other sites on tnc1997.github.io
@@ -29,8 +37,15 @@ const CACHE_PREFIX = 'monopoly-challenge-route-planner-';
  */
 const LEGACY_CACHE_PREFIXES = ['monopoly-challenge-planner-'];
 
-/** Change this to replace every saved file, for example when the list below changes. */
-const CACHE_NAME = `${CACHE_PREFIX}v2`;
+/**
+ * The cache of the last service worker that fetched the app's files from the
+ * network first. Pages it controls have no update prompt, so a new service
+ * worker takes over from it straight away.
+ */
+const NETWORK_FIRST_CACHE_NAME = `${CACHE_PREFIX}v2`;
+
+/** Each deploy saves its files in a cache of its own. */
+const CACHE_NAME = `${CACHE_PREFIX}${DEPLOY_VERSION}`;
 
 /** The app's own files, relative to this script. Every top-level module must be listed. */
 const APP_FILES = [
@@ -122,12 +137,24 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
-      // Bypass the browser's HTTP cache, so the files match this deploy.
+      // All or nothing, bypassing the browser's HTTP cache, so the whole set
+      // comes from this deploy.
       await cache.addAll(APP_FILES.map((file) => new Request(file, { cache: 'reload' })));
       await Promise.all(LIBRARY_FILES.map(saveLibraryFile));
-      await self.skipWaiting();
+      // Otherwise this waits for the page to ask, so the page that's open
+      // keeps the set it loaded.
+      if (await caches.has(NETWORK_FIRST_CACHE_NAME)) {
+        await self.skipWaiting();
+      }
     })(),
   );
+});
+
+// The update prompt's Reload button asks the waiting service worker to take over.
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (event) => {
@@ -166,49 +193,17 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Only the app's own files are handled; tiles, searches and anything else
-  // go to the network as usual.
+  // go to the network as usual. Unstamped, the app's files do too.
   const key = `${url.origin}${url.pathname}`;
-  if (!APP_FILE_URLS.has(key)) {
+  if (!APP_FILE_URLS.has(key) || DEPLOY_VERSION === 'local') {
     return;
   }
-  // Take a copy as soon as the response arrives, before anything reads it,
-  // to refresh the saved copy. The service worker is kept alive until it's
-  // written, even if the saved copy is used first on a weak signal.
-  let copy;
-  const network = fetch(request).then((loaded) => {
-    copy = loaded.clone();
-    return loaded;
-  });
-  event.waitUntil(network.then(() => saveResponse(key, copy)).catch(() => {}));
-  // Without a saved copy, opening the page falls back to the saved page;
-  // anything else fails as it would without the service worker. The lookup
-  // runs at most once per request, unless it fails, when it's tried again.
-  let savedLookup;
-  const saved = () => {
-    savedLookup ??= matchSaved(key)
-      .then((match) => match ?? (request.mode === 'navigate' ? matchSaved(new URL('index.html', self.location.href).href) : undefined))
-      .catch((error) => {
-        savedLookup = undefined;
-        throw error;
-      });
-    return savedLookup;
-  };
-  // With a weak signal the network can hang, so use the saved copy after a
-  // few seconds. The network request carries on and still refreshes it.
-  let timer;
-  const timeout = new Promise((resolve) => {
-    timer = setTimeout(resolve, NETWORK_TIMEOUT_MS);
-  }).then(saved);
-  // An error response (4xx or 5xx) is treated like no signal, using the
-  // saved copy if there is one. During a GitHub Pages problem or a broken
-  // deploy, Pages can answer 404 for every file, and a busy server 429 or
-  // 408, so this keeps the app working on the day. Redirects (including the
-  // opaque redirects navigations get) are passed on as they are.
-  const usable = network.then(async (loaded) => (loaded.status >= 400 ? ((await saved()) ?? loaded) : loaded));
-  network.finally(() => clearTimeout(timer)).catch(() => {});
+  // Serve the saved set, which install saved as a whole. The network is
+  // only used if the browser has cleared the saved set; refreshing a single
+  // file would mix deploys.
   event.respondWith(
-    Promise.race([usable, timeout.then((match) => match ?? usable)])
-      .catch(saved)
-      .then((response) => response ?? Response.error()),
+    matchSaved(key)
+      .catch(() => undefined)
+      .then((saved) => saved ?? fetch(request)),
   );
 });

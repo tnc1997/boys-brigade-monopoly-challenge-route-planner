@@ -36,6 +36,9 @@ jobs:
         run: |
           mkdir _site
           cp index.html *.js styles.css _site/
+          # A new sw.js for every deploy, so each one saves its own complete set of files.
+          sed -i "s/^const DEPLOY_VERSION = 'local';$/const DEPLOY_VERSION = '${GITHUB_SHA}';/" _site/sw.js
+          grep -q "^const DEPLOY_VERSION = '${GITHUB_SHA}';$" _site/sw.js
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
 
