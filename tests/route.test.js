@@ -280,6 +280,15 @@ describe('timeWarning', () => {
     assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + minutes(1)).kind, 'late');
   });
 
+  test("doesn't warn straight away when the must-visit locations make the plan late", () => {
+    const locations = pinnedRows().map((record) => ({ ...record, isMustVisit: true }));
+    const plan = planFromSetup({ event: { ...defaultState().event, startTime: '15:30' }, locations, settings: defaultState().settings, now }).plan;
+    assert.equal(plan.isMustVisitLate, true);
+    assert.ok(plan.spareSeconds < 0);
+    assert.equal(timeWarning(plan, [], plan.startTime), null);
+    assert.equal(timeWarning(plan, [], plan.deadline - 10 * 60000).kind, 'short');
+  });
+
   test('warns straight away when the plan already ends inside the safety margin', () => {
     // The finish is too far to reach before the deadline minus the margin.
     const plan = savedPlan({ startTime: '15:30', finishText: '51.5300,-2.7000' });

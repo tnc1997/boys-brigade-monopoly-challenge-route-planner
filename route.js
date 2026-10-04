@@ -294,10 +294,13 @@ export function timeWarning(plan, visitedKeys, now) {
   const behindMs = next === -1 ? 0 : Math.max(0, now - plan.arrivalTimes[next]);
   const minutesBehind = Math.floor(behindMs / 60000);
 
-  // A plan can already end inside the safety margin, such as when even the
-  // walk to the finish doesn't fit. That counts as short of time once the
-  // route has started, but not before, such as when planning ahead.
-  const isShortOfTime = leftMs <= marginMs || (plan.spareSeconds < 0 && now >= plan.startTime);
+  // A plan can already end inside the safety margin when even the walk to
+  // the finish doesn't fit. That counts as short of time once the route has
+  // started, but not before, such as when planning ahead. A plan can also
+  // end late because its must-visit locations don't fit, which the planning
+  // result has already warned about, so that doesn't count until the time
+  // left is down to the margin, or the team falls behind.
+  const isShortOfTime = leftMs <= marginMs || (plan.spareSeconds < 0 && !plan.isMustVisitLate && now >= plan.startTime);
   const isRunningLate = minutesBehind >= 1 && plan.endEta + behindMs > plan.deadline - marginMs;
   // With every location ticked off and no finish to reach, there's nothing
   // to hurry for. An empty route isn't enough, because it can also mean
