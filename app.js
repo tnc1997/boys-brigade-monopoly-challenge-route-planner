@@ -560,13 +560,7 @@ locationRows.addEventListener('keydown', (event) => {
   const row = rowOf(event.target);
   if (row && event.target instanceof HTMLInputElement && event.key === 'Enter' && !event.isComposing) {
     event.preventDefault();
-    const next = row.item.nextElementSibling?.querySelector('input');
-    if (next) {
-      next.focus();
-    } else {
-      event.target.blur();
-      event.target.focus();
-    }
+    row.item.nextElementSibling?.querySelector('input')?.focus();
   }
 });
 
