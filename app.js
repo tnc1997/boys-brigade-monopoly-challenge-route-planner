@@ -1603,9 +1603,10 @@ settingsDialog.addEventListener('close', () => {
   showRows();
   showSettingsSummary();
   showCountdown();
-  // Show or hide the Check in buttons, and show new points, now, even if
-  // re-planning fails.
-  if (state.event.checkInFormUrl !== savedCheckInFormUrl || state.event.pointsPerLocation !== savedPointsPerLocation) {
+  // Show or hide the Check in buttons, and show new points if points are
+  // shown, now, even if re-planning fails.
+  const isPointsChanged = state.event.pointsPerLocation !== savedPointsPerLocation && isScored(state.locations);
+  if (state.event.checkInFormUrl !== savedCheckInFormUrl || isPointsChanged) {
     showPlan();
   }
   // Re-plan with the new settings, keeping ticks: from the Start field if
