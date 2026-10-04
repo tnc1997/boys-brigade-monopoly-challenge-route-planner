@@ -1714,9 +1714,6 @@ window.addEventListener('offline', showConnection);
 /** The new deploy's service worker, once it's saved its files and is waiting to take over. */
 let waitingWorker = /** @type {ServiceWorker | null} */ (null);
 
-/** Whether the team has tapped Reload in the update prompt. */
-let isUpdating = false;
-
 /**
  * Shows the update prompt for a new deploy. The page keeps the files it
  * loaded until the team taps Reload, so it never mixes files from two deploys.
@@ -1747,7 +1744,6 @@ function offerUpdateOnceInstalled(worker) {
 }
 
 updateReloadButton.addEventListener('click', () => {
-  isUpdating = true;
   updateReloadButton.disabled = true;
   waitingWorker?.postMessage({ type: 'SKIP_WAITING' });
 });
@@ -1773,11 +1769,13 @@ if ('serviceWorker' in navigator) {
     .catch(() => {
       // The app still works online without it.
     });
-  // Once the new deploy's service worker has taken over, reload to use its
-  // files. Other tabs keep the files they loaded until they're reloaded.
+  // Once a new deploy's service worker has taken over, reload every tab
+  // that loaded an older deploy, not just the one where Reload was tapped,
+  // so an old tab can't save its state over the new deploy's. A page that
+  // wasn't controlled loaded its files from the network, so it's up to date.
+  const wasControlled = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    updateAvailable.classList.add('hidden');
-    if (isUpdating) {
+    if (wasControlled) {
       window.location.reload();
     }
   });
