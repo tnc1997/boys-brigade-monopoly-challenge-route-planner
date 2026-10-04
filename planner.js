@@ -442,7 +442,7 @@ function insertCheapest(route, node, context) {
  * @property {number[]} order Indexes into `points` in visiting order.
  * @property {number[]} arrivalTimes When the team arrives at each stop in `order`, in milliseconds since the Unix epoch.
  * @property {number} endEta When the route ends, in milliseconds since the Unix epoch. With a finish, this is the arrival time at the finish. Without one, it's when the last selfie is taken.
- * @property {number} spareSeconds Time left between `endEta` and the deadline minus the safety margin. Negative only when even the walk to the finish doesn't fit.
+ * @property {number} spareSeconds Time left between `endEta` and the deadline minus the safety margin. Negative only when even the walk to the finish doesn't fit, or when `isMustVisitLate` is `true`.
  * @property {number[]} skipped Indexes into `points` that aren't in `order`, in ascending order.
  * @property {boolean} isMustVisitLate Whether the must-visit points alone don't fit before the deadline minus the safety margin, so the route is only those, in the shortest order found.
  */
