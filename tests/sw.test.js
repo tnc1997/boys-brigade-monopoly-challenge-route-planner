@@ -291,7 +291,22 @@ describe('service worker deploys', () => {
     assert.match(await worker.load(`${BASE}?source=pwa`), new RegExp(`^a ${new URL(BASE).pathname}\\n`));
   });
 
-  test('uses the network if the browser has cleared the saved set', async () => {
+  test('saves the whole set again if the browser has cleared it, so it still opens offline', async () => {
+    const server = newServer('a');
+    const cacheStorage = newCacheStorage();
+    const worker = newWorker({ server, cacheStorage });
+    await worker.install();
+    await worker.activate();
+    cacheStorage.stores.clear();
+    server.requests.length = 0;
+    // Only one page load's worth of requests reaches the server.
+    assert.ok((await loadPage(worker)).every((file) => file.startsWith('a ')));
+    assert.equal(server.requests.length, APP_FILE_URLS.length);
+    server.failing = new Set(APP_FILE_URLS.map((url) => new URL(url).pathname));
+    assert.ok((await loadPage(worker)).every((file) => file.startsWith('a ')));
+  });
+
+  test('uses the network as a last resort if the cleared set is from an older deploy than the server', async () => {
     const server = newServer('a');
     const cacheStorage = newCacheStorage();
     const worker = newWorker({ server, cacheStorage });
@@ -299,6 +314,7 @@ describe('service worker deploys', () => {
     cacheStorage.stores.clear();
     server.deploy = 'b';
     assert.ok((await loadPage(worker)).every((file) => file.startsWith('b ')));
+    assert.ok(!cacheStorage.stores.get('monopoly-challenge-route-planner-a')?.size);
   });
 
   test("leaves map tiles and other sites' files to the network", async () => {

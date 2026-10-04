@@ -136,6 +136,30 @@ async function saveAppFiles() {
   await Promise.all(APP_FILES.map((file, index) => cache.put(new URL(file, self.location.href).href, responses[index])));
 }
 
+/** Saving the app's files again after the browser cleared them, while it's under way. */
+let restoring;
+
+/**
+ * Finds the saved copy of one of the app's files. If the browser (or another
+ * site sharing the storage) has cleared it, the whole set from this deploy is
+ * saved again first, so the app still opens offline afterwards and a page
+ * load doesn't mix files fetched one at a time.
+ *
+ * @param {string} key The URL it's saved under.
+ * @returns {Promise<Response | undefined>} The saved copy, or `undefined` if the set couldn't be saved again.
+ */
+async function matchSavedOrRestore(key) {
+  const saved = await matchSaved(key).catch(() => undefined);
+  if (saved) {
+    return saved;
+  }
+  restoring ??= saveAppFiles().finally(() => {
+    restoring = undefined;
+  });
+  await restoring.catch(() => {});
+  return matchSaved(key).catch(() => undefined);
+}
+
 /**
  * Makes sure a library file is saved in the current cache. It reuses a
  * copy from this app's other caches, such as the one from before a deploy,
@@ -224,12 +248,9 @@ self.addEventListener('fetch', (event) => {
   if (!APP_FILE_URLS.has(key) || DEPLOY_VERSION === 'local') {
     return;
   }
-  // Serve the saved set, which install saved as a whole. The network is
-  // only used if the browser has cleared the saved set; refreshing a single
-  // file would mix deploys.
-  event.respondWith(
-    matchSaved(key)
-      .catch(() => undefined)
-      .then((saved) => saved ?? fetch(request)),
-  );
+  // Serve the saved set, which is only ever saved as a whole; refreshing a
+  // single file would mix deploys. The network is only used on its own if
+  // the set has been cleared and can't be saved again, such as without
+  // signal or once a newer deploy is live, when it's better than nothing.
+  event.respondWith(matchSavedOrRestore(key).then((saved) => saved ?? fetch(request)));
 });
