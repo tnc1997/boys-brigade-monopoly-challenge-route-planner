@@ -23,6 +23,8 @@ const replan = /** @type {HTMLDivElement} */ (document.getElementById('replan'))
 const replanButton = /** @type {HTMLButtonElement} */ (document.getElementById('replan-button'));
 const replanStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('replan-status'));
 const planButton = /** @type {HTMLButtonElement} */ (form.querySelector('button[type="submit"]'));
+/** What the Plan route button says when it isn't planning. */
+const PLAN_BUTTON_TEXT = planButton.textContent;
 const planStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('plan-status'));
 const tabs = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll('[role="tab"][data-view]')]);
 const mapContainer = /** @type {HTMLDivElement} */ (document.getElementById('map'));
@@ -925,7 +927,6 @@ function nextFrame() {
 async function planRoute(from) {
   planButton.disabled = true;
   replanButton.disabled = true;
-  const planButtonText = planButton.textContent;
   try {
     for (const query of searchesNeeded({ setup: state.setup, locations: state.locations, searchResults: state.searchResults, isFromPosition: from !== null })) {
       lookUp(query);
@@ -963,7 +964,9 @@ async function planRoute(from) {
     }
     return result.error;
   } finally {
-    planButton.textContent = planButtonText;
+    // Not the text from when this plan started, which can be another
+    // plan's "Waiting for…" when two overlap, such as after saving settings.
+    planButton.textContent = PLAN_BUTTON_TEXT;
     planButton.disabled = false;
     replanButton.disabled = false;
   }
