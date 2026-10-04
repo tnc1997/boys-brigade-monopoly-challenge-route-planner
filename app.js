@@ -369,8 +369,11 @@ function showRow(item, number) {
   const more = /** @type {HTMLButtonElement} */ (item.querySelector('[data-action="more"]'));
   const options = /** @type {HTMLDivElement} */ (document.getElementById(more.getAttribute('aria-controls')));
   const isOpen = record !== null && openRows.has(record.id);
-  more.textContent = record?.isMustVisit ? 'More · Must visit' : 'More';
-  more.setAttribute('aria-label', `More options for location ${number}${record?.isMustVisit ? ', must visit' : ''}`);
+  // Must visit no longer applies once the location's been visited. The box
+  // stays ticked, so it applies again if the tick is undone.
+  const isMustVisit = Boolean(record?.isMustVisit && !record.isVisited);
+  more.textContent = isMustVisit ? 'More · Must visit' : 'More';
+  more.setAttribute('aria-label', `More options for location ${number}${isMustVisit ? ', must visit' : ''}`);
   more.setAttribute('aria-expanded', String(isOpen));
   options.hidden = !isOpen;
   /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(record?.isMustVisit);
@@ -895,6 +898,8 @@ function setVisited(key, isVisited) {
     delete record.isVisited;
   }
   saveState(state);
+  // A visited row no longer shows Must visit.
+  showRows();
 }
 
 /**
