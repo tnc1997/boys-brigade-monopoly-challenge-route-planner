@@ -20,8 +20,21 @@ const fakeFetch = (respond) => {
 const queenSquare = { lat: '51.4504', lon: '-2.5947', display_name: 'Queen Square, City Centre, Bristol, England' };
 
 describe('searchKey', () => {
-  test('normalises spacing and case', () => {
-    assert.equal(searchKey('  Queen   Square, BRISTOL '), 'queen square, bristol');
+  test('is the query without its ends\' spaces, as base64', () => {
+    assert.equal(searchKey(' Queen Square '), 'UXVlZW4gU3F1YXJl');
+    assert.equal(atob(searchKey(' Queen Square ')), 'Queen Square');
+  });
+
+  test("doesn't otherwise normalise the query", () => {
+    assert.notEqual(searchKey('Queen Square'), searchKey('queen square'));
+    assert.notEqual(searchKey('Queen Square'), searchKey('Queen  Square'));
+  });
+
+  test('works for any text, including accents and names built into objects', () => {
+    assert.equal(new TextDecoder().decode(Uint8Array.from(atob(searchKey('Café Möller')), (char) => char.charCodeAt(0))), 'Café Möller');
+    for (const text of ['constructor', '__proto__', 'toString']) {
+      assert.equal(searchKey(text) in {}, false, text);
+    }
   });
 });
 

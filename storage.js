@@ -1,4 +1,5 @@
 import { cleanRecords } from './locations.js';
+import { searchKey } from './search.js';
 import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
 
 /**
@@ -150,7 +151,9 @@ export function loadState(storage = browserStorage()) {
  * text, to the current version. The list was from the 2026 challenge, so it
  * isn't moved to rows, and nor are the ticks and the plan, which refer to
  * it. The settings and the rest of the setup form are kept, with only the
- * coordinates from a Start or Finish that had them.
+ * coordinates from a Start or Finish that had them. Of the search results,
+ * only the Start's and Finish's are kept, under their current key, since
+ * the rest were for the list.
  *
  * @param {Record<string, any>} saved The state as saved with version 1.
  * @returns {Record<string, any>} The state without the location list, still to be checked like any other saved state.
@@ -165,7 +168,17 @@ function fromVersion1(saved) {
       setup[field] = `${coordinates[1]},${coordinates[2]}`;
     }
   }
-  return { ...saved, setup, locations: [], doneKeys: [], plan: null };
+  // Version 1 saved results by the query in lower case with single spaces,
+  // so they're found under the Start's and Finish's text that way.
+  const oldSearchResults = isObject(saved.searchResults) ? saved.searchResults : {};
+  const searchResults = {};
+  for (const text of [setup.startText, setup.finishText]) {
+    const oldKey = typeof text === 'string' ? text.trim().replace(/\s+/g, ' ').toLowerCase() : '';
+    if (oldKey && Object.hasOwn(oldSearchResults, oldKey)) {
+      searchResults[searchKey(text)] = oldSearchResults[oldKey];
+    }
+  }
+  return { ...saved, setup, locations: [], doneKeys: [], searchResults, plan: null };
 }
 
 /**

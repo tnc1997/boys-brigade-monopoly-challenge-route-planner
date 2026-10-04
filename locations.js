@@ -95,7 +95,7 @@ export function newLocationId() {
  * // { status: 'coordinates', location: { lat: 51.4556, lng: -2.5894, label: 'Start', key: START_KEY } }
  */
 export function resolveText(text, key, searchResults, { coordinatesLabel } = {}) {
-  const label = text.trim().replace(/\s+/g, ' ');
+  const label = text.trim();
   if (label === '') {
     return { status: 'empty' };
   }
@@ -136,7 +136,7 @@ export function resolveText(text, key, searchResults, { coordinatesLabel } = {})
  */
 export function resolveRecord(record, number, searchResults) {
   if (record.pin) {
-    const label = record.text.trim().replace(/\s+/g, ' ') || `Location ${number}`;
+    const label = record.text.trim() || `Location ${number}`;
     return { status: 'pinned', location: { lat: record.pin.lat, lng: record.pin.lng, label, key: record.id } };
   }
   return resolveText(record.text, record.id, searchResults);

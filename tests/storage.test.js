@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
+import { searchKey } from '../search.js';
 import { LEGACY_STORAGE_KEYS, SCHEMA_VERSION, STORAGE_KEY, clearState, defaultState, loadState, resetChallenge, saveState } from '../storage.js';
 
 /** An in-memory stand-in for localStorage. */
@@ -207,17 +208,20 @@ describe('loading state saved with schema version 1', () => {
     setup: { locationsText: 'Old Kent Road 51.4545,-2.5879', startText: 'Temple Meads', finishText: 'Cabot Tower', startTimeText: '11:00' },
     doneKeys: ['51.454500,-2.587900'],
     view: 'map',
-    searchResults: { 'temple meads': { isFound: true, lat: 51.4492, lng: -2.5813, name: 'Bristol Temple Meads' } },
+    searchResults: {
+      'temple meads': { isFound: true, lat: 51.4492, lng: -2.5813, name: 'Bristol Temple Meads' },
+      'old kent road': { isFound: false, error: 'No match', isTemporary: false },
+    },
     plan: { order: [0], arrivalTimes: [1], endEta: 2, spareSeconds: 3, skipped: [] },
   };
 
-  test('keeps the settings, the rest of the setup form, the tab and search results', () => {
+  test("keeps the settings, the rest of the setup form, the tab, and the start's and finish's search results", () => {
     const state = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(version1) }));
     assert.equal(state.version, SCHEMA_VERSION);
     assert.deepEqual(state.settings, version1.settings);
     assert.deepEqual(state.setup, { startText: 'Temple Meads', finishText: 'Cabot Tower', startTimeText: '11:00' });
     assert.equal(state.view, 'map');
-    assert.deepEqual(state.searchResults, version1.searchResults);
+    assert.deepEqual(state.searchResults, { [searchKey('Temple Meads')]: version1.searchResults['temple meads'] });
   });
 
   test("changes the old default start to Castle Park's coordinates", () => {

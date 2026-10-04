@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { START_KEY } from '../locations.js';
+import { searchKey } from '../search.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, startTimeToday, timeToday } from '../setup.js';
 import { defaultState } from '../storage.js';
 
@@ -73,7 +74,7 @@ describe('planFromSetup', () => {
   });
 
   test('leaves out rows that were not found or not looked up, without stopping the rest', () => {
-    const searchResults = { nowhere: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false } };
+    const searchResults = { [searchKey('Nowhere')]: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false } };
     const { plan, leftOut } = planFromSetup({ ...setupWith({ locations: rows('51.4545,-2.5879', 'Nowhere', '', 'Not looked up') }), searchResults });
     assert.equal(plan.points.length, 1);
     assert.deepEqual(leftOut.map(({ number }) => number), [2, 4]);
@@ -154,9 +155,9 @@ describe('planFromSetup', () => {
 
 describe('planFromSetup with addresses and place names', () => {
   const searchResults = {
-    'queen square, bristol': { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' },
-    'temple meads': { isFound: true, lat: 51.4492, lng: -2.5813, name: 'Bristol Temple Meads' },
-    nowhere: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false },
+    [searchKey('Queen Square, Bristol')]: { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' },
+    [searchKey('Temple Meads')]: { isFound: true, lat: 51.4492, lng: -2.5813, name: 'Bristol Temple Meads' },
+    [searchKey('Nowhere')]: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false },
   };
 
   test('plans rows that were found, with what each matched', () => {
@@ -188,7 +189,7 @@ describe('searchesNeeded', () => {
   });
 
   test('leaves out searches that are already known', () => {
-    const searchResults = { 'queen square, bristol': { isFound: false, error: 'No match', isTemporary: false } };
+    const searchResults = { [searchKey('Queen Square, Bristol')]: { isFound: false, error: 'No match', isTemporary: false } };
     assert.deepEqual(searchesNeeded({ setup: defaultState().setup, locations: rows('Queen Square, Bristol'), searchResults }), []);
   });
 

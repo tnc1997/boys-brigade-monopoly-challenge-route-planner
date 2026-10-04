@@ -17,11 +17,12 @@
  * OpenStreetMap's Nominatim search, which is free within its usage policy:
  * https://operations.osmfoundation.org/policies/nominatim/
  *
- * Keep to the policy when changing this module. Search only when the team
- * finishes a location or presses a button (never as they type, which is
- * forbidden), at most once a second, and save results so the same search
- * isn't sent again. Keep the OpenStreetMap credit next to the location list,
- * and send no personal data.
+ * Keep to the policy when changing this module. It forbids searching as the
+ * team types (auto-complete), so search only when they finish a location or
+ * press a button. It allows at most 1 request per second for all users
+ * together, and requires results to be cached, so save each result under
+ * the query it was for and don't send that query again. Keep the
+ * OpenStreetMap credit next to the location list, and send no personal data.
  * If asked to stop using the service, change this URL and redeploy.
  */
 export const SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
@@ -33,16 +34,18 @@ export const BRISTOL_VIEWBOX = '-2.73,51.54,-2.45,51.39';
 export const REQUEST_INTERVAL_MS = 1500;
 
 /**
- * Normalises a search so that the same address typed slightly differently
- * is only looked up once.
+ * Makes the key a search's result is saved under: the query exactly as
+ * it's sent, without its ends' spaces, as base64. It isn't normalised any
+ * further (such as ignoring case), so there's no rule to keep tuning, and
+ * base64 means any text is a safe key, even "constructor" or "__proto__".
  *
  * @param {string} query The address or place name.
  * @returns {string} The key to save the result under.
  * @example
- * searchKey('  Queen   Square, BRISTOL '); // 'queen square, bristol'
+ * searchKey(' Queen Square '); // 'UXVlZW4gU3F1YXJl'
  */
 export function searchKey(query) {
-  return query.trim().replace(/\s+/g, ' ').toLowerCase();
+  return btoa(String.fromCharCode(...new TextEncoder().encode(query.trim())));
 }
 
 /**
