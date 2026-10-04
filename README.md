@@ -12,7 +12,7 @@ Open it once with signal before the challenge starts. After that it works withou
 
 ### 1. Set up
 
-1. Open the planner and check the **Start** (Castle Park by default), **Deadline** (16:00), **Walking speed** and **Selfie time**. Set the walking speed to the pace of the slowest walker, because the team must stay together.
+1. Open the planner and check the **Start** (Castle Park's coordinates by default), **Deadline** (16:00), **Walking speed** and **Selfie time**. Set the walking speed to the pace of the slowest walker, because the team must stay together.
 2. Leave **Finish** blank if there's no finish point. Otherwise, enter it in the same way as a location (see below). You can add, change or clear it later.
 3. Leave **Start time** blank to start now, or enter the time you'll set off.
 4. Type the locations into **Locations**, one per row. A new empty row appears as you fill in the last one, and **Enter** moves to the next row. Enter every location before planning, for the most accurate route.
@@ -35,7 +35,7 @@ Each row is looked up with OpenStreetMap when you've finished it: when you press
 
 Rows you add after planning show on the map as a dashed **+** until you press **Plan route** or **Re-plan from here**. To remove a location, tap the row's ✕, and plan again if it's already in the route.
 
-**Coordinates** (like `51.4545,-2.5879`, from long-pressing a spot in Google Maps) are used directly, without a lookup. Any other text on the row is the location's name. Google Maps links and what3words addresses can't be used: pin those locations on the map instead.
+**Coordinates** on their own (like `51.4545,-2.5879`, from long-pressing a spot in Google Maps) are used directly, without a lookup. Anything else on the row is looked up, so to give a location a name and an exact spot, type its name and pin it with 📍. In **Start** and **Finish**, coordinates on their own are called "Start" and "Finish". Google Maps links and what3words addresses can't be used: pin those locations on the map instead.
 
 **Only one phone should look up a fresh list of addresses.** OpenStreetMap's free address search allows 1 request per second for everyone using the planner together, and the planner waits 1.5 seconds between lookups. If several phones enter the same new list at once, they can go over that limit. Each phone saves its results, so each location is only looked up once and re-planning works without signal. See the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/).
 

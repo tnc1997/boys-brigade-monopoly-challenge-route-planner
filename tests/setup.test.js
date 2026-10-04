@@ -9,7 +9,13 @@ const now = new Date(2026, 9, 3, 11, 0).getTime();
 /** Rows of the location list with the given texts, with ids `a`, `b` and so on. */
 const rows = (...texts) => texts.map((text, index) => ({ id: String.fromCharCode(97 + index), text, pin: null }));
 
-const setupWith = ({ locations = rows('Old Kent Road 51.4545,-2.5879', 'Temple Meads 51.4492,-2.5813'), ...setup } = {}, settings = {}) => {
+/** Rows of the location list pinned at Old Kent Road and Temple Meads. */
+const pinnedRows = () => [
+  { id: 'a', text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
+  { id: 'b', text: 'Temple Meads', pin: { lat: 51.4492, lng: -2.5813 } },
+];
+
+const setupWith = ({ locations = pinnedRows(), ...setup } = {}, settings = {}) => {
   const state = defaultState();
   return {
     setup: { ...state.setup, ...setup },
@@ -42,7 +48,7 @@ describe('planFromSetup', () => {
       ['Old Kent Road', 'a'],
       ['Temple Meads', 'b'],
     ]);
-    assert.equal(plan.start.label, 'Castle Park');
+    assert.equal(plan.start.label, 'Start');
     assert.equal(plan.startTime, now);
     assert.equal(plan.deadline, new Date(2026, 9, 3, 16, 0).getTime());
   });
@@ -52,12 +58,12 @@ describe('planFromSetup', () => {
   });
 
   test('plans to the finish when there is one', () => {
-    const { plan } = planFromSetup(setupWith({ finishText: 'Finish 51.4556,-2.5894' }));
+    const { plan } = planFromSetup(setupWith({ finishText: '51.4556,-2.5894' }));
     assert.equal(plan.finish.label, 'Finish');
   });
 
   test('returns every row and where it is', () => {
-    const { rows: resolved } = planFromSetup(setupWith({ locations: rows('Old Kent Road 51.4545,-2.5879', '', 'Nowhere') }));
+    const { rows: resolved } = planFromSetup(setupWith({ locations: rows('51.4545,-2.5879', '', 'Nowhere') }));
     assert.deepEqual(resolved.map(({ number, resolved: { status } }) => [number, status]), [
       [1, 'coordinates'],
       [2, 'empty'],
@@ -67,7 +73,7 @@ describe('planFromSetup', () => {
 
   test('leaves out rows that were not found or not looked up, without stopping the rest', () => {
     const searchResults = { nowhere: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false } };
-    const { plan, leftOut } = planFromSetup({ ...setupWith({ locations: rows('Old Kent Road 51.4545,-2.5879', 'Nowhere', '', 'Not looked up') }), searchResults });
+    const { plan, leftOut } = planFromSetup({ ...setupWith({ locations: rows('51.4545,-2.5879', 'Nowhere', '', 'Not looked up') }), searchResults });
     assert.equal(plan.points.length, 1);
     assert.deepEqual(leftOut.map(({ number }) => number), [2, 4]);
   });
@@ -117,7 +123,7 @@ describe('planFromSetup', () => {
 
   test('uses the current form values when re-planning', () => {
     const from = { lat: 51.4492, lng: -2.5813 };
-    const { plan } = planFromSetup({ ...setupWith({ finishText: 'Finish 51.4556,-2.5894' }, { speedKmh: 3.5 }), from });
+    const { plan } = planFromSetup({ ...setupWith({ finishText: '51.4556,-2.5894' }, { speedKmh: 3.5 }), from });
     assert.equal(plan.finish.label, 'Finish');
     assert.equal(plan.settings.speedKmh, 3.5);
   });
@@ -154,7 +160,7 @@ describe('planFromSetup with addresses and place names', () => {
 
   test('plans rows that were found, with what each matched', () => {
     const { plan, leftOut } = planFromSetup({
-      ...setupWith({ locations: rows('Old Kent Road 51.4545,-2.5879', 'Queen Square, Bristol'), finishText: 'Temple Meads' }),
+      ...setupWith({ locations: rows('51.4545,-2.5879', 'Queen Square, Bristol'), finishText: 'Temple Meads' }),
       searchResults,
     });
     assert.deepEqual(leftOut, []);
@@ -176,7 +182,7 @@ describe('planFromSetup with addresses and place names', () => {
 describe('searchesNeeded', () => {
   test('lists the rows, start and finish that need looking up, but not coordinates or pins', () => {
     const setup = { ...defaultState().setup, startText: 'Temple Meads', finishText: 'Cabot Tower' };
-    const locations = [...rows('Old Kent Road 51.4545,-2.5879', 'Queen Square, Bristol', ''), { id: 'p', text: 'Pinned', pin: { lat: 51.45, lng: -2.59 } }];
+    const locations = [...rows('51.4545,-2.5879', 'Queen Square, Bristol', ''), { id: 'p', text: 'Pinned', pin: { lat: 51.45, lng: -2.59 } }];
     assert.deepEqual(searchesNeeded({ setup, locations }), ['Queen Square, Bristol', 'Temple Meads', 'Cabot Tower']);
   });
 

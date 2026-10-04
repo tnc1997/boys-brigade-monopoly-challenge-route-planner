@@ -31,14 +31,18 @@ describe('resolveText', () => {
   test('uses coordinates directly, without a search', () => {
     assert.deepEqual(resolveText('51.4545,-2.5879', 'a', {}), {
       status: 'coordinates',
-      location: { lat: 51.4545, lng: -2.5879, label: '51.4545, -2.5879', key: 'a' },
+      location: { lat: 51.4545, lng: -2.5879, label: '51.4545,-2.5879', key: 'a' },
     });
     assert.equal(resolveText('51.4545, -2.5879', 'a', {}).status, 'coordinates');
   });
 
-  test('names a location with coordinates by the rest of its text', () => {
-    assert.equal(resolveText('Old Kent Road 51.4545,-2.5879', 'a', {}).location.label, 'Old Kent Road');
-    assert.equal(resolveText('51.4545,-2.5879 - Old Kent Road', 'a', {}).location.label, 'Old Kent Road');
+  test('names a location that is only coordinates by them, or the name given', () => {
+    assert.equal(resolveText(' 51.4545,  -2.5879 ', 'a', {}).location.label, '51.4545, -2.5879');
+    assert.equal(resolveText('51.4545,-2.5879', 'start', {}, { coordinatesLabel: 'Start' }).location.label, 'Start');
+  });
+
+  test('searches for text with coordinates and other text, as it is', () => {
+    assert.equal(resolveText('Old Kent Road 51.4545,-2.5879', 'a', {}).status, 'unknown');
   });
 
   test('says when coordinates are out of range', () => {
@@ -93,7 +97,7 @@ describe('resolveRecord', () => {
 describe('resolveRecords and usableLocations', () => {
   test('numbers the rows and gets the locations that can be planned', () => {
     const records = [
-      { id: 'a', text: 'Old Kent Road 51.4545,-2.5879', pin: null },
+      { id: 'a', text: '51.4545,-2.5879', pin: null },
       { id: 'b', text: 'Nowhere', pin: null },
       { id: 'c', text: '', pin: { lat: 51.45, lng: -2.59 } },
     ];
@@ -103,7 +107,7 @@ describe('resolveRecords and usableLocations', () => {
       [2, 'unknown'],
       [3, 'pinned'],
     ]);
-    assert.deepEqual(usableLocations(rows).map(({ label }) => label), ['Old Kent Road', 'Location 3']);
+    assert.deepEqual(usableLocations(rows).map(({ label }) => label), ['51.4545,-2.5879', 'Location 3']);
   });
 });
 

@@ -10,7 +10,13 @@ const now = new Date(2026, 9, 3, 11, 0).getTime();
 /** Rows of the location list with the given texts, with ids `a`, `b` and so on. */
 const rows = (...texts) => texts.map((text, index) => ({ id: String.fromCharCode(97 + index), text, pin: null }));
 
-const locations = rows('Old Kent Road 51.4545,-2.5879', 'Temple Meads 51.4492,-2.5813');
+/** Rows of the location list pinned at Old Kent Road and Temple Meads. */
+const pinnedRows = () => [
+  { id: 'a', text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
+  { id: 'b', text: 'Temple Meads', pin: { lat: 51.4492, lng: -2.5813 } },
+];
+
+const locations = pinnedRows();
 
 const savedPlan = (setup = {}, settings = {}) => {
   const state = defaultState();
@@ -98,7 +104,7 @@ describe('describeRoute', () => {
   });
 
   test('describes the walk to the finish when there is one', () => {
-    const plan = savedPlan({ finishText: 'Finish 51.4556,-2.5894' });
+    const plan = savedPlan({ finishText: '51.4556,-2.5894' });
     const { finish, endEta } = describeRoute(plan);
     assert.equal(finish.location.label, 'Finish');
     assert.equal(finish.arrivalTime, endEta);
@@ -177,7 +183,7 @@ describe('mapRoute', () => {
 
   test('describes each marker for its tooltip', () => {
     const { markers } = mapRoute(savedPlan(), [], formatTime);
-    assert.equal(markers[0].title, 'Start: Castle Park');
+    assert.equal(markers[0].title, 'Start');
     assert.match(markers[1].title, /^1\. .+, ETA \d\d:\d\d$/);
   });
 
@@ -202,7 +208,7 @@ describe('mapRoute', () => {
 
   test('only marks the finish when there is one, and ends the line there', () => {
     assert.equal(mapRoute(savedPlan(), [], formatTime).markers.some(({ kind }) => kind === 'finish'), false);
-    const plan = savedPlan({ finishText: 'Finish 51.4556,-2.5894' });
+    const plan = savedPlan({ finishText: '51.4556,-2.5894' });
     const { markers, path } = mapRoute(plan, [], formatTime);
     assert.equal(markers.filter(({ kind }) => kind === 'finish').length, 1);
     assert.equal(path.at(-1), plan.finish);
@@ -242,7 +248,7 @@ describe('timeWarning', () => {
   });
 
   test('tells the team to head to the finish when the time left is down to the safety margin', () => {
-    const plan = savedPlan({ finishText: 'Finish 51.4556,-2.5894' });
+    const plan = savedPlan({ finishText: '51.4556,-2.5894' });
     const warning = timeWarning(plan, [], plan.deadline - minutes(10));
     assert.deepEqual(warning, { kind: 'short', message: 'Head to the finish now: 10 minutes until the deadline.', minutesLeft: 10, minutesBehind: warning.minutesBehind });
   });
@@ -277,7 +283,7 @@ describe('timeWarning', () => {
     const plan = savedPlan();
     const allDone = plan.order.map((index) => plan.points[index].key);
     assert.equal(timeWarning(plan, allDone, plan.deadline - minutes(5)), null);
-    const withFinish = savedPlan({ finishText: 'Finish 51.4556,-2.5894' });
+    const withFinish = savedPlan({ finishText: '51.4556,-2.5894' });
     const allDoneWithFinish = withFinish.order.map((index) => withFinish.points[index].key);
     assert.match(timeWarning(withFinish, allDoneWithFinish, withFinish.deadline - minutes(5)).message, /^Head to the finish now/);
   });
@@ -285,7 +291,7 @@ describe('timeWarning', () => {
   test('warns when nothing fits before the deadline, as when it is only a few minutes away', () => {
     // Re-planning with the deadline 5 minutes away leaves less than the
     // 15-minute safety margin, so every location is skipped.
-    for (const finishText of ['', 'Finish 51.4556,-2.5894']) {
+    for (const finishText of ['', '51.4556,-2.5894']) {
       const plan = savedPlan({ finishText }, { deadline: '11:05' });
       assert.deepEqual(plan.order, []);
       const warning = timeWarning(plan, [], plan.startTime);
@@ -304,7 +310,7 @@ describe('timeWarning', () => {
 
   test('warns straight away when the plan already ends inside the safety margin', () => {
     // The finish is too far to reach before the deadline minus the margin.
-    const plan = savedPlan({ startTimeText: '15:30', finishText: 'Far away 51.5300,-2.7000' });
+    const plan = savedPlan({ startTimeText: '15:30', finishText: '51.5300,-2.7000' });
     assert.ok(plan.spareSeconds < 0);
     const warning = timeWarning(plan, [], plan.startTime);
     assert.equal(warning.kind, 'short');
@@ -312,7 +318,7 @@ describe('timeWarning', () => {
   });
 
   test("doesn't warn about a finish that doesn't fit before the route starts", () => {
-    const plan = savedPlan({ startTimeText: '15:30', finishText: 'Far away 51.5300,-2.7000' });
+    const plan = savedPlan({ startTimeText: '15:30', finishText: '51.5300,-2.7000' });
     assert.ok(plan.spareSeconds < 0);
     assert.equal(timeWarning(plan, [], plan.startTime - minutes(60)), null);
   });
@@ -325,7 +331,7 @@ describe('timeWarning', () => {
   });
 
   test("doesn't warn about a plan from an earlier day", () => {
-    const plan = savedPlan({ finishText: 'Finish 51.4556,-2.5894' });
+    const plan = savedPlan({ finishText: '51.4556,-2.5894' });
     const nextMorning = plan.deadline + minutes(17 * 60);
     assert.equal(isPlanForToday(plan, nextMorning), false);
     assert.equal(timeWarning(plan, [], nextMorning), null);
@@ -334,7 +340,7 @@ describe('timeWarning', () => {
 
   test('says when the deadline has passed', () => {
     assert.equal(timeWarning(savedPlan(), [], savedPlan().deadline + minutes(5)).message, "The deadline has passed. Time's up.");
-    const withFinish = savedPlan({ finishText: 'Finish 51.4556,-2.5894' });
+    const withFinish = savedPlan({ finishText: '51.4556,-2.5894' });
     assert.equal(timeWarning(withFinish, [], withFinish.deadline).message, 'The deadline has passed. Head to the finish now.');
   });
 });

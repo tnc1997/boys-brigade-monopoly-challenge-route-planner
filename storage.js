@@ -55,10 +55,13 @@ export const LEGACY_STORAGE_KEYS = ['monopoly-challenge-planner'];
  */
 export const SCHEMA_VERSION = 2;
 
+/** Castle Park, where the challenge started in 2026, as coordinates. */
+const CASTLE_PARK = '51.4556,-2.5894';
+
 /**
  * Creates the state for a new challenge.
  *
- * @returns {AppState} The default state, starting at Castle Park with a 16:00 deadline.
+ * @returns {AppState} The default state, starting at Castle Park (as coordinates) with a 16:00 deadline.
  */
 export function defaultState() {
   return {
@@ -72,7 +75,7 @@ export function defaultState() {
       checkInFormUrl: '',
     },
     setup: {
-      startText: 'Castle Park 51.4556,-2.5894',
+      startText: CASTLE_PARK,
       finishText: '',
       startTimeText: '',
     },
@@ -155,6 +158,10 @@ export function loadState(storage = browserStorage()) {
  */
 function fromVersion1(saved) {
   const { locationsText, ...setup } = isObject(saved.setup) ? saved.setup : {};
+  // Version 1 named the default start, which is now only coordinates.
+  if (setup.startText === 'Castle Park 51.4556,-2.5894') {
+    setup.startText = CASTLE_PARK;
+  }
   return { ...saved, setup, locations: [], doneKeys: [], plan: null };
 }
 

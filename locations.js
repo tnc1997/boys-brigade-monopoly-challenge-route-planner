@@ -27,7 +27,7 @@ import { searchKey } from './search.js';
  *
  * - `empty`: there's no text and no pin, so it's ignored.
  * - `pinned`: it was pinned on the map.
- * - `coordinates`: its text has coordinates, which are used directly.
+ * - `coordinates`: its text is only coordinates, which are used directly.
  * - `found`: its text was looked up and found.
  * - `notFound`: its text was looked up and not found, or its coordinates are out of range.
  * - `unknown`: its text hasn't been looked up yet.
@@ -47,11 +47,8 @@ import { searchKey } from './search.js';
  * @property {Resolved} resolved Where it is.
  */
 
-/** Coordinates as `lat,lng` in decimal degrees, with or without a space after the comma. */
-const COORDINATES = /(?<![\d.])(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)(?![\d.])/g;
-
-/** Punctuation that separates the name from coordinates, removed from the ends of the name. */
-const SEPARATORS = /^[\s,;|–—-]+|[\s,;|–—-]+$/g;
+/** Text that's only coordinates, as `lat,lng` in decimal degrees, with or without a space after the comma. */
+const COORDINATES = /^(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)$/;
 
 /**
  * Makes the key a position is remembered by, from its coordinates to 6
@@ -82,27 +79,28 @@ export function newLocationId() {
 
 /**
  * Works out where a row of text is, using its search result if it has one.
- * Text with one set of coordinates (like `51.4545,-2.5879`) uses them
- * directly, with any other text as the name. Any other text is searched for
- * as it is, and is also the name.
+ * Text that's only coordinates (like `51.4545,-2.5879`) uses them directly.
+ * Any other text is searched for as it is, and is also the name.
  *
  * @param {string} text The text, as typed.
  * @param {string} key The location's key.
  * @param {import('./search.js').SearchResults} searchResults Search results by {@link searchKey}.
+ * @param {object} [options] How to name a location that's only coordinates.
+ * @param {string} [options.coordinatesLabel] The name for a location that's only coordinates, like "Start". Defaults to the text.
  * @returns {Resolved} Where it is.
  * @example
- * resolveText('Old Kent Road 51.4545,-2.5879', 'a', {});
- * // { status: 'coordinates', location: { lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: 'a' } }
+ * resolveText('51.4556,-2.5894', 'start', {}, { coordinatesLabel: 'Start' });
+ * // { status: 'coordinates', location: { lat: 51.4556, lng: -2.5894, label: 'Start', key: 'start' } }
  */
-export function resolveText(text, key, searchResults) {
+export function resolveText(text, key, searchResults, { coordinatesLabel } = {}) {
   const label = text.trim().replace(/\s+/g, ' ');
   if (label === '') {
     return { status: 'empty' };
   }
 
-  const coordinates = [...label.matchAll(COORDINATES)];
-  if (coordinates.length === 1) {
-    const [match, latText, lngText] = coordinates[0];
+  const coordinates = label.match(COORDINATES);
+  if (coordinates) {
+    const [, latText, lngText] = coordinates;
     const lat = Number(latText);
     const lng = Number(lngText);
     if (lat < -90 || lat > 90) {
@@ -111,8 +109,7 @@ export function resolveText(text, key, searchResults) {
     if (lng < -180 || lng > 180) {
       return { status: 'notFound', label, error: `The longitude ${lngText} must be between -180 and 180.` };
     }
-    const name = label.replace(match, ' ').replace(/\s+/g, ' ').replace(SEPARATORS, '');
-    return { status: 'coordinates', location: { lat, lng, label: name || `${latText}, ${lngText}`, key } };
+    return { status: 'coordinates', location: { lat, lng, label: coordinatesLabel ?? label, key } };
   }
 
   const result = searchResults[searchKey(label)];

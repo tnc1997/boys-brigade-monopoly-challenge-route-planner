@@ -136,8 +136,8 @@ describe('resetChallenge', () => {
   test('clears the locations, ticks and plan, keeping everything else', () => {
     const state = defaultState();
     state.settings.speedKmh = 3.5;
-    state.setup = { startText: 'Castle Park 51.4556,-2.5894', finishText: 'Finish 51.4556,-2.5894', startTimeText: '11:00' };
-    state.locations = [{ id: 'a', text: 'Old Kent Road 51.4545,-2.5879', pin: null }];
+    state.setup = { startText: '51.4556,-2.5894', finishText: '51.4492,-2.5813', startTimeText: '11:00' };
+    state.locations = [{ id: 'a', text: '51.4545,-2.5879', pin: null }];
     state.doneKeys = ['a'];
     state.view = 'map';
     state.searchResults = { 'queen square': { isFound: false, error: 'No match', isTemporary: false } };
@@ -154,7 +154,7 @@ describe('resetChallenge', () => {
 
   test("doesn't change the original state", () => {
     const state = defaultState();
-    state.locations = [{ id: 'a', text: 'Old Kent Road 51.4545,-2.5879', pin: null }];
+    state.locations = [{ id: 'a', text: '51.4545,-2.5879', pin: null }];
     resetChallenge(state);
     assert.equal(state.locations.length, 1);
   });
@@ -218,6 +218,11 @@ describe('loading state saved with schema version 1', () => {
     assert.deepEqual(state.setup, { startText: 'Temple Meads', finishText: 'Cabot Tower', startTimeText: '11:00' });
     assert.equal(state.view, 'map');
     assert.deepEqual(state.searchResults, version1.searchResults);
+  });
+
+  test("changes the old default start to Castle Park's coordinates", () => {
+    const saved = { ...version1, setup: { ...version1.setup, startText: 'Castle Park 51.4556,-2.5894' } };
+    assert.equal(loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) })).setup.startText, defaultState().setup.startText);
   });
 
   test('drops the location list, the ticks and the plan', () => {

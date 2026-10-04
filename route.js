@@ -177,6 +177,18 @@ export function progress(plan, doneKeys) {
 }
 
 /**
+ * Names the start or finish for its marker, without repeating the name
+ * when the location is only called "Start" or "Finish".
+ *
+ * @param {'Start' | 'Finish'} kind Which it is.
+ * @param {string} label The location's name.
+ * @returns {string} The name, like "Start: Queen Square", or just "Start".
+ */
+function named(kind, label) {
+  return label === kind ? kind : `${kind}: ${label}`;
+}
+
+/**
  * Describes a saved plan as a line and markers to draw on the map. Stops are
  * numbered in visiting order, as in the list. Done locations that aren't on
  * the route are marked as done, and skipped locations are included so they
@@ -193,7 +205,7 @@ export function mapRoute(plan, doneKeys, formatTime) {
   const routeKeys = new Set(route.stops.map(({ location }) => location.key));
 
   /** @type {import('./map.js').MapMarker[]} */
-  const markers = [{ kind: 'start', location: plan.start, label: 'S', title: `Start: ${plan.start.label}` }];
+  const markers = [{ kind: 'start', location: plan.start, label: 'S', title: named('Start', plan.start.label) }];
   for (const { number, location, arrivalTime } of route.stops) {
     const isDone = done.has(location.key);
     markers.push({
@@ -213,7 +225,7 @@ export function mapRoute(plan, doneKeys, formatTime) {
       kind: 'finish',
       location: route.finish.location,
       label: '🏁',
-      title: `Finish: ${route.finish.location.label}, arrive ${formatTime(route.finish.arrivalTime)}`,
+      title: `${named('Finish', route.finish.location.label)}, arrive ${formatTime(route.finish.arrivalTime)}`,
     });
   }
   for (const location of route.skipped) {
