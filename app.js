@@ -539,19 +539,29 @@ locationRows.addEventListener('change', (event) => {
   if (!row?.record) {
     return;
   }
-  const { item, record } = row;
-  // A row that's been emptied, without a pin, is removed once it's
-  // finished, so blank rows don't build up above the empty one at the end.
-  if (record.text.trim() === '' && !record.pin) {
-    removeRow(item, record);
-    return;
-  }
+  const { record } = row;
   // Changing an unpinned row's text changes its place, but changing a
   // pinned row's text only renames it.
   if (!record.pin) {
     untick(record);
   }
   lookUpFinished(resolveRecord(record, state.locations.indexOf(record) + 1, state.searchResults));
+});
+
+// A row that's been emptied, without a pin, is removed once focus leaves
+// it, so blank rows don't build up above the empty one at the end. This
+// can't wait for change, which doesn't fire when the empty row at the end
+// is typed in and then emptied again.
+locationRows.addEventListener('focusout', (event) => {
+  const row = rowOf(event.target);
+  if (
+    row?.record &&
+    !row.item.contains(/** @type {Node | null} */ (event.relatedTarget)) &&
+    row.record.text.trim() === '' &&
+    !row.record.pin
+  ) {
+    removeRow(row.item, row.record);
+  }
 });
 
 // Enter moves to the next row, rather than submitting the form, which
