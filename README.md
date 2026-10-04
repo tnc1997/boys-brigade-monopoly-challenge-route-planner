@@ -47,6 +47,7 @@ After planning, each address line shows what it matched, like `Line 2: Old Kent 
 - The **List** tab shows each stop in order with its ETA, the walk to it, and a **Google Maps** button that opens walking directions. On an iPhone, iPad or Mac there's also an **Apple Maps** button. Locations that don't fit are listed under **Skipped**.
 - The **Map** tab shows the numbered stops, the route line, the finish, skipped locations in grey, and your position as a blue dot.
 - After each selfie, tap **Mark selfie done**. The counter shows how many are done.
+- If the organisers have an online check-in form and its link is in the settings, tap **Check in** instead. It opens the form in a new tab and marks the selfie done. If you open the form another way, such as from a long-press menu, tap **Mark selfie done** as well. Check in straight away, because the first team to upload at a location gets a bonus.
 - The header shows a countdown to the deadline. A red banner warns you when time is nearly up ("Head to the finish now", or "Last few selfies" without a finish), or when you're running behind the plan.
 
 ### 4. Re-plan when things change
@@ -56,7 +57,7 @@ Press **Re-plan from here** at any time. It plans again from where you are now a
 - **After a bus or train:** re-plan from where you get off.
 - **When you're running behind,** or the red banner says so.
 - **When the pace changes,** for example if people leave or the group tires. Open **⚙ Settings**, choose **Slow** (3.5 km/h), **Medium** (4.5 km/h), **Fast** (5.5 km/h) or use the slider, then press **Save and re-plan**.
-- **When the finish changes.** The settings panel also lets you change the selfie time, safety margin (spare time kept before the deadline), detour factor (how much further walking is than a straight line) and deadline. It also has a place for the link to the organisers' online check-in form, for a Check in button that's coming soon.
+- **When the finish changes.** The settings panel also lets you change the selfie time, safety margin (spare time kept before the deadline), detour factor (how much further walking is than a straight line) and deadline. It also has a place for the link to the organisers' online check-in form. With one set, each stop gets a **Check in** button, and the default selfie time goes up from 3 to 5 minutes to allow for uploading. A selfie time you've set yourself is kept.
 
 The line under the Route heading shows what the plan assumes, such as "Planning for Medium 4.5 km/h · 3 min/selfie".
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, settingsSummary, speedPreset } from '../settings.js';
+import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, defaultDwellSeconds, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from '../settings.js';
 import { defaultState } from '../storage.js';
 
 describe('speedPreset', () => {
@@ -70,5 +70,36 @@ describe('checkInFormUrl', () => {
     for (const text of ['javascript:alert(1)', 'data:text/html,hi', 'ftp://example.com/form', 'mailto:team@example.com', 'forms.example.com/check-in', 'not a url']) {
       assert.equal(checkInFormUrl(text), null, text);
     }
+  });
+});
+
+describe('defaultDwellSeconds', () => {
+  test('is 3 minutes, or 5 minutes with a check-in form to allow for uploading', () => {
+    assert.equal(defaultDwellSeconds(false), 180);
+    assert.equal(defaultDwellSeconds(true), 300);
+  });
+
+  test('is the default selfie time', () => {
+    assert.equal(defaultState().settings.dwellSeconds, defaultDwellSeconds(false));
+  });
+});
+
+describe('dwellSecondsForCheckInForm', () => {
+  test('raises the default selfie time when a check-in form is set', () => {
+    assert.equal(dwellSecondsForCheckInForm(180, false, true), 300);
+  });
+
+  test('lowers it back to the default when the check-in form is cleared', () => {
+    assert.equal(dwellSecondsForCheckInForm(300, true, false), 180);
+  });
+
+  test('keeps a selfie time that was changed from the default', () => {
+    assert.equal(dwellSecondsForCheckInForm(240, false, true), 240);
+    assert.equal(dwellSecondsForCheckInForm(180, true, false), 180);
+  });
+
+  test('keeps the selfie time when the check-in form stays set or unset', () => {
+    assert.equal(dwellSecondsForCheckInForm(180, false, false), 180);
+    assert.equal(dwellSecondsForCheckInForm(300, true, true), 300);
   });
 });

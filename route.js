@@ -149,6 +149,20 @@ export function toggleDone(doneKeys, key) {
 }
 
 /**
+ * Marks a location's selfie as done, leaving it done if it already was.
+ *
+ * @param {string[]} doneKeys Keys of the locations whose selfie has been taken.
+ * @param {string} key The key of the location to mark.
+ * @returns {string[]} The new list of keys. The original isn't changed.
+ * @example
+ * markDone(['a'], 'b'); // ['a', 'b']
+ * markDone(['a'], 'a'); // ['a']
+ */
+export function markDone(doneKeys, key) {
+  return doneKeys.includes(key) ? doneKeys : [...doneKeys, key];
+}
+
+/**
  * Counts how many of a plan's locations have had their selfie taken.
  * Keys of locations that aren't in the plan (for example from an earlier
  * list) aren't counted.

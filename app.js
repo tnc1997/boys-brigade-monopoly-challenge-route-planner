@@ -1,8 +1,8 @@
-import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning, toggleDone } from './route.js';
+import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, markDone, newLocationMarkers, plural, progress, timeWarning, toggleDone } from './route.js';
 import { searchPlaces } from './search.js';
 import { addLocationLine, parseLocations, pinLine } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
-import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, settingsSummary, speedPreset } from './settings.js';
+import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
 import { defaultState, loadState, resetChallenge, saveState } from './storage.js';
 
@@ -33,6 +33,7 @@ const speedValue = /** @type {HTMLOutputElement} */ (document.getElementById('se
 const settingsSave = /** @type {HTMLButtonElement} */ (document.getElementById('settings-save'));
 const settingsSummaryText = /** @type {HTMLParagraphElement} */ (document.getElementById('settings-summary'));
 const checkInFormField = /** @type {HTMLInputElement} */ (document.getElementById('settings-check-in-form'));
+const selfieTimeField = /** @type {HTMLInputElement} */ (document.getElementById('settings-selfie'));
 const timeWarningBanner = /** @type {HTMLDivElement} */ (document.getElementById('time-warning'));
 const timeWarningText = /** @type {HTMLParagraphElement} */ (document.getElementById('time-warning-text'));
 const timeWarningAlert = /** @type {HTMLParagraphElement} */ (document.getElementById('time-warning-alert'));
@@ -86,6 +87,18 @@ let drawnNewLocations = null;
  * speed is only saved when it's changed there.
  */
 let isSpeedChanged = false;
+
+/**
+ * Whether the check-in form URL in the settings panel was set when it was
+ * last valid, to tell when it's set or cleared.
+ */
+let hadCheckInForm = false;
+
+/**
+ * Whether the selfie time has been changed in the settings panel since it
+ * opened, in which case setting the check-in form URL leaves it alone.
+ */
+let isSelfieTimeEdited = false;
 
 /** The team's latest position from watching the location, or `null` if there isn't one yet. */
 let latestPosition = null;
@@ -292,6 +305,21 @@ function doneToggle(location, isDone) {
 }
 
 /**
+ * Creates the link that opens the check-in form in a new tab. Following it
+ * also marks the location's selfie as done.
+ *
+ * @param {import('./locations.js').Location} location The location.
+ * @param {boolean} isDone Whether the selfie is done.
+ * @returns {HTMLAnchorElement} The link.
+ */
+function checkInLink(location, isDone) {
+  const link = externalLink(state.settings.checkInFormUrl, 'Check in', `Check in at ${location.label}, opens the check-in form and marks the selfie done`);
+  link.className = `inline-flex min-h-11 items-center rounded-md px-3 text-sm font-semibold ${isDone ? 'text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft' : 'bg-accent text-white hover:bg-accent-strong'}`;
+  link.dataset.checkInKey = location.key;
+  return link;
+}
+
+/**
  * Creates the list item for a stop, or for the walk to the finish.
  *
  * @param {import('./route.js').RouteStop} stop The stop.
@@ -318,7 +346,7 @@ function stopItem(stop, isFinish) {
   );
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
-    links.append(doneToggle(stop.location, isDone));
+    links.append(...(state.settings.checkInFormUrl ? [checkInLink(stop.location, isDone)] : []), doneToggle(stop.location, isDone));
   }
   // Apple Maps on the web may not work on other devices, such as Android.
   const directions = [['Google Maps', stop.googleMapsDirectionsUrl], ...(isAppleDevice(navigator.userAgent) ? [['Apple Maps', stop.appleMapsDirectionsUrl]] : [])];
@@ -406,7 +434,13 @@ function showPlan() {
   if (route.finish) {
     stops.append(stopItem(route.finish, true));
   }
-  const sections = [summary, counter, stops];
+  const sections = [summary, counter];
+  if (state.settings.checkInFormUrl && remaining > 0) {
+    sections.push(
+      element('p', 'mt-2 rounded-md bg-accent-soft px-3 py-2 text-sm text-accent-ink ring-1 ring-accent-line', 'Tip: check in straight after each selfie. The first team to upload at a location gets a bonus.'),
+    );
+  }
+  sections.push(stops);
 
   if (route.skipped.length > 0) {
     const heading = element('h3', 'mt-4 text-sm font-semibold', `Skipped (${route.skipped.length}): not enough time`);
@@ -434,7 +468,40 @@ function showPlan() {
   stopList.replaceChildren(...sections);
 }
 
+/**
+ * Marks a stop's selfie as done when its Check in link is followed.
+ *
+ * @param {MouseEvent} event The click.
+ * @returns {boolean} Whether the click was on a Check in link.
+ */
+function checkInClicked(event) {
+  const checkIn = event.target instanceof Element ? event.target.closest('[data-check-in-key]') : null;
+  if (!(checkIn instanceof HTMLAnchorElement)) {
+    return false;
+  }
+  const key = checkIn.dataset.checkInKey;
+  state.doneKeys = markDone(state.doneKeys, key);
+  saveState(state);
+  // A link removed from the page can't open, so only re-render once it has.
+  setTimeout(() => {
+    showPlan();
+    stopList.querySelector(`[data-check-in-key="${CSS.escape(key)}"]`)?.focus();
+  });
+  return true;
+}
+
+// A middle-click also opens the form, in a new tab. Opening it from a
+// long-press menu can't be detected, so the selfie needs ticking by hand.
+stopList.addEventListener('auxclick', (event) => {
+  if (event.button === 1) {
+    checkInClicked(event);
+  }
+});
+
 stopList.addEventListener('click', (event) => {
+  if (checkInClicked(event)) {
+    return;
+  }
   const toggle = event.target instanceof Element ? event.target.closest('[data-done-key]') : null;
   if (toggle instanceof HTMLButtonElement) {
     state.doneKeys = toggleDone(state.doneKeys, toggle.dataset.doneKey);
@@ -910,6 +977,8 @@ settingsButton.addEventListener('click', () => {
       field.value = field.dataset.scale ? String(value / Number(field.dataset.scale)) : String(value);
     }
   }
+  hadCheckInForm = state.settings.checkInFormUrl !== '';
+  isSelfieTimeEdited = false;
   // Check the link as filled in, since setting a value doesn't fire input.
   checkInFormField.dispatchEvent(new Event('input'));
   settingsSave.textContent = state.plan?.settings ? 'Save and re-plan' : 'Save';
@@ -918,8 +987,24 @@ settingsButton.addEventListener('click', () => {
 
 // A url field accepts any scheme, such as javascript:, so also check that
 // the check-in form is an http or https link.
+// Setting or clearing it also changes the selfie time to suit, unless it's
+// been changed from the default or edited since the panel opened.
 checkInFormField.addEventListener('input', () => {
-  checkInFormField.setCustomValidity(checkInFormUrl(checkInFormField.value) === null ? 'Enter a link starting with http:// or https://.' : '');
+  const url = checkInFormUrl(checkInFormField.value);
+  checkInFormField.setCustomValidity(url === null ? 'Enter a link starting with http:// or https://.' : '');
+  if (url === null) {
+    return;
+  }
+  const hasCheckInForm = url !== '';
+  if (!isSelfieTimeEdited && selfieTimeField.value.trim() !== '') {
+    const dwellSeconds = Number(selfieTimeField.value) * Number(selfieTimeField.dataset.scale);
+    selfieTimeField.value = String(dwellSecondsForCheckInForm(dwellSeconds, hadCheckInForm, hasCheckInForm) / Number(selfieTimeField.dataset.scale));
+  }
+  hadCheckInForm = hasCheckInForm;
+});
+
+selfieTimeField.addEventListener('input', () => {
+  isSelfieTimeEdited = true;
 });
 
 // Cancel is a plain button, so pressing Enter in a field submits with Save
@@ -933,6 +1018,7 @@ settingsDialog.addEventListener('close', () => {
   if (isSpeedChanged) {
     state.settings.speedKmh = Number(speedSlider.value);
   }
+  const savedCheckInFormUrl = state.settings.checkInFormUrl;
   // The fields are range-checked, and the check-in form URL checked by its
   // input listener, so the dialog only closes with "save" when they're valid.
   for (const field of panelFields) {
@@ -951,6 +1037,10 @@ settingsDialog.addEventListener('close', () => {
   fillForm();
   showSettingsSummary();
   showCountdown();
+  // Show or hide the Check in buttons now, even if re-planning fails.
+  if (state.settings.checkInFormUrl !== savedCheckInFormUrl) {
+    showPlan();
+  }
   // Re-plan with the new settings, keeping ticks: from the Start field if
   // the team hasn't set off yet, otherwise from their position and now.
   if (state.plan?.settings) {

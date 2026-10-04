@@ -1,4 +1,4 @@
-import { checkInFormUrl } from './settings.js';
+import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
 
 /**
  * Settings, which can be changed during the challenge. All but the check-in form URL affect planning.
@@ -61,7 +61,7 @@ export function defaultState() {
     settings: {
       speedKmh: 4.5,
       detourFactor: 1.3,
-      dwellSeconds: 180,
+      dwellSeconds: defaultDwellSeconds(false),
       safetyMarginSeconds: 900,
       deadline: '16:00',
       checkInFormUrl: '',
