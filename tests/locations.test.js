@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, cleanSetupLocations, hasOwnPoints, isPoints, locationPoints, newLocationId, parsePoints, pointsById, routeLocationOf, routeLocationOfText, routeLocations, routeLocationsOf, visitedKeys } from '../locations.js';
+import { FINISH_KEY, START_KEY, cleanSetupLocations, hasOwnPoints, isPoints, locationPoints, newLocationId, parsePoints, pointsById, routeLocationOf, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from '../locations.js';
 import { searchKey } from '../search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
@@ -161,8 +161,8 @@ describe('visitedKeys', () => {
   });
 });
 
-describe('routeLocationsOf and routeLocations', () => {
-  test('numbers the setup locations and gets the route locations that can be planned', () => {
+describe('routeLocationsOf and usableRouteLocations', () => {
+  test('gets each setup location\'s result and the route locations that can be planned, naming a pinned one without text by its position', () => {
     const setupLocations = [
       { id: 'a', text: '51.4545,-2.5879' },
       { id: 'b', text: 'Nowhere' },
@@ -170,7 +170,7 @@ describe('routeLocationsOf and routeLocations', () => {
     ];
     const routeLocationResults = routeLocationsOf(setupLocations, {});
     assert.deepEqual(routeLocationResults.map(({ status }) => status), ['coordinates', 'unknown', 'pinned']);
-    assert.deepEqual(routeLocations(routeLocationResults).map(({ label }) => label), ['51.4545,-2.5879', 'Location 3']);
+    assert.deepEqual(usableRouteLocations(setupLocations, {}).map(({ label }) => label), ['51.4545,-2.5879', 'Location 3']);
   });
 });
 

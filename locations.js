@@ -157,11 +157,12 @@ export function routeLocationsOf(setupLocations, searchResults) {
  * Gets the route locations that can be planned: those of setup locations
  * that are pinned, have coordinates or were found.
  *
- * @param {RouteLocationResult[]} routeLocationResults The results, from {@link routeLocationsOf}.
+ * @param {SetupLocation[]} setupLocations The setup locations, in order.
+ * @param {import('./search.js').SearchResults} searchResults Search results by {@link searchKey}.
  * @returns {RouteLocation[]} Their route locations, in order.
  */
-export function routeLocations(routeLocationResults) {
-  return routeLocationResults.flatMap((routeLocationResult) => ('routeLocation' in routeLocationResult ? [routeLocationResult.routeLocation] : []));
+export function usableRouteLocations(setupLocations, searchResults) {
+  return routeLocationsOf(setupLocations, searchResults).flatMap((routeLocationResult) => ('routeLocation' in routeLocationResult ? [routeLocationResult.routeLocation] : []));
 }
 
 /** The most a location can be worth, so a slip can't make it worth something like 1e+23 points. */

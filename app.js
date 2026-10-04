@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, hasOwnPoints, locationPoints, newLocationId, parsePoints, pointsById, routeLocationOf, routeLocationOfText, routeLocations, routeLocationsOf, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, hasOwnPoints, locationPoints, newLocationId, parsePoints, pointsById, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -457,7 +457,7 @@ function mustVisitKeys() {
 
 /** Redraws the map if the locations not in the route yet have changed, or been renamed, so typing doesn't keep rebuilding it or closing an open popup. */
 function updateMapIfChanged() {
-  const usable = routeLocations(routeLocationsOf(state.setupLocations, state.searchResults));
+  const usable = usableRouteLocations(state.setupLocations, state.searchResults);
   if (newLocationsText(newLocationMarkers(usable, state.plan, mustVisitKeys())) !== drawnNewLocations) {
     updateMap();
   }
@@ -1151,9 +1151,9 @@ function mustVisitLateText(plan) {
  * @returns {string} The message, like "Planned 22 stops."
  */
 function planResultText(setupResult) {
-  const { order, routeLocations: planned } = setupResult.plan;
+  const { order } = setupResult.plan;
   const points = currentPoints();
-  const scored = points ? ` · ${plural(totalPoints(order.map((index) => planned[index].key), points), 'point')}` : '';
+  const scored = points ? ` · ${plural(totalPoints(order.map((index) => setupResult.plan.routeLocations[index].key), points), 'point')}` : '';
   const parts = [`Planned ${plural(order.length, 'stop')}${scored}.`];
   if (setupResult.leftOut.length > 0) {
     const labels = setupResult.leftOut.map((routeLocationResult) => routeLocationResult.label);
@@ -1409,7 +1409,7 @@ function updateMap() {
   }
   const { plan } = state;
   const route = plan ? mapRoute(plan, visitedKeys(state.setupLocations), (time) => timeFormat.format(time)) : { path: [], markers: [] };
-  const newMarkers = newLocationMarkers(routeLocations(routeLocationsOf(state.setupLocations, state.searchResults)), plan, mustVisitKeys());
+  const newMarkers = newLocationMarkers(usableRouteLocations(state.setupLocations, state.searchResults), plan, mustVisitKeys());
   route.markers.push(...newMarkers);
   drawnNewLocations = newLocationsText(newMarkers);
   showRoute(routeMap, route, shouldFitMap);

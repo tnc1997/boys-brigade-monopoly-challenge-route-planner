@@ -64,11 +64,6 @@ describe('planFromSetup', () => {
     assert.equal(plan.finish.label, 'Finish');
   });
 
-  test('returns every row and where it is', () => {
-    const { routeLocationResults } = planFromSetup(setupWith({ setupLocations: rows('51.4545,-2.5879', '', 'Nowhere') }));
-    assert.deepEqual(routeLocationResults.map(({ status }) => status), ['coordinates', 'empty', 'unknown']);
-  });
-
   test('leaves out rows that were not found or not looked up, without stopping the rest', () => {
     const searchResults = { [searchKey('Nowhere')]: { isFound: false, error: 'No match for "Nowhere" in Bristol.', isTemporary: false } };
     const { plan, leftOut } = planFromSetup({ ...setupWith({ setupLocations: rows('51.4545,-2.5879', 'Nowhere', '', 'Not looked up') }), searchResults });

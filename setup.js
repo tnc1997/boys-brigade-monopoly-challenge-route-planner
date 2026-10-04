@@ -1,4 +1,4 @@
-import { FINISH_KEY, START_KEY, pointsById, routeLocationOfText, routeLocations, routeLocationsOf, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, pointsById, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
 import { SPEED_RANGE } from './settings.js';
 
@@ -26,8 +26,7 @@ import { SPEED_RANGE } from './settings.js';
  * @typedef {object} SetupResult
  * @property {SavedPlan | null} plan The plan, or `null` if the form has a problem that stops planning.
  * @property {string | null} error What stops planning, or `null` if a plan was made.
- * @property {import('./locations.js').RouteLocationResult[]} routeLocationResults Every setup location's route location, or why there isn't one yet, in list order.
- * @property {import('./locations.js').RouteLocationResult[]} leftOut The results for setup locations with text that couldn't be found or hasn't been looked up, so were left out. They don't stop planning.
+ * @property {Extract<import('./locations.js').RouteLocationResult, { status: 'notFound' | 'unknown' }>[]} leftOut The results for setup locations with text that couldn't be found or hasn't been looked up, so were left out. They don't stop planning.
  */
 
 /**
@@ -94,11 +93,10 @@ export function timeToday(time, now) {
  * @returns {SetupResult} The plan, or what stops planning, and the rows left out.
  */
 export function planFromSetup({ event, setupLocations, settings, now, from = null, searchResults = {} }) {
-  const routeLocationResults = routeLocationsOf(setupLocations, searchResults);
-  const leftOut = routeLocationResults.filter(({ status }) => status === 'notFound' || status === 'unknown');
-  const failure = (error) => ({ plan: null, error, routeLocationResults, leftOut });
+  const leftOut = routeLocationsOf(setupLocations, searchResults).filter(({ status }) => status === 'notFound' || status === 'unknown');
+  const failure = (error) => ({ plan: null, error, leftOut });
 
-  const usable = routeLocations(routeLocationResults);
+  const usable = usableRouteLocations(setupLocations, searchResults);
   if (usable.length === 0) {
     return failure('Add at least one location that can be found, or pin one on the map.');
   }
@@ -174,7 +172,6 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
       isFromPosition: from !== null,
     },
     error: null,
-    routeLocationResults,
     leftOut,
   };
 }
