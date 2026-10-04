@@ -15,10 +15,14 @@ import { searchKey } from './search.js';
  * A row of the location list, as saved. Its text is both what's searched
  * for and the location's name.
  *
+ * Optional fields are left out rather than saved with their default or
+ * `null`, so a missing field means its default. Adding one doesn't change
+ * the schema version: add it here, and check it in {@link cleanRecords}.
+ *
  * @typedef {object} LocationRecord
- * @property {string} id A stable id for the row, which ticked-off selfies and plans refer to.
+ * @property {string} id A stable id for the row, a v4 UUID, which ticked-off selfies and plans refer to.
  * @property {string} text The row's text, as typed.
- * @property {import('./planner.js').LatLng | null} pin Where the row was pinned on the map, or `null` if it isn't pinned. A pinned row isn't searched for.
+ * @property {import('./planner.js').LatLng} [pin] Where the row was pinned on the map, if it was. A pinned row isn't searched for.
  */
 
 /**
@@ -167,6 +171,8 @@ export function usableLocations(rows) {
 /**
  * Cleans up saved rows of the location list, dropping anything that isn't a
  * row and rows with no text and no pin, so the app can rely on their shape.
+ * Optional fields are only kept when they're valid, so an invalid one
+ * falls back to its default, and unknown fields are dropped.
  *
  * @param {unknown} records The rows as saved.
  * @returns {LocationRecord[]} The rows.
@@ -182,7 +188,11 @@ export function cleanRecords(records) {
       return [];
     }
     ids.add(record.id);
-    const pin = isCoordinate(record.pin?.lat, 90) && isCoordinate(record.pin?.lng, 180) ? { lat: record.pin.lat, lng: record.pin.lng } : null;
-    return record.text.trim() === '' && !pin ? [] : [{ id: record.id, text: record.text, pin }];
+    /** @type {LocationRecord} */
+    const cleaned = { id: record.id, text: record.text };
+    if (isCoordinate(record.pin?.lat, 90) && isCoordinate(record.pin?.lng, 180)) {
+      cleaned.pin = { lat: record.pin.lat, lng: record.pin.lng };
+    }
+    return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
   });
 }

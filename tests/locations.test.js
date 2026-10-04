@@ -113,15 +113,15 @@ describe('resolveRecord', () => {
   });
 
   test("uses the row's id as the location's key", () => {
-    assert.equal(resolveRecord({ id: 'xyz', text: '51.45,-2.59', pin: null }, 1, {}).location.key, 'xyz');
+    assert.equal(resolveRecord({ id: 'xyz', text: '51.45,-2.59' }, 1, {}).location.key, 'xyz');
   });
 });
 
 describe('resolveRecords and usableLocations', () => {
   test('numbers the rows and gets the locations that can be planned', () => {
     const records = [
-      { id: 'a', text: '51.4545,-2.5879', pin: null },
-      { id: 'b', text: 'Nowhere', pin: null },
+      { id: 'a', text: '51.4545,-2.5879' },
+      { id: 'b', text: 'Nowhere' },
       { id: 'c', text: '', pin: { lat: 51.45, lng: -2.59 } },
     ];
     const rows = resolveRecords(records, {});
@@ -137,21 +137,25 @@ describe('resolveRecords and usableLocations', () => {
 describe('cleanRecords', () => {
   test('keeps rows with text or a pin', () => {
     const records = [
-      { id: 'a', text: 'Queen Square', pin: null },
+      { id: 'a', text: 'Queen Square' },
       { id: 'b', text: '', pin: { lat: 51.45, lng: -2.59 } },
     ];
     assert.deepEqual(cleanRecords(records), records);
   });
 
   test('drops blank rows, rows without an id and repeated ids', () => {
-    const records = [{ id: 'a', text: ' ', pin: null }, { text: 'No id' }, { id: 'b', text: 'B' }, { id: 'b', text: 'Again' }, null, 'text'];
-    assert.deepEqual(cleanRecords(records), [{ id: 'b', text: 'B', pin: null }]);
+    const records = [{ id: 'a', text: ' ' }, { text: 'No id' }, { id: 'b', text: 'B' }, { id: 'b', text: 'Again' }, null, 'text'];
+    assert.deepEqual(cleanRecords(records), [{ id: 'b', text: 'B' }]);
+  });
+
+  test('leaves out a pin that is null, and fields it does not know', () => {
+    assert.deepEqual(cleanRecords([{ id: 'a', text: 'A', pin: null, colour: 'red' }]), [{ id: 'a', text: 'A' }]);
   });
 
   test('drops pins that are out of range or not numbers', () => {
     assert.deepEqual(cleanRecords([{ id: 'a', text: 'A', pin: { lat: '51', lng: -2.59 } }, { id: 'b', text: 'B', pin: { lat: 91, lng: 0 } }]), [
-      { id: 'a', text: 'A', pin: null },
-      { id: 'b', text: 'B', pin: null },
+      { id: 'a', text: 'A' },
+      { id: 'b', text: 'B' },
     ]);
   });
 

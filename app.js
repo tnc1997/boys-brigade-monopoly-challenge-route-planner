@@ -462,7 +462,7 @@ function announceLookup(key) {
 function pinRow(id, text, { lat, lng }) {
   let record = state.locations.find((candidate) => candidate.id === id);
   if (!record) {
-    record = { id: newLocationId(), text, pin: null };
+    record = { id: newLocationId(), text };
     state.locations.push(record);
   }
   record.pin = { lat, lng };
@@ -502,7 +502,7 @@ locationRows.addEventListener('input', (event) => {
   let { record } = row;
   if (!record) {
     // Typing in the empty row at the end makes it a row, with a new empty row below.
-    record = { id: newLocationId(), text: '', pin: null };
+    record = { id: newLocationId(), text: '' };
     state.locations.push(record);
     row.item.dataset.id = record.id;
     row.item.querySelector('[data-action="remove"]').classList.remove('invisible');
@@ -566,7 +566,7 @@ locationRows.addEventListener('click', (event) => {
   } else if (button.dataset.action === 'remove' && record) {
     removeRow(item, record);
   } else if (button.dataset.action === 'clear-pin' && record) {
-    record.pin = null;
+    delete record.pin;
     saveState(state);
     item.querySelector('input').focus();
     showRows();

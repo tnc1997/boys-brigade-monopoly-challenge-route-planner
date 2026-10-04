@@ -39,7 +39,7 @@ describe('storage', () => {
     state.settings.speedKmh = 3.5;
     state.locations = [
       { id: 'a', text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
-      { id: 'b', text: 'Queen Square, Bristol', pin: null },
+      { id: 'b', text: 'Queen Square, Bristol' },
     ];
     state.doneKeys = ['a'];
     state.plan = { order: [0], arrivalTimes: [1], endEta: 2, spareSeconds: 3, skipped: [] };
@@ -138,7 +138,7 @@ describe('resetChallenge', () => {
     const state = defaultState();
     state.settings.speedKmh = 3.5;
     state.setup = { startText: '51.4556,-2.5894', finishText: '51.4492,-2.5813', startTimeText: '11:00' };
-    state.locations = [{ id: 'a', text: '51.4545,-2.5879', pin: null }];
+    state.locations = [{ id: 'a', text: '51.4545,-2.5879' }];
     state.doneKeys = ['a'];
     state.view = 'map';
     state.searchResults = { 'queen square': { isFound: false, error: 'No match', isTemporary: false } };
@@ -155,7 +155,7 @@ describe('resetChallenge', () => {
 
   test("doesn't change the original state", () => {
     const state = defaultState();
-    state.locations = [{ id: 'a', text: '51.4545,-2.5879', pin: null }];
+    state.locations = [{ id: 'a', text: '51.4545,-2.5879' }];
     resetChallenge(state);
     assert.equal(state.locations.length, 1);
   });

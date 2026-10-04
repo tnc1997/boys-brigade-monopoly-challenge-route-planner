@@ -9,7 +9,7 @@ import { defaultState } from '../storage.js';
 const now = new Date(2026, 9, 3, 11, 0).getTime();
 
 /** Rows of the location list with the given texts, with ids `a`, `b` and so on. */
-const rows = (...texts) => texts.map((text, index) => ({ id: String.fromCharCode(97 + index), text, pin: null }));
+const rows = (...texts) => texts.map((text, index) => ({ id: String.fromCharCode(97 + index), text }));
 
 /** Rows of the location list pinned at Old Kent Road and Temple Meads. */
 const pinnedRows = () => [
