@@ -143,10 +143,12 @@ export function evaluateRoute({
  * `points` are the candidate locations in any order, rather than `stops` in
  * visiting order.
  *
+ * `mustVisit` lists indexes into `points` that every route must include,
+ * even if leaving them out would fit in more points (none by default).
  * `timeLimitMs` limits how long {@link plan} spends improving the route,
  * in milliseconds (200 by default).
  *
- * @typedef {Omit<RouteOptions, 'stops'> & { points: LatLng[], timeLimitMs?: number }} PlanOptions
+ * @typedef {Omit<RouteOptions, 'stops'> & { points: LatLng[], mustVisit?: number[], timeLimitMs?: number }} PlanOptions
  */
 
 /**
@@ -197,6 +199,7 @@ export function improveWithTwoOpt(options, order) {
  * @property {number} startNode The node for the start (always 0). Point `i` is node `i + 1`.
  * @property {number | null} finishNode The node for the finish, or `null` if there's no finish.
  * @property {number} pointCount How many candidate points there are.
+ * @property {Set<number>} mustVisitNodes Point nodes that every route must include.
  * @property {number} dwellSeconds Time spent at each stop taking the selfie, in seconds.
  * @property {number} budgetSeconds Time available for the route, in seconds.
  */
@@ -211,6 +214,7 @@ export function improveWithTwoOpt(options, order) {
 function routeContext({
   start,
   points,
+  mustVisit = [],
   finish = null,
   startTime,
   deadline,
@@ -226,6 +230,7 @@ function routeContext({
     startNode: 0,
     finishNode: finish ? nodes.length - 1 : null,
     pointCount: points.length,
+    mustVisitNodes: new Set(mustVisit.map((index) => index + 1)),
     dwellSeconds,
     budgetSeconds: (deadline - startTime) / 1000 - safetyMarginSeconds,
   };
@@ -258,33 +263,57 @@ function routeSeconds(route, { walk, startNode, finishNode, dwellSeconds }) {
 }
 
 /**
- * Adds unvisited points to a route by greedy insertion, for as long as the
- * route still fits the time budget.
+ * Lists every point node, in order.
+ *
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {number[]} The point nodes, 1 to `pointCount`.
+ */
+const pointNodes = ({ pointCount }) => Array.from({ length: pointCount }, (_, index) => index + 1);
+
+/**
+ * Finds where adding a point to a route adds the least time.
+ *
+ * @param {number[]} route Point nodes in visiting order.
+ * @param {number} node The point node to add.
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {{ position: number, addedSeconds: number }} Where to add it, as an index into `route`, and the time it adds.
+ */
+function cheapestInsertion(route, node, { walk, startNode, finishNode, dwellSeconds }) {
+  let best = null;
+  for (let position = 0; position <= route.length; position += 1) {
+    const previous = position === 0 ? startNode : route[position - 1];
+    const next = position === route.length ? finishNode : route[position];
+    const addedSeconds = dwellSeconds + walk[previous][node] + (next === null ? 0 : walk[node][next] - walk[previous][next]);
+    if (best === null || addedSeconds < best.addedSeconds) {
+      best = { position, addedSeconds };
+    }
+  }
+  return best;
+}
+
+/**
+ * Adds points to a route by greedy insertion, for as long as the route still
+ * fits the time budget: each time, the point that adds the least time, where
+ * it adds the least.
  *
  * @param {number[]} route Point nodes already in the route, in visiting order. This isn't changed.
  * @param {RouteContext} context The walking times and limits.
- * @param {Set<number>} [excluded] Point nodes not to add.
+ * @param {object} [options] Which points to add, and the budget.
+ * @param {number[]} [options.candidates] Point nodes that may be added, in order. Defaults to every point.
+ * @param {number} [options.budgetSeconds] The time the route must fit in. Defaults to the context's.
  * @returns {number[]} The route with the points that fit added.
  */
-function insertGreedily(route, context, excluded = new Set()) {
-  const { walk, startNode, finishNode, pointCount, dwellSeconds, budgetSeconds } = context;
+function insertGreedily(route, context, { candidates = pointNodes(context), budgetSeconds = context.budgetSeconds } = {}) {
   const result = [...route];
   let seconds = routeSeconds(result, context);
-  const unvisited = new Set(
-    Array.from({ length: pointCount }, (_, index) => index + 1).filter((node) => !result.includes(node) && !excluded.has(node)),
-  );
+  const unvisited = new Set(candidates.filter((node) => !result.includes(node)));
 
   while (unvisited.size > 0) {
     let best = null;
     for (const node of unvisited) {
-      for (let position = 0; position <= result.length; position += 1) {
-        const previous = position === 0 ? startNode : result[position - 1];
-        const next = position === result.length ? finishNode : result[position];
-        const addedSeconds =
-          dwellSeconds + walk[previous][node] + (next === null ? 0 : walk[node][next] - walk[previous][next]);
-        if (best === null || addedSeconds < best.addedSeconds) {
-          best = { node, position, addedSeconds };
-        }
+      const insertion = cheapestInsertion(result, node, context);
+      if (best === null || insertion.addedSeconds < best.addedSeconds) {
+        best = { node, ...insertion };
       }
     }
     if (seconds + best.addedSeconds > budgetSeconds) {
@@ -355,6 +384,7 @@ function isBetterRoute(candidate, current, context) {
  * Tries removing each stop in turn and greedily inserting other points into
  * the time that frees up, which can fit two nearby points in place of one
  * out-of-the-way one. The removed stop isn't put back in the same attempt.
+ * Must-visit stops are never removed.
  *
  * @param {number[]} route Point nodes in visiting order. This isn't changed.
  * @param {RouteContext} context The walking times and limits.
@@ -363,8 +393,12 @@ function isBetterRoute(candidate, current, context) {
  */
 function swapOneForMore(route, context, stopAt) {
   for (let position = 0; position < route.length && performance.now() < stopAt; position += 1) {
+    if (context.mustVisitNodes.has(route[position])) {
+      continue;
+    }
     const without = route.filter((_, index) => index !== position);
-    const candidate = insertGreedily(twoOpt(without, context), context, new Set([route[position]]));
+    const candidates = pointNodes(context).filter((node) => node !== route[position]);
+    const candidate = insertGreedily(twoOpt(without, context), context, { candidates });
     if (isBetterRoute(candidate, route, context)) {
       return candidate;
     }
@@ -400,14 +434,41 @@ function improveRoute(route, context, stopAt) {
 }
 
 /**
+ * Builds the route that every route the planner considers starts from: every
+ * must-visit point, each added where it adds the least time, then shortened
+ * with 2-opt. It may not fit the time budget.
+ *
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {number[]} The must-visit point nodes, in visiting order.
+ */
+function mustVisitRoute(context) {
+  const candidates = pointNodes(context).filter((node) => context.mustVisitNodes.has(node));
+  return twoOpt(insertGreedily([], context, { candidates, budgetSeconds: Infinity }), context);
+}
+
+/**
+ * Adds a point to a route where it adds the least time.
+ *
+ * @param {number[]} route Point nodes in visiting order. This isn't changed.
+ * @param {number} node The point node to add.
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {number[]} The route with the point added.
+ */
+function insertCheapest(route, node, context) {
+  const { position } = cheapestInsertion(route, node, context);
+  return [...route.slice(0, position), node, ...route.slice(position)];
+}
+
+/**
  * A planned route.
  *
  * @typedef {object} Plan
  * @property {number[]} order Indexes into `points` in visiting order.
  * @property {number[]} arrivalTimes When the team arrives at each stop in `order`, in milliseconds since the Unix epoch.
  * @property {number} endEta When the route ends, in milliseconds since the Unix epoch. With a finish, this is the arrival time at the finish. Without one, it's when the last selfie is taken.
- * @property {number} spareSeconds Time left between `endEta` and the deadline minus the safety margin. Negative only when even the walk to the finish doesn't fit.
+ * @property {number} spareSeconds Time left between `endEta` and the deadline minus the safety margin. Negative only when even the walk to the finish doesn't fit, or when `isMustVisitLate` is `true`.
  * @property {number[]} skipped Indexes into `points` that aren't in `order`, in ascending order.
+ * @property {boolean} isMustVisitLate Whether the must-visit points alone don't fit before the deadline minus the safety margin, so the route is only those, in the shortest order found.
  */
 
 /**
@@ -416,6 +477,11 @@ function improveRoute(route, context, stopAt) {
  * route by greedy insertion, then improves it with 2-opt and by swapping one
  * stop for others. It does this again starting from each point in turn, for
  * up to `timeLimitMs` in total, and keeps the best route.
+ *
+ * Every route includes every must-visit point: each route starts from them,
+ * added where they add the least time, and no improvement removes one. If
+ * they don't all fit on their own, the route is only them, in the shortest
+ * order found, and `isMustVisitLate` is `true`.
  *
  * @param {PlanOptions} options The candidate points and the settings to plan with.
  * @returns {Plan} The visiting order, the timings and the points left out.
@@ -437,14 +503,25 @@ export function plan({ timeLimitMs = 200, ...options }) {
   // for more points, then try swapping one stop for others.
   const context = routeContext(options);
   const stopAt = performance.now() + timeLimitMs;
-  // A poor starting route can leave the improvements stuck, so also start
-  // from each point that fits on its own, and keep the best route found.
-  let route = improveRoute(insertGreedily([], context), context, stopAt);
-  for (let node = 1; node <= context.pointCount && performance.now() < stopAt; node += 1) {
-    if (routeSeconds([node], context) <= context.budgetSeconds) {
-      const candidate = improveRoute(insertGreedily([node], context), context, stopAt);
-      if (isBetterRoute(candidate, route, context)) {
-        route = candidate;
+  const mustVisit = mustVisitRoute(context);
+  // An empty route can be over budget too, when even the walk to the finish
+  // doesn't fit, so the must-visit points are only late when the route
+  // would fit without them.
+  const isOverBudget = routeSeconds(mustVisit, context) > context.budgetSeconds;
+  const isMustVisitLate = isOverBudget && routeSeconds([], context) <= context.budgetSeconds;
+  let route = mustVisit;
+  if (!isOverBudget) {
+    // A poor starting route can leave the improvements stuck, so also start
+    // from each other point that fits alongside the must-visit points, and
+    // keep the best route found.
+    route = improveRoute(insertGreedily(mustVisit, context), context, stopAt);
+    for (let node = 1; node <= context.pointCount && performance.now() < stopAt; node += 1) {
+      const start = context.mustVisitNodes.has(node) ? null : insertCheapest(mustVisit, node, context);
+      if (start && routeSeconds(start, context) <= context.budgetSeconds) {
+        const candidate = improveRoute(insertGreedily(start, context), context, stopAt);
+        if (isBetterRoute(candidate, route, context)) {
+          route = candidate;
+        }
       }
     }
   }
@@ -455,5 +532,5 @@ export function plan({ timeLimitMs = 200, ...options }) {
   });
   const visited = new Set(order);
   const skipped = options.points.map((_, index) => index).filter((index) => !visited.has(index));
-  return { order, arrivalTimes, endEta, spareSeconds, skipped };
+  return { order, arrivalTimes, endEta, spareSeconds, skipped, isMustVisitLate };
 }

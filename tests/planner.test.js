@@ -566,3 +566,104 @@ describe('plan compared with the best possible route', () => {
     }
   });
 });
+
+describe('plan with must-visit points', () => {
+  // Points walked at 3.6 km/h (1 m/s) with no detour, so each kilometre takes
+  // exactly 1000 s.
+  const kmFrom = (northKm, eastKm = 0) => ({
+    lat: castlePark.lat + (northKm * 1000) / 111195,
+    lng: castlePark.lng + (eastKm * 1000) / (111195 * Math.cos((castlePark.lat * Math.PI) / 180)),
+  });
+  const startTime = Date.parse('2026-10-03T11:00:00+01:00');
+  const options = (budgetSeconds, overrides) => ({
+    start: castlePark,
+    startTime,
+    deadline: startTime + (budgetSeconds + 600) * 1000,
+    speedKmh: 3.6,
+    detourFactor: 1,
+    dwellSeconds: 100,
+    safetyMarginSeconds: 600,
+    ...overrides,
+  });
+  const random = (seed) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  // A far point to the north, which takes 3100 s on its own, and two near
+  // points to the south, which take 1200 s together. Only one or the other
+  // fits in 3200 s.
+  const points = [kmFrom(3), kmFrom(-0.5), kmFrom(-1)];
+
+  test('visits more points without must-visit points', () => {
+    const result = plan(options(3200, { points }));
+    assert.deepEqual(result.order, [1, 2]);
+    assert.equal(result.isMustVisitLate, false);
+  });
+
+  test('includes a must-visit point over a route that visits more points without it', () => {
+    const result = plan(options(3200, { points, mustVisit: [0] }));
+    assert.deepEqual(result.order, [0]);
+    assert.deepEqual(result.skipped, [1, 2]);
+    assert.equal(result.isMustVisitLate, false);
+    assert.ok(result.spareSeconds >= 0);
+  });
+
+  test('adds other points around the must-visit points when they fit', () => {
+    const result = plan(options(10000, { points, mustVisit: [0] }));
+    assert.deepEqual([...result.order].sort(), [0, 1, 2]);
+  });
+
+  test("plans only the must-visit points, in the shortest order, when they don't fit", () => {
+    // Points 1, 2 and 3 km north, listed out of order: the shortest route
+    // visits them nearest first, taking 3300 s.
+    const line = [kmFrom(3), kmFrom(-0.5), kmFrom(1), kmFrom(2)];
+    const result = plan(options(2000, { points: line, mustVisit: [0, 2, 3] }));
+    assert.equal(result.isMustVisitLate, true);
+    assert.deepEqual(result.order, [2, 3, 0]);
+    assert.deepEqual(result.skipped, [1]);
+    assert.ok(Math.abs(result.spareSeconds - (2000 - 3300)) < 1, `spare ${result.spareSeconds}`);
+  });
+
+  test("ends at the finish when the must-visit points don't fit", () => {
+    const line = [kmFrom(3), kmFrom(1), kmFrom(2)];
+    // The finish alone, 3.5 km away, fits in 3700 s, but not with the
+    // must-visit points on the way, which take 3800 s.
+    const finish = kmFrom(3.5);
+    const result = plan(options(3700, { points: line, mustVisit: [0, 1, 2], finish }));
+    assert.equal(result.isMustVisitLate, true);
+    assert.deepEqual(result.order, [1, 2, 0]);
+    assert.ok(Math.abs(result.endEta - (startTime + 3800 * 1000)) < 1000, `ends ${result.endEta - startTime} ms after the start`);
+  });
+
+  test("isn't late without must-visit points, even when nothing fits", () => {
+    const result = plan(options(3200, { points, finish: kmFrom(10) }));
+    assert.deepEqual(result.order, []);
+    assert.equal(result.isMustVisitLate, false);
+  });
+
+  test("isn't late when even the walk to the finish doesn't fit", () => {
+    const result = plan(options(3200, { points, mustVisit: [1], finish: kmFrom(10) }));
+    assert.equal(result.isMustVisitLate, false);
+    assert.ok(result.spareSeconds < 0);
+  });
+
+  test('always includes every must-visit point that fits, and never removes one to fit others in, on random routes', () => {
+    const next = random(46);
+    for (let run = 0; run < 150; run += 1) {
+      const randomPoints = Array.from({ length: 5 + Math.floor(next() * 25) }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+      const mustVisit = randomPoints.map((_, index) => index).filter(() => next() < 0.2);
+      const finish = next() < 0.5 ? null : kmFrom(next() * 6 - 3, next() * 6 - 3);
+      const result = plan(options(3000 + next() * 15000, { points: randomPoints, mustVisit, finish, timeLimitMs: 20 }));
+      for (const index of mustVisit) {
+        assert.ok(result.order.includes(index), `run ${run} leaves out must-visit point ${index}`);
+      }
+      if (result.isMustVisitLate) {
+        assert.deepEqual([...result.order].sort((a, b) => a - b), mustVisit, `run ${run} visits others although the must-visit points are late`);
+      } else {
+        assert.ok(result.spareSeconds >= 0, `run ${run} is over budget`);
+      }
+    }
+  });
+});

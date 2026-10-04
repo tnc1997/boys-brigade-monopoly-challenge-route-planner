@@ -203,6 +203,12 @@ describe('newLocationMarkers', () => {
     assert.deepEqual(newLocationMarkers([...plan.points, cabotTower], plan).map(({ title }) => title), ['Cabot Tower, not in the route yet']);
   });
 
+  test("marks a must-visit location that the plan doesn't visit", () => {
+    const plan = { ...savedPlan(), order: [0], skipped: [1] };
+    const markers = newLocationMarkers(plan.points, plan, new Set([plan.points[0].key, plan.points[1].key]));
+    assert.deepEqual(markers.map(({ title }) => title), ['Temple Meads, must visit, not in the route yet']);
+  });
+
   test('marks a location that has moved since the plan was made, such as when it was pinned', () => {
     const plan = savedPlan();
     const moved = { ...plan.points[0], lat: 51.46 };
@@ -278,6 +284,15 @@ describe('timeWarning', () => {
     const tightPlan = { ...plan, endEta: plan.deadline - plan.settings.safetyMarginSeconds * 1000, spareSeconds: 0 };
     assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + 30000), null);
     assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + minutes(1)).kind, 'late');
+  });
+
+  test("doesn't warn straight away when the must-visit locations make the plan late", () => {
+    const locations = pinnedRows().map((record) => ({ ...record, isMustVisit: true }));
+    const plan = planFromSetup({ event: { ...defaultState().event, startTime: '15:30' }, locations, settings: defaultState().settings, now }).plan;
+    assert.equal(plan.isMustVisitLate, true);
+    assert.ok(plan.spareSeconds < 0);
+    assert.equal(timeWarning(plan, [], plan.startTime), null);
+    assert.equal(timeWarning(plan, [], plan.deadline - 10 * 60000).kind, 'short');
   });
 
   test('warns straight away when the plan already ends inside the safety margin', () => {
