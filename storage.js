@@ -1,4 +1,4 @@
-import { cleanRecords, isPoints } from './locations.js';
+import { cleanSetupLocations, isPoints } from './locations.js';
 import { searchKey } from './search.js';
 import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
 
@@ -34,7 +34,7 @@ import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
  * @property {number} version The schema version the state was saved with.
  * @property {EventDetails} event The event's details.
  * @property {Settings} settings The team's own settings for planning.
- * @property {import('./locations.js').LocationRecord[]} locations The location list, one row per location.
+ * @property {import('./locations.js').SetupLocation[]} setupLocations The location list, one row per location.
  * @property {'list' | 'map'} view Which tab of the Route section is showing.
  * @property {import('./search.js').SearchResults} searchResults Saved results of looking up addresses and place names, so each is only looked up once and re-planning works offline. Temporary failures aren't saved.
  * @property {import('./setup.js').SavedPlan | null} plan The current plan, or `null` if there isn't one yet.
@@ -57,7 +57,7 @@ export const LEGACY_STORAGE_KEYS = ['monopoly-challenge-planner'];
  * changes, and move state saved with the previous version in {@link loadState}.
  * The saved plan can be dropped rather than moved, since planning can make it
  * again. Adding an optional field to a row of the location list doesn't
- * change the version (see `LocationRecord`).
+ * change the version (see `SetupLocation`).
  * Version 1 kept the location list as text, one location per line.
  */
 export const SCHEMA_VERSION = 2;
@@ -85,7 +85,7 @@ export function defaultState() {
       dwellSeconds: defaultDwellSeconds(false),
       safetyMarginSeconds: 900,
     },
-    locations: [],
+    setupLocations: [],
     view: 'list',
     searchResults: {},
     plan: null,
@@ -129,7 +129,7 @@ function isSavedPlan(plan) {
   const isNumber = (value) => typeof value === 'number' && Number.isFinite(value);
   return (
     isObject(plan) &&
-    ['order', 'skipped', 'arrivalTimes', 'points'].every((key) => Array.isArray(plan[key])) &&
+    ['order', 'skipped', 'arrivalTimes', 'routeLocations'].every((key) => Array.isArray(plan[key])) &&
     ['startTime', 'deadline', 'endEta', 'spareSeconds'].every((key) => isNumber(plan[key])) &&
     isObject(plan.start) &&
     (plan.finish === null || isObject(plan.finish)) &&
@@ -198,7 +198,9 @@ export function loadState(storage = browserStorage()) {
     version: SCHEMA_VERSION,
     event,
     settings: withDefaults(defaults.settings, saved.settings),
-    locations: cleanRecords(saved.locations),
+    // The location list was saved as `locations` until it was renamed, so
+    // it's read from there if need be, rather than lost.
+    setupLocations: cleanSetupLocations(saved.setupLocations ?? saved.locations),
     view: saved.view === 'map' ? 'map' : 'list',
     searchResults: isObject(saved.searchResults) ? saved.searchResults : {},
     plan: isSavedPlan(saved.plan) ? saved.plan : null,
@@ -240,7 +242,7 @@ function fromVersion1(saved) {
       searchResults[searchKey(text)] = oldSearchResults[oldKey];
     }
   }
-  return { ...saved, event, settings, locations: [], searchResults, plan: null };
+  return { ...saved, event, settings, setupLocations: [], searchResults, plan: null };
 }
 
 /**
@@ -333,8 +335,8 @@ export function clearState(storage = browserStorage()) {
 export function resetChallenge(state) {
   return {
     ...state,
-    locations: [],
-    searchResults: Object.fromEntries(Object.entries(state.searchResults).filter(([, result]) => result.isFound)),
+    setupLocations: [],
+    searchResults: Object.fromEntries(Object.entries(state.searchResults).filter(([, searchResult]) => searchResult.isFound)),
     plan: null,
   };
 }

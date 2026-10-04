@@ -5,7 +5,7 @@ import { walkSeconds } from './planner.js';
  *
  * @typedef {object} RouteStop
  * @property {number} number The stop's position in the route, starting at 1.
- * @property {import('./locations.js').Location} location The location.
+ * @property {import('./locations.js').RouteLocation} location The location.
  * @property {number} arrivalTime When the team arrives, in milliseconds since the Unix epoch.
  * @property {number} walkSeconds How long the walk from the previous stop (or the start) takes, in seconds.
  * @property {string} googleMapsDirectionsUrl A Google Maps URL with walking directions to the location.
@@ -19,7 +19,7 @@ import { walkSeconds } from './planner.js';
  * @property {RouteStop[]} stops The stops in visiting order.
  * @property {RouteStop | null} finish The walk to the finish, or `null` if there's no finish. Its `number` is 0.
  * @property {number} endEta When the route ends, in milliseconds since the Unix epoch.
- * @property {import('./locations.js').Location[]} skipped The locations that don't fit, in list order.
+ * @property {import('./locations.js').RouteLocation[]} skipped The locations that don't fit, in list order.
  */
 
 /**
@@ -122,7 +122,7 @@ export function describeRoute(plan) {
   });
 
   const stops = plan.order.map((index, position) =>
-    stop(position + 1, plan.points[index], position === 0 ? plan.start : plan.points[plan.order[position - 1]], plan.arrivalTimes[position]),
+    stop(position + 1, plan.routeLocations[index], position === 0 ? plan.start : plan.routeLocations[plan.order[position - 1]], plan.arrivalTimes[position]),
   );
   const last = stops.length === 0 ? plan.start : stops[stops.length - 1].location;
 
@@ -130,7 +130,7 @@ export function describeRoute(plan) {
     stops,
     finish: plan.finish ? stop(0, plan.finish, last, plan.endEta) : null,
     endEta: plan.endEta,
-    skipped: plan.skipped.map((index) => plan.points[index]),
+    skipped: plan.skipped.map((index) => plan.routeLocations[index]),
   };
 }
 
@@ -145,7 +145,7 @@ export function describeRoute(plan) {
  */
 export function progress(plan, visitedKeys) {
   const done = new Set(visitedKeys);
-  return { done: plan.points.filter(({ key }) => done.has(key)).length, total: plan.points.length };
+  return { done: plan.routeLocations.filter(({ key }) => done.has(key)).length, total: plan.routeLocations.length };
 }
 
 /**
@@ -187,7 +187,7 @@ export function mapRoute(plan, visitedKeys, formatTime) {
       title: `${number}. ${location.label}, ETA ${formatTime(arrivalTime)}${isDone ? ', selfie done' : ''}`,
     });
   }
-  for (const location of plan.points) {
+  for (const location of plan.routeLocations) {
     if (done.has(location.key) && !routeKeys.has(location.key)) {
       markers.push({ kind: 'done', location, label: '✓', title: `${location.label}, selfie done` });
     }
@@ -216,7 +216,7 @@ export function mapRoute(plan, visitedKeys, formatTime) {
  * Must visit, is marked too. To remove one, remove its row from the
  * location list.
  *
- * @param {import('./locations.js').Location[]} locations The locations in the location list that can be planned.
+ * @param {import('./locations.js').RouteLocation[]} routeLocations The route locations of the location list, those that can be planned.
  * @param {import('./setup.js').SavedPlan | null} plan The plan, or `null` if there isn't one.
  * @param {Set<string>} [mustVisitKeys] Keys of the must-visit locations still to visit.
  * @returns {import('./map.js').MapMarker[]} A marker for each location that isn't in the plan, is somewhere else in it, or must be visited but isn't in the route.
@@ -224,18 +224,18 @@ export function mapRoute(plan, visitedKeys, formatTime) {
  * newLocationMarkers([{ lat: 51.45174, lng: -2.6034, label: 'Cabot Tower', key: 'a' }], null);
  * // [{ kind: 'new', location: { lat: 51.45174, … }, label: '+', title: 'Cabot Tower, not in the route yet' }]
  */
-export function newLocationMarkers(locations, plan, mustVisitKeys = new Set()) {
-  const planned = new Map(plan?.points.map((point) => [point.key, point]));
-  const routeKeys = new Set(plan?.order.map((index) => plan.points[index].key));
+export function newLocationMarkers(routeLocations, plan, mustVisitKeys = new Set()) {
+  const planned = new Map(plan?.routeLocations.map((routeLocation) => [routeLocation.key, routeLocation]));
+  const routeKeys = new Set(plan?.order.map((index) => plan.routeLocations[index].key));
   const isMoved = ({ key, lat, lng }) => planned.get(key)?.lat !== lat || planned.get(key)?.lng !== lng;
   const isMissingMustVisit = ({ key }) => plan !== null && mustVisitKeys.has(key) && !routeKeys.has(key);
-  return locations
-    .filter((location) => isMoved(location) || isMissingMustVisit(location))
-    .map((location) => ({
+  return routeLocations
+    .filter((routeLocation) => isMoved(routeLocation) || isMissingMustVisit(routeLocation))
+    .map((routeLocation) => ({
       kind: 'new',
-      location,
+      location: routeLocation,
       label: '+',
-      title: `${location.label}${isMissingMustVisit(location) ? ', must visit' : ''}, not in the route yet`,
+      title: `${routeLocation.label}${isMissingMustVisit(routeLocation) ? ', must visit' : ''}, not in the route yet`,
     }));
 }
 
@@ -301,7 +301,7 @@ export function timeWarning(plan, visitedKeys, now) {
 
   // How late the team is for the first stop that isn't done yet.
   const done = new Set(visitedKeys);
-  const next = plan.order.findIndex((index) => !done.has(plan.points[index].key));
+  const next = plan.order.findIndex((index) => !done.has(plan.routeLocations[index].key));
   const behindMs = next === -1 ? 0 : Math.max(0, now - plan.arrivalTimes[next]);
   const minutesBehind = Math.floor(behindMs / 60000);
 
@@ -316,7 +316,7 @@ export function timeWarning(plan, visitedKeys, now) {
   // With every location ticked off and no finish to reach, there's nothing
   // to hurry for. An empty route isn't enough, because it can also mean
   // nothing fits before the deadline.
-  const isAllDone = plan.points.every(({ key }) => done.has(key)) && !plan.finish;
+  const isAllDone = plan.routeLocations.every(({ key }) => done.has(key)) && !plan.finish;
   if ((!isShortOfTime && !isRunningLate) || (isAllDone && leftMs > 0)) {
     return null;
   }

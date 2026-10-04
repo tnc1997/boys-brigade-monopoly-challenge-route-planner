@@ -63,25 +63,25 @@ describe('searchPlace', () => {
 
   test('says when nothing is found, and that the result can be saved', async () => {
     const { fetch } = fakeFetch(() => ({ body: [] }));
-    const result = await searchPlace('Nowhere Street', { fetch });
-    assert.equal(result.isFound, false);
-    assert.equal(result.isTemporary, false);
-    assert.match(result.error, /No match for "Nowhere Street" in Bristol/);
+    const searchResult = await searchPlace('Nowhere Street', { fetch });
+    assert.equal(searchResult.isFound, false);
+    assert.equal(searchResult.isTemporary, false);
+    assert.match(searchResult.error, /No match for "Nowhere Street" in Bristol/);
   });
 
   test('says when offline, and that the result should not be saved', async () => {
     const { fetch } = fakeFetch(() => ({ error: new TypeError('Failed to fetch') }));
-    const result = await searchPlace('Queen Square', { fetch });
-    assert.equal(result.isFound, false);
-    assert.equal(result.isTemporary, true);
-    assert.match(result.error, /no signal/);
+    const searchResult = await searchPlace('Queen Square', { fetch });
+    assert.equal(searchResult.isFound, false);
+    assert.equal(searchResult.isTemporary, true);
+    assert.match(searchResult.error, /no signal/);
   });
 
   test('says when the search is busy, and that the result should not be saved', async () => {
     const { fetch } = fakeFetch(() => ({ status: 429 }));
-    const result = await searchPlace('Queen Square', { fetch });
-    assert.equal(result.isTemporary, true);
-    assert.match(result.error, /busy \(error 429\)/);
+    const searchResult = await searchPlace('Queen Square', { fetch });
+    assert.equal(searchResult.isTemporary, true);
+    assert.match(searchResult.error, /busy \(error 429\)/);
   });
 
   test('treats an unexpected response as nothing found', async () => {
@@ -110,7 +110,7 @@ describe('createSearchQueue', () => {
     assert.deepEqual(urls.map((url) => url.searchParams.get('q')), ['Queen Square', 'Temple Meads', 'Cabot Tower']);
     assert.deepEqual(clock.waits, [REQUEST_INTERVAL_MS, REQUEST_INTERVAL_MS]);
     assert.ok(REQUEST_INTERVAL_MS >= 1500, "leaves a generous buffer over Nominatim's 1 request per second");
-    assert.ok(results.every((result) => result.isFound));
+    assert.ok(results.every((searchResult) => searchResult.isFound));
   });
 
   test('only waits for what is left of the interval since the last request', async () => {

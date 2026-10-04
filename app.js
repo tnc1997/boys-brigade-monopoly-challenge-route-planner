@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, isScored, locationPoints, newLocationId, parsePoints, pointsById, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, hasOwnPoints, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -234,28 +234,28 @@ const ROW_BUTTON_CLASSES =
 /**
  * Describes where a row, or the Start or Finish field, is, to show under it.
  *
- * @param {import('./locations.js').Resolved} resolved Where it is, from the saved search results.
+ * @param {import('./locations.js').RouteLocationResult} routeLocationResult Where it is, from the saved search results.
  * @param {object} [options] What can be done about it.
  * @param {boolean} [options.canPin=true] Whether it can be pinned on the map, which rows can but the Start and Finish fields can't.
  * @returns {{ text: string, isError: boolean }} What to show, and whether it's a problem.
  */
-function describeResolved(resolved, { canPin = true } = {}) {
-  switch (resolved.status) {
+function describeRouteLocationResult(routeLocationResult, { canPin = true } = {}) {
+  switch (routeLocationResult.status) {
     case 'empty':
       return { text: '', isError: false };
     case 'pinned':
       return { text: '📍 Pinned on the map', isError: false };
     case 'coordinates':
-      return { text: `Using the coordinates ${resolved.location.lat}, ${resolved.location.lng}`, isError: false };
+      return { text: `Using the coordinates ${routeLocationResult.routeLocation.lat}, ${routeLocationResult.routeLocation.lng}`, isError: false };
     case 'found':
-      return { text: `Found: ${resolved.location.matchedName}`, isError: false };
+      return { text: `Found: ${routeLocationResult.routeLocation.matchedName}`, isError: false };
     case 'notFound':
       // Coordinates out of range say what's wrong with them.
-      return state.searchResults[searchKey(resolved.label)]
+      return state.searchResults[searchKey(routeLocationResult.label)]
         ? { text: canPin ? 'Not found. Check the spelling or pin it on the map with 📍' : 'Not found. Check the spelling, or enter its coordinates.', isError: true }
-        : { text: resolved.error, isError: true };
+        : { text: routeLocationResult.error, isError: true };
     default: {
-      const key = searchKey(resolved.query);
+      const key = searchKey(routeLocationResult.query);
       if (lookups.has(key)) {
         return { text: 'Searching…', isError: false };
       }
@@ -271,7 +271,7 @@ function describeResolved(resolved, { canPin = true } = {}) {
  * Shows a description under a row or field.
  *
  * @param {HTMLElement} status The element to show it in.
- * @param {{ text: string, isError: boolean }} description What to show, from {@link describeResolved}.
+ * @param {{ text: string, isError: boolean }} description What to show, from {@link describeRouteLocationResult}.
  */
 function showDescription(status, { text, isError }) {
   status.textContent = text;
@@ -283,26 +283,26 @@ function showDescription(status, { text, isError }) {
  * Finds the row of the location list that an element is in.
  *
  * @param {EventTarget | null} target The element.
- * @returns {{ item: HTMLLIElement, record: import('./locations.js').LocationRecord | null } | null} The row's list item and saved row (`null` for the empty row at the end), or `null` if the element isn't in a row.
+ * @returns {{ item: HTMLLIElement, setupLocation: import('./locations.js').SetupLocation | null } | null} The row's list item and saved row (`null` for the empty row at the end), or `null` if the element isn't in a row.
  */
 function rowOf(target) {
   const item = target instanceof Element ? target.closest('#location-rows > li') : null;
   if (!(item instanceof HTMLLIElement)) {
     return null;
   }
-  return { item, record: state.locations.find(({ id }) => id === item.dataset.id) ?? null };
+  return { item, setupLocation: state.setupLocations.find(({ id }) => id === item.dataset.id) ?? null };
 }
 
 /**
  * Creates the list item for a row of the location list: its text field, a
  * 📍 button to pin it on the map, a ✕ button to remove it and its status.
  *
- * @param {import('./locations.js').LocationRecord | null} record The row, or `null` for the empty row at the end.
+ * @param {import('./locations.js').SetupLocation | null} setupLocation The row, or `null` for the empty row at the end.
  * @returns {HTMLLIElement} The list item. Its labels and status are filled in by {@link showRows}.
  */
-function rowItem(record) {
+function rowItem(setupLocation) {
   const item = element('li', 'flex flex-col gap-1');
-  item.dataset.id = record?.id ?? '';
+  item.dataset.id = setupLocation?.id ?? '';
   const line = element('div', 'flex gap-1');
   const field = element(
     'input',
@@ -310,7 +310,7 @@ function rowItem(record) {
   );
   field.type = 'text';
   field.dataset.field = 'text';
-  field.value = record?.text ?? '';
+  field.value = setupLocation?.text ?? '';
   field.autocomplete = 'off';
   field.spellcheck = false;
   field.enterKeyHint = 'next';
@@ -356,7 +356,7 @@ function rowItem(record) {
   pointsField.inputMode = 'numeric';
   pointsField.autocomplete = 'off';
   pointsField.dataset.field = 'points';
-  pointsField.value = record?.points === undefined ? '' : String(record.points);
+  pointsField.value = setupLocation?.points === undefined ? '' : String(setupLocation.points);
   const pointsError = element('p', 'text-xs text-danger');
   pointsError.id = `location-points-error-${id}`;
   pointsError.hidden = true;
@@ -366,8 +366,8 @@ function rowItem(record) {
   options.append(mustVisit, points);
   // The empty row at the end has nothing to remove or set options for. It
   // keeps the space for ✕ so the fields line up.
-  remove.classList.toggle('invisible', record === null);
-  more.hidden = record === null;
+  remove.classList.toggle('invisible', setupLocation === null);
+  more.hidden = setupLocation === null;
   item.append(line, footer, options);
   return item;
 }
@@ -380,7 +380,7 @@ function rowItem(record) {
  * @param {number} number The row's position in the list, starting at 1.
  */
 function showRow(item, number) {
-  const record = state.locations.find(({ id }) => id === item.dataset.id) ?? null;
+  const setupLocation = state.setupLocations.find(({ id }) => id === item.dataset.id) ?? null;
   const [field, pin, remove] = item.querySelectorAll('input, button');
   const status = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-status]'));
   field.setAttribute('aria-label', `Location ${number}`);
@@ -388,12 +388,12 @@ function showRow(item, number) {
   remove.setAttribute('aria-label', `Remove location ${number}`);
   const more = /** @type {HTMLButtonElement} */ (item.querySelector('[data-action="more"]'));
   const options = /** @type {HTMLDivElement} */ (item.lastElementChild);
-  const isOpen = record !== null && openRows.has(record.id);
+  const isOpen = setupLocation !== null && openRows.has(setupLocation.id);
   // Must visit no longer applies once the location's been visited. The box
   // stays ticked, so it applies again if the tick is undone.
-  const isMustVisit = Boolean(record?.isMustVisit && !record.isVisited);
+  const isMustVisit = Boolean(setupLocation?.isMustVisit && !setupLocation.isVisited);
   // Say what's set under More while it's closed.
-  const summary = [...(isMustVisit ? ['Must visit'] : []), ...(record?.points === undefined ? [] : [plural(record.points, 'point')])];
+  const summary = [...(isMustVisit ? ['Must visit'] : []), ...(setupLocation?.points === undefined ? [] : [plural(setupLocation.points, 'point')])];
   more.textContent = ['More', ...summary].join(' · ');
   more.setAttribute('aria-label', [`More options for location ${number}`, ...summary.map((text) => text.toLowerCase())].join(', '));
   // Blank uses Points per location, which can change.
@@ -402,17 +402,17 @@ function showRow(item, number) {
   pointsField.setAttribute('aria-label', `Points for location ${number}`);
   more.setAttribute('aria-expanded', String(isOpen));
   options.hidden = !isOpen;
-  /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(record?.isMustVisit);
-  const resolved = record ? resolveRecord(record, number, state.searchResults) : { status: 'empty' };
-  const description = describeResolved(resolved);
+  /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(setupLocation?.isMustVisit);
+  const routeLocationResult = setupLocation ? routeLocationOf(setupLocation, number, state.searchResults) : { status: 'empty' };
+  const description = describeRouteLocationResult(routeLocationResult);
   // Only rebuild the status when it changes, so a focused ✕ isn't replaced.
-  const shown = `${number} ${resolved.status} ${description.text}`;
+  const shown = `${number} ${routeLocationResult.status} ${description.text}`;
   if (status.dataset.shown === shown) {
     return;
   }
   status.dataset.shown = shown;
   showDescription(status, description);
-  if (resolved.status === 'pinned') {
+  if (routeLocationResult.status === 'pinned') {
     const clear = element('button', 'inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-base text-accent-ink hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent', '✕');
     clear.type = 'button';
     clear.dataset.action = 'clear-pin';
@@ -423,8 +423,8 @@ function showRow(item, number) {
 
 /** Shows the Start and Finish fields' statuses. */
 function showFieldStatuses() {
-  showDescription(startStatus, describeResolved(resolveText(state.event.startText, START_KEY, state.searchResults), { canPin: false }));
-  showDescription(finishStatus, describeResolved(resolveText(state.event.finishText, FINISH_KEY, state.searchResults), { canPin: false }));
+  showDescription(startStatus, describeRouteLocationResult(routeLocationOfText(state.event.startText, START_KEY, state.searchResults), { canPin: false }));
+  showDescription(finishStatus, describeRouteLocationResult(routeLocationOfText(state.event.finishText, FINISH_KEY, state.searchResults), { canPin: false }));
 }
 
 /** Shows every row's labels and status, and the Start and Finish fields' statuses, and redraws the map if they've changed it. */
@@ -438,7 +438,7 @@ function showRows() {
 function buildRows() {
   const focusedId = rowOf(document.activeElement)?.item.dataset.id;
   const focusedField = document.activeElement instanceof HTMLElement ? (document.activeElement.dataset.field ?? 'text') : 'text';
-  locationRows.replaceChildren(...state.locations.map(rowItem), rowItem(null));
+  locationRows.replaceChildren(...state.setupLocations.map(rowItem), rowItem(null));
   // Show the rows first, so a field in an open options panel can take focus.
   showRows();
   if (focusedId !== undefined) {
@@ -452,13 +452,13 @@ function buildRows() {
  * @returns {Set<string>} Their ids, which are their locations' keys.
  */
 function mustVisitKeys() {
-  return new Set(state.locations.filter(({ isMustVisit, isVisited }) => isMustVisit && !isVisited).map(({ id }) => id));
+  return new Set(state.setupLocations.filter(({ isMustVisit, isVisited }) => isMustVisit && !isVisited).map(({ id }) => id));
 }
 
 /** Redraws the map if the locations not in the route yet have changed, or been renamed, so typing doesn't keep rebuilding it or closing an open popup. */
 function updateMapIfChanged() {
-  const locations = usableLocations(resolveRecords(state.locations, state.searchResults));
-  if (newLocationsText(newLocationMarkers(locations, state.plan, mustVisitKeys())) !== drawnNewLocations) {
+  const usable = usableRouteLocations(state.setupLocations, state.searchResults);
+  if (newLocationsText(newLocationMarkers(usable, state.plan, mustVisitKeys())) !== drawnNewLocations) {
     updateMap();
   }
 }
@@ -476,10 +476,10 @@ function updateMapIfChanged() {
 function lookUp(query) {
   const key = searchKey(query);
   if (!lookups.has(key)) {
-    const lookup = searchQueue.search(query).then((result) => {
+    const lookup = searchQueue.search(query).then((searchResult) => {
       lookups.delete(key);
-      if (result.isFound || !result.isTemporary) {
-        state.searchResults[key] = result;
+      if (searchResult.isFound || !searchResult.isTemporary) {
+        state.searchResults[key] = searchResult;
         temporaryFailures.delete(key);
         saveState(state);
       } else {
@@ -498,7 +498,7 @@ function lookUp(query) {
 
 /** Looks up anything still to look up whose last lookup failed for a reason that may pass. */
 function retryLookups() {
-  for (const query of searchesNeeded({ event: state.event, locations: state.locations, searchResults: state.searchResults })) {
+  for (const query of searchesNeeded({ event: state.event, setupLocations: state.setupLocations, searchResults: state.searchResults })) {
     if (temporaryFailures.has(searchKey(query))) {
       lookUp(query);
     }
@@ -510,14 +510,14 @@ function retryLookups() {
  * Looks up a row that's just been finished, if it needs it, and announces
  * the result to screen readers when it's in.
  *
- * @param {import('./locations.js').Resolved} resolved Where the row is, from the saved search results.
+ * @param {import('./locations.js').RouteLocationResult} routeLocationResult Where the row is, from the saved search results.
  * @param {object} [options] What can be done about it.
  * @param {boolean} [options.canPin=true] Whether it can be pinned on the map, which rows can but the Start and Finish fields can't.
  */
-function lookUpFinished(resolved, { canPin = true } = {}) {
-  if (resolved.status === 'unknown') {
-    announcedLookups.set(searchKey(resolved.query), { label: resolved.label, canPin });
-    lookUp(resolved.query);
+function lookUpFinished(routeLocationResult, { canPin = true } = {}) {
+  if (routeLocationResult.status === 'unknown') {
+    announcedLookups.set(searchKey(routeLocationResult.query), { label: routeLocationResult.label, canPin });
+    lookUp(routeLocationResult.query);
     showRows();
   }
 }
@@ -536,7 +536,7 @@ function announceLookup(key) {
   }
   announcedLookups.delete(key);
   const { label, canPin } = announced;
-  locationAnnouncement.textContent = `${label}: ${describeResolved(resolveText(label, '', state.searchResults), { canPin }).text}`;
+  locationAnnouncement.textContent = `${label}: ${describeRouteLocationResult(routeLocationOfText(label, '', state.searchResults), { canPin }).text}`;
 }
 
 /**
@@ -546,19 +546,19 @@ function announceLookup(key) {
  * @param {string | null} id The row's id, or `null` for a new row.
  * @param {string} text The text for a new row.
  * @param {import('./planner.js').LatLng} latLng Where to pin it.
- * @returns {import('./locations.js').Location} The pinned location.
+ * @returns {import('./locations.js').RouteLocation} The pinned location.
  */
 function pinRow(id, text, { lat, lng }) {
-  let record = state.locations.find((candidate) => candidate.id === id);
-  if (!record) {
-    record = { id: newLocationId(), text };
-    state.locations.push(record);
+  let setupLocation = state.setupLocations.find((candidate) => candidate.id === id);
+  if (!setupLocation) {
+    setupLocation = { id: newLocationId(), text };
+    state.setupLocations.push(setupLocation);
   }
-  record.pin = { lat, lng };
+  setupLocation.pin = { lat, lng };
   saveState(state);
   buildRows();
-  const number = state.locations.indexOf(record) + 1;
-  return /** @type {{ location: import('./locations.js').Location }} */ (resolveRecord(record, number, state.searchResults)).location;
+  const number = state.setupLocations.indexOf(setupLocation) + 1;
+  return /** @type {{ routeLocation: import('./locations.js').RouteLocation }} */ (routeLocationOf(setupLocation, number, state.searchResults)).routeLocation;
 }
 
 /**
@@ -566,11 +566,11 @@ function pinRow(id, text, { lat, lng }) {
  * the row that takes its place.
  *
  * @param {HTMLLIElement} item The row's list item.
- * @param {import('./locations.js').LocationRecord} record The row.
+ * @param {import('./locations.js').SetupLocation} setupLocation The row.
  */
-function removeRow(item, record) {
-  state.locations = state.locations.filter((candidate) => candidate !== record);
-  openRows.delete(record.id);
+function removeRow(item, setupLocation) {
+  state.setupLocations = state.setupLocations.filter((candidate) => candidate !== setupLocation);
+  openRows.delete(setupLocation.id);
   saveState(state);
   const next = /** @type {HTMLLIElement} */ (item.nextElementSibling);
   const hadFocus = item.contains(document.activeElement);
@@ -578,7 +578,7 @@ function removeRow(item, record) {
   if (hadFocus) {
     next.querySelector('input').focus();
   }
-  if (addedPinKey === record.id) {
+  if (addedPinKey === setupLocation.id) {
     showPinStatus(PIN_HINT);
   }
   showRows();
@@ -599,10 +599,10 @@ let isReplanForPointsNeeded = false;
  * Saves the points typed into a row's Points field, or says what's wrong
  * with them on the row, without saving.
  *
- * @param {{ item: HTMLLIElement, record: import('./locations.js').LocationRecord | null }} row The row.
+ * @param {{ item: HTMLLIElement, setupLocation: import('./locations.js').SetupLocation | null }} row The row.
  * @param {HTMLInputElement} field Its Points field.
  */
-function savePoints({ item, record }, field) {
+function savePoints({ item, setupLocation }, field) {
   const parsed = parsePoints(field.value);
   const error = /** @type {HTMLParagraphElement} */ (item.querySelector(`#${CSS.escape(field.getAttribute('aria-describedby'))}`));
   field.setAttribute('aria-invalid', String(!parsed.isValid));
@@ -610,17 +610,17 @@ function savePoints({ item, record }, field) {
   error.hidden = parsed.isValid;
   // Leaving a field with an invalid value puts back the saved points, which
   // doesn't change them, so there's nothing to re-plan for.
-  if (!parsed.isValid || !record || (parsed.points ?? undefined) === record.points) {
+  if (!parsed.isValid || !setupLocation || (parsed.points ?? undefined) === setupLocation.points) {
     return;
   }
-  const worth = locationPoints(record, state.event.pointsPerLocation);
+  const worth = pointsOf(setupLocation, state.event.pointsPerLocation);
   if (parsed.points === null) {
-    delete record.points;
+    delete setupLocation.points;
   } else {
-    record.points = parsed.points;
+    setupLocation.points = parsed.points;
   }
   saveState(state);
-  showRow(item, state.locations.indexOf(record) + 1);
+  showRow(item, state.setupLocations.indexOf(setupLocation) + 1);
   // Points are shown from the rows, so the route's list shows them once
   // typing pauses. They don't change the map, and the route only changes
   // when it's planned again, which only matters when a location still to
@@ -628,8 +628,8 @@ function savePoints({ item, record }, field) {
   // Points per location.
   clearTimeout(pointsTimer);
   if (state.plan) {
-    const isPlanned = !record.isVisited && state.plan.points.some(({ key }) => key === record.id);
-    if (isPlanned && locationPoints(record, state.event.pointsPerLocation) !== worth) {
+    const isPlanned = !setupLocation.isVisited && state.plan.routeLocations.some(({ key }) => key === setupLocation.id);
+    if (isPlanned && pointsOf(setupLocation, state.event.pointsPerLocation) !== worth) {
       isReplanForPointsNeeded = true;
     }
     pointsTimer = setTimeout(() => {
@@ -655,20 +655,20 @@ locationRows.addEventListener('input', (event) => {
   if (event.target.dataset.field !== 'text') {
     return;
   }
-  let { record } = row;
-  if (!record) {
+  let { setupLocation } = row;
+  if (!setupLocation) {
     // Typing in the empty row at the end makes it a row, with a new empty row below.
-    record = { id: newLocationId(), text: '' };
-    state.locations.push(record);
-    row.item.dataset.id = record.id;
+    setupLocation = { id: newLocationId(), text: '' };
+    state.setupLocations.push(setupLocation);
+    row.item.dataset.id = setupLocation.id;
     row.item.querySelector('[data-action="remove"]').classList.remove('invisible');
     /** @type {HTMLButtonElement} */ (row.item.querySelector('[data-action="more"]')).hidden = false;
     locationRows.append(rowItem(null));
-    showRow(/** @type {HTMLLIElement} */ (locationRows.lastElementChild), state.locations.length + 1);
+    showRow(/** @type {HTMLLIElement} */ (locationRows.lastElementChild), state.setupLocations.length + 1);
   }
-  record.text = event.target.value;
+  setupLocation.text = event.target.value;
   saveState(state);
-  showRow(row.item, state.locations.indexOf(record) + 1);
+  showRow(row.item, state.setupLocations.indexOf(setupLocation) + 1);
   // Wait for a pause in typing before checking the map, so long lists stay responsive.
   clearTimeout(mapTimer);
   mapTimer = setTimeout(updateMapIfChanged, 250);
@@ -678,17 +678,17 @@ locationRows.addEventListener('input', (event) => {
 // text. Never while typing, which Nominatim's usage policy forbids.
 locationRows.addEventListener('change', (event) => {
   const row = rowOf(event.target);
-  if (!row?.record) {
+  if (!row?.setupLocation) {
     return;
   }
   if (event.target instanceof HTMLInputElement && event.target.dataset.field === 'isMustVisit') {
     if (event.target.checked) {
-      row.record.isMustVisit = true;
+      row.setupLocation.isMustVisit = true;
     } else {
-      delete row.record.isMustVisit;
+      delete row.setupLocation.isMustVisit;
     }
     saveState(state);
-    showRow(row.item, state.locations.indexOf(row.record) + 1);
+    showRow(row.item, state.setupLocations.indexOf(row.setupLocation) + 1);
     updateMapIfChanged();
     // The route only changes when it's planned again.
     if (state.plan) {
@@ -699,12 +699,12 @@ locationRows.addEventListener('change', (event) => {
   // An invalid value isn't saved, so when the field is left with one, put
   // back the saved value rather than leave it there, hidden once More closes.
   if (event.target instanceof HTMLInputElement && event.target.dataset.field === 'points' && !parsePoints(event.target.value).isValid) {
-    event.target.value = row.record.points === undefined ? '' : String(row.record.points);
+    event.target.value = row.setupLocation.points === undefined ? '' : String(row.setupLocation.points);
     savePoints(row, event.target);
     return;
   }
   if (event.target instanceof HTMLInputElement && event.target.dataset.field === 'text') {
-    lookUpFinished(resolveRecord(row.record, state.locations.indexOf(row.record) + 1, state.searchResults));
+    lookUpFinished(routeLocationOf(row.setupLocation, state.setupLocations.indexOf(row.setupLocation) + 1, state.searchResults));
   }
 });
 
@@ -715,12 +715,12 @@ locationRows.addEventListener('change', (event) => {
 locationRows.addEventListener('focusout', (event) => {
   const row = rowOf(event.target);
   if (
-    row?.record &&
+    row?.setupLocation &&
     !row.item.contains(/** @type {Node | null} */ (event.relatedTarget)) &&
-    row.record.text.trim() === '' &&
-    !row.record.pin
+    row.setupLocation.text.trim() === '' &&
+    !row.setupLocation.pin
   ) {
-    removeRow(row.item, row.record);
+    removeRow(row.item, row.setupLocation);
   }
 });
 
@@ -743,23 +743,23 @@ locationRows.addEventListener('click', (event) => {
   if (!(button instanceof HTMLButtonElement) || !row) {
     return;
   }
-  const { item, record } = row;
+  const { item, setupLocation } = row;
   const number = [...locationRows.children].indexOf(item) + 1;
   if (button.dataset.action === 'pin') {
-    startPinning(record?.id ?? null, record?.text.trim() || `Location ${number}`);
-  } else if (button.dataset.action === 'remove' && record) {
-    removeRow(item, record);
-  } else if (button.dataset.action === 'more' && record) {
-    if (!openRows.delete(record.id)) {
-      openRows.add(record.id);
+    startPinning(setupLocation?.id ?? null, setupLocation?.text.trim() || `Location ${number}`);
+  } else if (button.dataset.action === 'remove' && setupLocation) {
+    removeRow(item, setupLocation);
+  } else if (button.dataset.action === 'more' && setupLocation) {
+    if (!openRows.delete(setupLocation.id)) {
+      openRows.add(setupLocation.id);
     }
     showRow(item, number);
-  } else if (button.dataset.action === 'clear-pin' && record) {
-    delete record.pin;
+  } else if (button.dataset.action === 'clear-pin' && setupLocation) {
+    delete setupLocation.pin;
     saveState(state);
     item.querySelector('input').focus();
     showRows();
-    lookUpFinished(resolveRecord(record, number, state.searchResults));
+    lookUpFinished(routeLocationOf(setupLocation, number, state.searchResults));
   }
 });
 
@@ -768,7 +768,7 @@ for (const [field, key] of /** @type {const} */ ([
   [startField, START_KEY],
   [finishField, FINISH_KEY],
 ])) {
-  field.addEventListener('change', () => lookUpFinished(resolveText(field.value, key, state.searchResults), { canPin: false }));
+  field.addEventListener('change', () => lookUpFinished(routeLocationOfText(field.value, key, state.searchResults), { canPin: false }));
 }
 
 /**
@@ -818,7 +818,7 @@ function externalLink(href, text, label = text) {
 /**
  * Creates the button that marks a location's selfie as done, or not done.
  *
- * @param {import('./locations.js').Location} location The location.
+ * @param {import('./locations.js').RouteLocation} location The location.
  * @param {boolean} isDone Whether the selfie is done.
  * @returns {HTMLButtonElement} The button.
  */
@@ -839,7 +839,7 @@ function doneToggle(location, isDone) {
  * Creates the link that opens the check-in form in a new tab. Following it
  * also marks the location's selfie as done.
  *
- * @param {import('./locations.js').Location} location The location.
+ * @param {import('./locations.js').RouteLocation} location The location.
  * @param {boolean} isDone Whether the selfie is done.
  * @returns {HTMLAnchorElement} The link.
  */
@@ -853,15 +853,16 @@ function checkInLink(location, isDone) {
 /**
  * Works out what each location is worth, from the rows now, so changing a
  * row's points shows straight away, without planning again. Points only show
- * once scores vary, so the route otherwise looks as it does without them.
+ * once any location has its own points, so the route otherwise looks as it
+ * does without them.
  *
- * @returns {Map<string, number> | null} Each row's points by its id, or `null` if scores don't vary. A location whose row has been removed since planning isn't in it, so it no longer counts.
+ * @returns {Map<string, number> | null} Each row's points by its id, or `null` if no location has its own points. A location whose row has been removed since planning isn't in it, so it no longer counts.
  */
 function currentPoints() {
-  if (!isScored(state.locations)) {
+  if (!hasOwnPoints(state.setupLocations)) {
     return null;
   }
-  return pointsById(state.locations, state.event.pointsPerLocation);
+  return pointsById(state.setupLocations, state.event.pointsPerLocation);
 }
 
 /**
@@ -885,8 +886,9 @@ function totalPoints(keys, points) {
  * @returns {HTMLLIElement} The list item.
  */
 function stopItem(stop, isFinish, points) {
-  const isDone = !isFinish && visitedKeys(state.locations).includes(stop.location.key);
-  // Points show once scores vary, and not for the finish or a removed row.
+  const isDone = !isFinish && visitedKeys(state.setupLocations).includes(stop.location.key);
+  // Points show once any location has its own points, and not for the
+  // finish or a removed row.
   const stopPoints = isFinish ? undefined : points?.get(stop.location.key);
   const item = element('li', `flex gap-3 rounded-md p-3 ring-1 ${isDone ? 'bg-accent-soft ring-accent-line' : 'ring-line'}`);
   const badgeColours = isFinish ? 'bg-ink text-surface' : isDone ? 'bg-accent-line text-accent-ink' : 'bg-accent text-white';
@@ -941,7 +943,7 @@ function showTime() {
  * its numbers, and cleared once read so it can't disagree with the banner.
  */
 function showTimeWarning() {
-  const warning = state.plan ? timeWarning(state.plan, visitedKeys(state.locations), Date.now()) : null;
+  const warning = state.plan ? timeWarning(state.plan, visitedKeys(state.setupLocations), Date.now()) : null;
   timeWarningText.textContent = warning?.message ?? '';
   timeWarningBanner.classList.toggle('hidden', warning === null);
   const wording = warning ? warning.message.replace(/\d+/g, '#') : null;
@@ -977,15 +979,15 @@ function showPlan({ isMapUnchanged = false } = {}) {
   }
   const route = describeRoute(plan);
   const ending = route.finish ? `arriving at the finish at ${timeFormat.format(route.endEta)}` : `with the last selfie at ${timeFormat.format(route.endEta)}`;
-  const visited = visitedKeys(state.locations);
+  const visited = visitedKeys(state.setupLocations);
   const { done, total } = progress(plan, visited);
   // Count only stops still to visit, since a stop on this route may have
   // been ticked off since it was planned.
   const toVisit = route.stops.filter(({ location }) => !visited.includes(location.key));
   const stopsToVisit = toVisit.length;
   const remaining = total - done;
-  const locations = (count) => (count === 1 ? 'location' : 'locations');
-  const visiting = done === 0 ? `${stopsToVisit} of ${total} ${locations(total)}` : `${stopsToVisit} of ${remaining} ${locations(remaining)} still to do`;
+  const locationsWord = (count) => (count === 1 ? 'location' : 'locations');
+  const visiting = done === 0 ? `${stopsToVisit} of ${total} ${locationsWord(total)}` : `${stopsToVisit} of ${remaining} ${locationsWord(remaining)} still to do`;
   const points = currentPoints();
   const pointsText = points ? ` (${plural(totalPoints(toVisit.map(({ location }) => location.key), points), 'point')})` : '';
   const summary = element('p', 'text-sm', remaining === 0 && total > 0 ? `All ${total} selfies done!` : `Visiting ${visiting}${pointsText}, ${ending}.`);
@@ -1023,7 +1025,7 @@ function showPlan({ isMapUnchanged = false } = {}) {
   // Done locations that aren't stops on this route (because it was planned
   // after their selfie) are listed so a mistaken tick can be undone.
   const routeKeys = new Set(route.stops.map(({ location }) => location.key));
-  const doneElsewhere = plan.points.filter(({ key }) => visited.includes(key) && !routeKeys.has(key));
+  const doneElsewhere = plan.routeLocations.filter(({ key }) => visited.includes(key) && !routeKeys.has(key));
   if (doneElsewhere.length > 0) {
     const heading = element('h3', 'mt-4 text-sm font-semibold', `Done (${doneElsewhere.length})`);
     const doneList = element('ul', 'mt-2 flex flex-col gap-2');
@@ -1048,14 +1050,14 @@ function showPlan({ isMapUnchanged = false } = {}) {
  * @param {boolean} isVisited Whether it's been visited.
  */
 function setVisited(key, isVisited) {
-  const record = state.locations.find(({ id }) => id === key);
-  if (!record) {
+  const setupLocation = state.setupLocations.find(({ id }) => id === key);
+  if (!setupLocation) {
     return;
   }
   if (isVisited) {
-    record.isVisited = true;
+    setupLocation.isVisited = true;
   } else {
-    delete record.isVisited;
+    delete setupLocation.isVisited;
   }
   saveState(state);
   // A visited row no longer shows Must visit.
@@ -1098,7 +1100,7 @@ stopList.addEventListener('click', (event) => {
   const toggle = event.target instanceof Element ? event.target.closest('[data-done-key]') : null;
   if (toggle instanceof HTMLButtonElement) {
     const key = toggle.dataset.doneKey;
-    setVisited(key, !visitedKeys(state.locations).includes(key));
+    setVisited(key, !visitedKeys(state.setupLocations).includes(key));
     showPlan();
     // Re-rendering replaces the button, so move focus to its replacement.
     stopList.querySelector(`[data-done-key="${CSS.escape(toggle.dataset.doneKey)}"]`)?.focus();
@@ -1145,20 +1147,20 @@ function mustVisitLateText(plan) {
  * Describes how planning went, including any rows that were left out
  * because they couldn't be found, and whether the must-visit rows fit.
  *
- * @param {import('./setup.js').SetupResult} result The result of planning.
+ * @param {import('./setup.js').SetupResult} setupResult The result of planning.
  * @returns {string} The message, like "Planned 22 stops."
  */
-function planResultText(result) {
-  const { order, points: locations } = result.plan;
+function planResultText(setupResult) {
+  const { order } = setupResult.plan;
   const points = currentPoints();
-  const scored = points ? ` · ${plural(totalPoints(order.map((index) => locations[index].key), points), 'point')}` : '';
+  const scored = points ? ` · ${plural(totalPoints(order.map((index) => setupResult.plan.routeLocations[index].key), points), 'point')}` : '';
   const parts = [`Planned ${plural(order.length, 'stop')}${scored}.`];
-  if (result.leftOut.length > 0) {
-    const labels = result.leftOut.map(({ number, resolved }) => ('label' in resolved ? resolved.label : `Location ${number}`));
-    parts.push(`Left out because ${result.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`);
+  if (setupResult.leftOut.length > 0) {
+    const labels = setupResult.leftOut.map((routeLocationResult) => routeLocationResult.label);
+    parts.push(`Left out because ${setupResult.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`);
   }
-  if (result.plan.isMustVisitLate) {
-    parts.push(mustVisitLateText(result.plan));
+  if (setupResult.plan.isMustVisitLate) {
+    parts.push(mustVisitLateText(setupResult.plan));
   }
   return parts.join(' ');
 }
@@ -1183,7 +1185,7 @@ async function planRoute(from) {
   planButton.disabled = true;
   replanButton.disabled = true;
   try {
-    for (const query of searchesNeeded({ event: state.event, locations: state.locations, searchResults: state.searchResults, isFromPosition: from !== null })) {
+    for (const query of searchesNeeded({ event: state.event, setupLocations: state.setupLocations, searchResults: state.searchResults, isFromPosition: from !== null })) {
       lookUp(query);
     }
     showRows();
@@ -1193,22 +1195,22 @@ async function planRoute(from) {
     }
     planButton.textContent = 'Planning…';
     await nextFrame();
-    const result = planFromSetup({
+    const setupResult = planFromSetup({
       event: state.event,
-      locations: state.locations,
+      setupLocations: state.setupLocations,
       settings: state.settings,
       now: Date.now(),
       from,
       searchResults: state.searchResults,
     });
-    showSetupError(result.error);
-    showPlanStatus(result.plan ? planResultText(result) : null, Boolean(result.plan?.isMustVisitLate));
-    if (result.plan) {
+    showSetupError(setupResult.error);
+    showPlanStatus(setupResult.plan ? planResultText(setupResult) : null, Boolean(setupResult.plan?.isMustVisitLate));
+    if (setupResult.plan) {
       // The route now uses the rows' points, so it no longer needs the
       // pending message to re-plan for them.
       clearTimeout(pointsTimer);
       isReplanForPointsNeeded = false;
-      state.plan = result.plan;
+      state.plan = setupResult.plan;
       saveState(state);
       shouldFitMap = true;
       showPlan();
@@ -1216,12 +1218,12 @@ async function planRoute(from) {
       showPinStatus(PIN_HINT);
     }
     showRows();
-    if (result.plan && from === null) {
+    if (setupResult.plan && from === null) {
       // Move to the route, now it's ready.
       stopsHeading.focus({ preventScroll: true });
       stopsHeading.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    return result;
+    return setupResult;
   } finally {
     // Not the text from when this plan started, which can be another
     // plan's "Waiting for…" when two overlap, such as after saving settings.
@@ -1406,8 +1408,8 @@ function updateMap() {
     return;
   }
   const { plan } = state;
-  const route = plan ? mapRoute(plan, visitedKeys(state.locations), (time) => timeFormat.format(time)) : { path: [], markers: [] };
-  const newMarkers = newLocationMarkers(usableLocations(resolveRecords(state.locations, state.searchResults)), plan, mustVisitKeys());
+  const route = plan ? mapRoute(plan, visitedKeys(state.setupLocations), (time) => timeFormat.format(time)) : { path: [], markers: [] };
+  const newMarkers = newLocationMarkers(usableRouteLocations(state.setupLocations, state.searchResults), plan, mustVisitKeys());
   route.markers.push(...newMarkers);
   drawnNewLocations = newLocationsText(newMarkers);
   showRoute(routeMap, route, shouldFitMap);
@@ -1661,7 +1663,7 @@ settingsDialog.addEventListener('close', () => {
   showCountdown();
   // Show or hide the Check in buttons, and show new points if points are
   // shown, now, even if re-planning fails.
-  const isPointsChanged = state.event.pointsPerLocation !== savedPointsPerLocation && isScored(state.locations);
+  const isPointsChanged = state.event.pointsPerLocation !== savedPointsPerLocation && hasOwnPoints(state.setupLocations);
   if (state.event.checkInFormUrl !== savedCheckInFormUrl || isPointsChanged) {
     showPlan();
   }
@@ -1674,7 +1676,7 @@ settingsDialog.addEventListener('close', () => {
     const startingPoint = replanStartingPoint({
       startTime: state.event.startTime,
       deadline: state.event.deadline,
-      hasVisited: state.locations.some(({ isVisited }) => isVisited),
+      hasVisited: state.setupLocations.some(({ isVisited }) => isVisited),
       isReplannedFromPositionToday: state.plan.isFromPosition && isPlanForToday,
       now,
     });
