@@ -94,6 +94,12 @@ let isSpeedChanged = false;
  */
 let hadCheckInForm = false;
 
+/**
+ * Whether the selfie time has been changed in the settings panel since it
+ * opened, in which case setting the check-in form URL leaves it alone.
+ */
+let isSelfieTimeEdited = false;
+
 /** The team's latest position from watching the location, or `null` if there isn't one yet. */
 let latestPosition = null;
 
@@ -307,16 +313,9 @@ function doneToggle(location, isDone) {
  * @returns {HTMLAnchorElement} The link.
  */
 function checkInLink(location, isDone) {
-  const link = element(
-    'a',
-    `inline-flex min-h-11 items-center rounded-md px-3 text-sm font-semibold ${isDone ? 'text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft' : 'bg-accent text-white hover:bg-accent-strong'}`,
-    'Check in',
-  );
-  link.href = state.settings.checkInFormUrl;
-  link.target = '_blank';
-  link.rel = 'noopener';
+  const link = externalLink(state.settings.checkInFormUrl, 'Check in', `Check in at ${location.label}, opens the check-in form and marks the selfie done`);
+  link.className = `inline-flex min-h-11 items-center rounded-md px-3 text-sm font-semibold ${isDone ? 'text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft' : 'bg-accent text-white hover:bg-accent-strong'}`;
   link.dataset.checkInKey = location.key;
-  link.setAttribute('aria-label', `Check in at ${location.label}, opens the check-in form and marks the selfie done`);
   return link;
 }
 
@@ -469,17 +468,38 @@ function showPlan() {
   stopList.replaceChildren(...sections);
 }
 
-stopList.addEventListener('click', (event) => {
+/**
+ * Marks a stop's selfie as done when its Check in link is followed.
+ *
+ * @param {MouseEvent} event The click.
+ * @returns {boolean} Whether the click was on a Check in link.
+ */
+function checkInClicked(event) {
   const checkIn = event.target instanceof Element ? event.target.closest('[data-check-in-key]') : null;
-  if (checkIn instanceof HTMLAnchorElement) {
-    const key = checkIn.dataset.checkInKey;
-    state.doneKeys = markDone(state.doneKeys, key);
-    saveState(state);
-    // A link removed from the page can't open, so only re-render once it has.
-    setTimeout(() => {
-      showPlan();
-      stopList.querySelector(`[data-check-in-key="${CSS.escape(key)}"]`)?.focus();
-    });
+  if (!(checkIn instanceof HTMLAnchorElement)) {
+    return false;
+  }
+  const key = checkIn.dataset.checkInKey;
+  state.doneKeys = markDone(state.doneKeys, key);
+  saveState(state);
+  // A link removed from the page can't open, so only re-render once it has.
+  setTimeout(() => {
+    showPlan();
+    stopList.querySelector(`[data-check-in-key="${CSS.escape(key)}"]`)?.focus();
+  });
+  return true;
+}
+
+// A middle-click also opens the form, in a new tab. Opening it from a
+// long-press menu can't be detected, so the selfie needs ticking by hand.
+stopList.addEventListener('auxclick', (event) => {
+  if (event.button === 1) {
+    checkInClicked(event);
+  }
+});
+
+stopList.addEventListener('click', (event) => {
+  if (checkInClicked(event)) {
     return;
   }
   const toggle = event.target instanceof Element ? event.target.closest('[data-done-key]') : null;
@@ -958,6 +978,7 @@ settingsButton.addEventListener('click', () => {
     }
   }
   hadCheckInForm = state.settings.checkInFormUrl !== '';
+  isSelfieTimeEdited = false;
   // Check the link as filled in, since setting a value doesn't fire input.
   checkInFormField.dispatchEvent(new Event('input'));
   settingsSave.textContent = state.plan?.settings ? 'Save and re-plan' : 'Save';
@@ -967,7 +988,7 @@ settingsButton.addEventListener('click', () => {
 // A url field accepts any scheme, such as javascript:, so also check that
 // the check-in form is an http or https link.
 // Setting or clearing it also changes the selfie time to suit, unless it's
-// been changed from the default.
+// been changed from the default or edited since the panel opened.
 checkInFormField.addEventListener('input', () => {
   const url = checkInFormUrl(checkInFormField.value);
   checkInFormField.setCustomValidity(url === null ? 'Enter a link starting with http:// or https://.' : '');
@@ -975,11 +996,15 @@ checkInFormField.addEventListener('input', () => {
     return;
   }
   const hasCheckInForm = url !== '';
-  if (selfieTimeField.value.trim() !== '') {
+  if (!isSelfieTimeEdited && selfieTimeField.value.trim() !== '') {
     const dwellSeconds = Number(selfieTimeField.value) * Number(selfieTimeField.dataset.scale);
     selfieTimeField.value = String(dwellSecondsForCheckInForm(dwellSeconds, hadCheckInForm, hasCheckInForm) / Number(selfieTimeField.dataset.scale));
   }
   hadCheckInForm = hasCheckInForm;
+});
+
+selfieTimeField.addEventListener('input', () => {
+  isSelfieTimeEdited = true;
 });
 
 // Cancel is a plain button, so pressing Enter in a field submits with Save
@@ -993,6 +1018,7 @@ settingsDialog.addEventListener('close', () => {
   if (isSpeedChanged) {
     state.settings.speedKmh = Number(speedSlider.value);
   }
+  const savedCheckInFormUrl = state.settings.checkInFormUrl;
   // The fields are range-checked, and the check-in form URL checked by its
   // input listener, so the dialog only closes with "save" when they're valid.
   for (const field of panelFields) {
@@ -1012,7 +1038,9 @@ settingsDialog.addEventListener('close', () => {
   showSettingsSummary();
   showCountdown();
   // Show or hide the Check in buttons now, even if re-planning fails.
-  showPlan();
+  if (state.settings.checkInFormUrl !== savedCheckInFormUrl) {
+    showPlan();
+  }
   // Re-plan with the new settings, keeping ticks: from the Start field if
   // the team hasn't set off yet, otherwise from their position and now.
   if (state.plan?.settings) {
