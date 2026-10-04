@@ -35,6 +35,8 @@ Each row is looked up with OpenStreetMap when you've finished it: when you press
 
 Rows you add after planning show on the map as a dashed **+** until you press **Plan route** or **Re-plan from here**. To remove a location, tap the row's ✕, and plan again if it's already in the route.
 
+**Must visit.** For a location the route has to include, tap the row's **More** and tick **Must visit**. The route then always includes it, even if leaving it out would fit in more selfies, and other stops are planned around it. If the must-visit locations alone can't be visited before the deadline (less the safety margin), the route is just them, in the shortest order, and a warning says when they'd finish. Untick some to fit others in. A location that's already ticked off doesn't need visiting again, so Must visit no longer applies to it.
+
 **Coordinates** on their own (like `51.4545,-2.5879`, from long-pressing a spot in Google Maps) are used directly, without a lookup. Anything else on the row is looked up, so to give a location a name and an exact spot, type its name and pin it with 📍. In **Start** and **Finish**, coordinates on their own are called "Start" and "Finish". Google Maps links and what3words addresses can't be used: pin those locations on the map instead.
 
 **Only one phone should look up a fresh list of addresses.** OpenStreetMap's free address search allows 1 request per second for everyone using the planner together, and the planner waits 1.5 seconds between lookups. If several phones enter the same new list at once, they can go over that limit. Each phone saves its results, so each location is only looked up once and re-planning works without signal. See the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/).
