@@ -73,28 +73,28 @@ describe('storage', () => {
     const state = loadState(storage);
     const defaults = defaultState();
     assert.deepEqual(state.settings, { ...defaults.settings, speedKmh: 5.5 });
-    assert.deepEqual(state.setup, defaults.setup);
+    assert.deepEqual(state.event, defaults.event);
     assert.deepEqual(state.locations, []);
     assert.deepEqual(state.searchResults, {});
     assert.equal(state.plan, null);
   });
 
   test('has no check-in form by default', () => {
-    assert.equal(defaultState().settings.checkInFormUrl, '');
+    assert.equal(defaultState().event.checkInFormUrl, '');
   });
 
   test('saves and loads the check-in form URL', () => {
     const storage = memoryStorage();
     const state = defaultState();
-    state.settings.checkInFormUrl = 'https://forms.example.com/check-in';
+    state.event.checkInFormUrl = 'https://forms.example.com/check-in';
     saveState(state, storage);
-    assert.equal(loadState(storage).settings.checkInFormUrl, 'https://forms.example.com/check-in');
+    assert.equal(loadState(storage).event.checkInFormUrl, 'https://forms.example.com/check-in');
   });
 
   test('only loads an http or https check-in form URL', () => {
     for (const checkInFormUrl of ['javascript:alert(1)', 'ftp://example.com', 42, null]) {
-      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, settings: { checkInFormUrl } }) });
-      assert.equal(loadState(storage).settings.checkInFormUrl, '', String(checkInFormUrl));
+      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, event: { checkInFormUrl } }) });
+      assert.equal(loadState(storage).event.checkInFormUrl, '', String(checkInFormUrl));
     }
   });
 
@@ -135,7 +135,7 @@ describe('resetChallenge', () => {
   test('clears the locations, ticks and plan, keeping everything else', () => {
     const state = defaultState();
     state.settings.speedKmh = 3.5;
-    state.setup = { startText: '51.4556,-2.5894', finishText: '51.4492,-2.5813', startTimeText: '11:00' };
+    state.event = { ...state.event, startText: '51.4556,-2.5894', finishText: '51.4492,-2.5813', startTime: '11:00' };
     state.locations = [{ id: 'a', text: '51.4545,-2.5879', isVisited: true }];
     state.view = 'map';
     state.searchResults = { 'queen square': { isFound: false, error: 'No match', isTemporary: false } };
@@ -144,7 +144,7 @@ describe('resetChallenge', () => {
     assert.deepEqual(reset.locations, []);
     assert.equal(reset.plan, null);
     assert.deepEqual(reset.settings, state.settings);
-    assert.deepEqual(reset.setup, state.setup);
+    assert.deepEqual(reset.event, state.event);
     assert.equal(reset.view, 'map');
     assert.deepEqual(reset.searchResults, state.searchResults);
   });
@@ -200,7 +200,7 @@ describe('legacy storage keys', () => {
 describe('loading state saved with schema version 1', () => {
   const version1 = {
     version: 1,
-    settings: { ...defaultState().settings, speedKmh: 3.5, checkInFormUrl: 'https://forms.example.com/check-in' },
+    settings: { speedKmh: 3.5, detourFactor: 1.3, dwellSeconds: 300, safetyMarginSeconds: 900, deadline: '15:30', checkInFormUrl: 'https://forms.example.com/check-in' },
     setup: { locationsText: 'Old Kent Road 51.4545,-2.5879', startText: 'Temple Meads', finishText: 'Cabot Tower', startTimeText: '11:00' },
     doneKeys: ['51.454500,-2.587900'],
     view: 'map',
@@ -211,25 +211,38 @@ describe('loading state saved with schema version 1', () => {
     plan: { order: [0], arrivalTimes: [1], endEta: 2, spareSeconds: 3, skipped: [] },
   };
 
-  test("keeps the settings, the rest of the setup form, the tab, and the start's and finish's search results", () => {
+  test("keeps the settings and setup form as the event and settings, the tab, and the start's and finish's search results", () => {
     const state = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(version1) }));
     assert.equal(state.version, SCHEMA_VERSION);
-    assert.deepEqual(state.settings, version1.settings);
-    assert.deepEqual(state.setup, { startText: 'Temple Meads', finishText: 'Cabot Tower', startTimeText: '11:00' });
+    assert.deepEqual(state.event, {
+      startText: 'Temple Meads',
+      finishText: 'Cabot Tower',
+      startTime: '11:00',
+      deadline: '15:30',
+      checkInFormUrl: 'https://forms.example.com/check-in',
+    });
+    assert.deepEqual(state.settings, { speedKmh: 3.5, detourFactor: 1.3, dwellSeconds: 300, safetyMarginSeconds: 900 });
     assert.equal(state.view, 'map');
     assert.deepEqual(state.searchResults, { [searchKey('Temple Meads')]: version1.searchResults['temple meads'] });
   });
 
   test("changes the old default start to Castle Park's coordinates", () => {
     const saved = { ...version1, setup: { ...version1.setup, startText: 'Castle Park 51.4556,-2.5894' } };
-    assert.equal(loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) })).setup.startText, defaultState().setup.startText);
+    assert.equal(loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) })).event.startText, defaultState().event.startText);
   });
 
   test('keeps only the coordinates from a start or finish with a name or Google Maps link', () => {
     const saved = { ...version1, setup: { ...version1.setup, startText: 'Queen Square 51.4512, -2.5973', finishText: 'https://www.google.com/maps?q=51.4517,-2.6034' } };
-    const { setup } = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) }));
-    assert.equal(setup.startText, '51.4512,-2.5973');
-    assert.equal(setup.finishText, '51.4517,-2.6034');
+    const { event } = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) }));
+    assert.equal(event.startText, '51.4512,-2.5973');
+    assert.equal(event.finishText, '51.4517,-2.6034');
+  });
+
+  test("gives what version 1 didn't save its default", () => {
+    const saved = { ...version1, settings: { speedKmh: 3.5 }, setup: { startText: 'Temple Meads' } };
+    const state = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) }));
+    assert.deepEqual(state.event, { ...defaultState().event, startText: 'Temple Meads' });
+    assert.deepEqual(state.settings, { ...defaultState().settings, speedKmh: 3.5 });
   });
 
   test('drops the location list, the ticks and the plan', () => {

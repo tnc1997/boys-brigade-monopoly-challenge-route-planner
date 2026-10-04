@@ -3,24 +3,27 @@ import { searchKey } from './search.js';
 import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
 
 /**
- * Settings, which can be changed during the challenge. All but the check-in form URL affect planning.
+ * The team's own settings for planning, which can be changed during the
+ * challenge. Unlike the event's details, they aren't the same for every
+ * team, so they aren't shared.
  *
  * @typedef {object} Settings
  * @property {number} speedKmh Walking speed of the whole group in km/h.
  * @property {number} detourFactor How much longer the walk along streets is than the straight line.
  * @property {number} dwellSeconds Time spent at each stop taking the selfie, in seconds.
  * @property {number} safetyMarginSeconds Spare time to keep before the deadline, in seconds.
- * @property {string} deadline The time the team must have finished by, as `HH:MM` local time.
- * @property {string} checkInFormUrl The organisers' online check-in form, as an http or https URL, or an empty string if there isn't one.
  */
 
 /**
- * What was entered in the setup form, kept as typed so it can be shown again.
+ * The event's details, which are the same for every team, kept as typed so
+ * they can be shown again. Event-wide rules, such as points, go here too.
  *
- * @typedef {object} Setup
+ * @typedef {object} EventDetails
  * @property {string} startText Where the route starts.
  * @property {string} finishText Where the route finishes, or an empty string if there's no physical finish.
- * @property {string} startTimeText When the route starts, as `HH:MM` local time, or an empty string to start when Plan route is pressed.
+ * @property {string} startTime When the route starts, as `HH:MM` local time, or an empty string to start when Plan route is pressed.
+ * @property {string} deadline The time the team must have finished by, at the finish if there is one, as `HH:MM` local time.
+ * @property {string} checkInFormUrl The organisers' online check-in form, as an http or https URL, or an empty string if there isn't one.
  */
 
 /**
@@ -28,8 +31,8 @@ import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
  *
  * @typedef {object} AppState
  * @property {number} version The schema version the state was saved with.
- * @property {Settings} settings Settings for planning.
- * @property {Setup} setup What was entered in the setup form, apart from the location list.
+ * @property {EventDetails} event The event's details.
+ * @property {Settings} settings The team's own settings for planning.
  * @property {import('./locations.js').LocationRecord[]} locations The location list, one row per location.
  * @property {'list' | 'map'} view Which tab of the Route section is showing.
  * @property {import('./search.js').SearchResults} searchResults Saved results of looking up addresses and place names, so each is only looked up once and re-planning works offline. Temporary failures aren't saved.
@@ -63,19 +66,19 @@ export const SCHEMA_VERSION = 2;
 export function defaultState() {
   return {
     version: SCHEMA_VERSION,
+    event: {
+      // Castle Park, where the challenge started in 2026.
+      startText: '51.4556,-2.5894',
+      finishText: '',
+      startTime: '',
+      deadline: '16:00',
+      checkInFormUrl: '',
+    },
     settings: {
       speedKmh: 4.5,
       detourFactor: 1.3,
       dwellSeconds: defaultDwellSeconds(false),
       safetyMarginSeconds: 900,
-      deadline: '16:00',
-      checkInFormUrl: '',
-    },
-    setup: {
-      // Castle Park, where the challenge started in 2026.
-      startText: '51.4556,-2.5894',
-      finishText: '',
-      startTimeText: '',
     },
     locations: [],
     view: 'list',
@@ -129,13 +132,13 @@ export function loadState(storage = browserStorage()) {
   if (saved.version === 1) {
     saved = fromVersion1(saved);
   }
-  const settings = { ...defaults.settings, ...(isObject(saved.settings) ? saved.settings : {}) };
+  const event = { ...defaults.event, ...(isObject(saved.event) ? saved.event : {}) };
   // The form is opened in a new tab, so only ever load an http or https URL.
-  settings.checkInFormUrl = (typeof settings.checkInFormUrl === 'string' && checkInFormUrl(settings.checkInFormUrl)) || '';
+  event.checkInFormUrl = (typeof event.checkInFormUrl === 'string' && checkInFormUrl(event.checkInFormUrl)) || '';
   return {
     version: SCHEMA_VERSION,
-    settings,
-    setup: { ...defaults.setup, ...(isObject(saved.setup) ? saved.setup : {}) },
+    event,
+    settings: { ...defaults.settings, ...(isObject(saved.settings) ? saved.settings : {}) },
     locations: cleanRecords(saved.locations),
     view: saved.view === 'map' ? 'map' : 'list',
     searchResults: isObject(saved.searchResults) ? saved.searchResults : {},
@@ -147,8 +150,9 @@ export function loadState(storage = browserStorage()) {
  * Moves state saved with schema version 1, which kept the location list as
  * text, to the current version. The list was from the 2026 challenge, so it
  * isn't moved to rows, and nor are the ticks and the plan, which refer to
- * it. The settings and the rest of the setup form are kept, with only the
- * coordinates from a Start or Finish that had them. Of the search results,
+ * it. The settings and the rest of the setup form are kept, as the event's
+ * details and the team's settings, with only the coordinates from a Start
+ * or Finish that had them. Of the search results,
  * only the Start's and Finish's are kept, under their current key, since
  * the rest were for the list.
  *
@@ -156,26 +160,29 @@ export function loadState(storage = browserStorage()) {
  * @returns {Record<string, any>} The state without the location list, still to be checked like any other saved state.
  */
 function fromVersion1(saved) {
-  const { locationsText, ...setup } = isObject(saved.setup) ? saved.setup : {};
+  const { locationsText, startTimeText, ...setup } = isObject(saved.setup) ? saved.setup : {};
+  const { deadline, checkInFormUrl: formUrl, ...settings } = isObject(saved.settings) ? saved.settings : {};
+  // Leave out what version 1 didn't save, so it gets its default.
+  const event = Object.fromEntries(Object.entries({ ...setup, startTime: startTimeText, deadline, checkInFormUrl: formUrl }).filter(([, value]) => value !== undefined));
   // Version 1 allowed a name or a Google Maps link around coordinates,
   // which would now be looked up as text, so keep only the coordinates.
   for (const field of ['startText', 'finishText']) {
-    const coordinates = typeof setup[field] === 'string' ? setup[field].match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/) : null;
+    const coordinates = typeof event[field] === 'string' ? event[field].match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/) : null;
     if (coordinates) {
-      setup[field] = `${coordinates[1]},${coordinates[2]}`;
+      event[field] = `${coordinates[1]},${coordinates[2]}`;
     }
   }
   // Version 1 saved results by the query in lower case with single spaces,
   // so they're found under the Start's and Finish's text that way.
   const oldSearchResults = isObject(saved.searchResults) ? saved.searchResults : {};
   const searchResults = {};
-  for (const text of [setup.startText, setup.finishText]) {
+  for (const text of [event.startText, event.finishText]) {
     const oldKey = typeof text === 'string' ? text.trim().replace(/\s+/g, ' ').toLowerCase() : '';
     if (oldKey && Object.hasOwn(oldSearchResults, oldKey)) {
       searchResults[searchKey(text)] = oldSearchResults[oldKey];
     }
   }
-  return { ...saved, setup, locations: [], searchResults, plan: null };
+  return { ...saved, event, settings, locations: [], searchResults, plan: null };
 }
 
 /**

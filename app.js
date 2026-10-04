@@ -57,8 +57,8 @@ const countdown = /** @type {HTMLSpanElement} */ (document.getElementById('count
 const offlineBadge = /** @type {HTMLSpanElement} */ (document.getElementById('offline-badge'));
 const countdownDeadline = /** @type {HTMLSpanElement} */ (document.getElementById('countdown-deadline'));
 
-/** The settings panel's other fields, bound to `state.settings` or `state.setup` by their data attributes. */
-const panelFields = /** @type {NodeListOf<HTMLInputElement>} */ (settingsDialog.querySelectorAll('[data-panel-setting], [data-panel-setup]'));
+/** The settings panel's other fields, bound to `state.event` or `state.settings` by their data attributes. */
+const panelFields = /** @type {NodeListOf<HTMLInputElement>} */ (settingsDialog.querySelectorAll('[data-panel-event], [data-panel-setting]'));
 const mapStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('map-status'));
 const mapTilesStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('map-tiles-status'));
 const pinStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('pin-status'));
@@ -141,8 +141,8 @@ let isWatchingPosition = false;
 /** How old a watched position can be and still be used to re-plan, in milliseconds. */
 const POSITION_MAX_AGE_MS = 60000;
 
-/** The setup form's fields, which are bound to `state.setup` or `state.settings` by their data attributes. */
-const fields = /** @type {NodeListOf<HTMLInputElement>} */ (form.querySelectorAll('[data-setup], [data-setting]'));
+/** The setup form's fields, which are bound to `state.event` or `state.settings` by their data attributes. */
+const fields = /** @type {NodeListOf<HTMLInputElement>} */ (form.querySelectorAll('[data-event], [data-setting]'));
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' });
 
@@ -162,16 +162,33 @@ function element(tag, className = '', text = '') {
   return created;
 }
 
+/**
+ * Finds the value a field is bound to by its data attributes: `data-event`
+ * or `data-setting` in the setup form, and `data-panel-event` or
+ * `data-panel-setting` in the settings panel.
+ *
+ * @param {HTMLInputElement} field The field.
+ * @returns {{ group: Record<string, any>, key: string }} The part of the state it's in, and its key there.
+ */
+function boundTo(field) {
+  const { event, panelEvent, setting, panelSetting } = field.dataset;
+  return event || panelEvent ? { group: state.event, key: event || panelEvent } : { group: state.settings, key: setting || panelSetting };
+}
+
+/**
+ * Shows the value a field is bound to in it, scaled by its `data-scale`.
+ *
+ * @param {HTMLInputElement} field The field.
+ */
+function fillField(field) {
+  const { group, key } = boundTo(field);
+  const value = group[key];
+  field.value = field.dataset.scale ? String(value / Number(field.dataset.scale)) : String(value);
+}
+
 /** Fills the setup form from the state. */
 function fillForm() {
-  for (const field of fields) {
-    if (field.dataset.setup) {
-      field.value = state.setup[field.dataset.setup];
-    } else {
-      const value = state.settings[field.dataset.setting];
-      field.value = field.dataset.scale ? String(value / Number(field.dataset.scale)) : String(value);
-    }
-  }
+  fields.forEach(fillField);
 }
 
 /**
@@ -180,20 +197,19 @@ function fillForm() {
  * @param {HTMLInputElement} field The field that changed.
  */
 function saveField(field) {
-  if (field.dataset.setup) {
-    state.setup[field.dataset.setup] = field.value;
-  } else if (field.dataset.number !== undefined) {
+  const { group, key } = boundTo(field);
+  if (field.dataset.number !== undefined) {
     const value = field.value.trim() === '' ? NaN : Number(field.value);
-    state.settings[field.dataset.setting] = field.dataset.scale ? value * Number(field.dataset.scale) : value;
+    group[key] = field.dataset.scale ? value * Number(field.dataset.scale) : value;
   } else {
-    state.settings[field.dataset.setting] = field.value;
+    group[key] = field.value;
   }
   saveState(state);
   // Only settings affect the summary, and only the deadline the countdown.
-  if (field.dataset.setting) {
+  if (group === state.settings) {
     showSettingsSummary();
   }
-  if (field.dataset.setting === 'deadline') {
+  if (key === 'deadline') {
     showCountdown();
   }
 }
@@ -345,8 +361,8 @@ function showRow(item, number) {
 
 /** Shows the Start and Finish fields' statuses. */
 function showFieldStatuses() {
-  showDescription(startStatus, describeResolved(resolveText(state.setup.startText, START_KEY, state.searchResults), { canPin: false }));
-  showDescription(finishStatus, describeResolved(resolveText(state.setup.finishText, FINISH_KEY, state.searchResults), { canPin: false }));
+  showDescription(startStatus, describeResolved(resolveText(state.event.startText, START_KEY, state.searchResults), { canPin: false }));
+  showDescription(finishStatus, describeResolved(resolveText(state.event.finishText, FINISH_KEY, state.searchResults), { canPin: false }));
 }
 
 /** Shows every row's labels and status, and the Start and Finish fields' statuses, and redraws the map if they've changed it. */
@@ -409,7 +425,7 @@ function lookUp(query) {
 
 /** Looks up anything still to look up whose last lookup failed for a reason that may pass. */
 function retryLookups() {
-  for (const query of searchesNeeded({ setup: state.setup, locations: state.locations, searchResults: state.searchResults })) {
+  for (const query of searchesNeeded({ event: state.event, locations: state.locations, searchResults: state.searchResults })) {
     if (temporaryFailures.has(searchKey(query))) {
       lookUp(query);
     }
@@ -664,7 +680,7 @@ function doneToggle(location, isDone) {
  * @returns {HTMLAnchorElement} The link.
  */
 function checkInLink(location, isDone) {
-  const link = externalLink(state.settings.checkInFormUrl, 'Check in', `Check in at ${location.label}, opens the check-in form and marks the selfie done`);
+  const link = externalLink(state.event.checkInFormUrl, 'Check in', `Check in at ${location.label}, opens the check-in form and marks the selfie done`);
   link.className = `inline-flex min-h-11 items-center rounded-md px-3 text-sm font-semibold ${isDone ? 'text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft' : 'bg-accent text-white hover:bg-accent-strong'}`;
   link.dataset.checkInKey = location.key;
   return link;
@@ -697,7 +713,7 @@ function stopItem(stop, isFinish) {
   );
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
-    links.append(...(state.settings.checkInFormUrl ? [checkInLink(stop.location, isDone)] : []), doneToggle(stop.location, isDone));
+    links.append(...(state.event.checkInFormUrl ? [checkInLink(stop.location, isDone)] : []), doneToggle(stop.location, isDone));
   }
   // Apple Maps on the web may not work on other devices, such as Android.
   const directions = [['Google Maps', stop.googleMapsDirectionsUrl], ...(isAppleDevice(navigator.userAgent) ? [['Apple Maps', stop.appleMapsDirectionsUrl]] : [])];
@@ -710,7 +726,7 @@ function stopItem(stop, isFinish) {
 /** Shows the time left until today's deadline in the header. */
 function showCountdown() {
   const now = Date.now();
-  const deadline = timeToday(state.settings.deadline ?? '', now);
+  const deadline = timeToday(state.event.deadline ?? '', now);
   countdown.textContent = countdownText(deadline, now);
   countdownDeadline.textContent = deadline === null ? '' : `Deadline ${timeFormat.format(deadline)}`;
 }
@@ -787,7 +803,7 @@ function showPlan() {
     stops.append(stopItem(route.finish, true));
   }
   const sections = [summary, counter];
-  if (state.settings.checkInFormUrl && remaining > 0) {
+  if (state.event.checkInFormUrl && remaining > 0) {
     sections.push(
       element('p', 'mt-2 rounded-md bg-accent-soft px-3 py-2 text-sm text-accent-ink ring-1 ring-accent-line', 'Tip: check in straight after each selfie. The first team to upload at a location gets a bonus.'),
     );
@@ -889,7 +905,7 @@ let mapTimer;
 
 form.addEventListener('input', (event) => {
   // The location list's rows aren't bound to a setting, and save themselves.
-  if (event.target instanceof HTMLInputElement && (event.target.dataset.setup || event.target.dataset.setting)) {
+  if (event.target instanceof HTMLInputElement && (event.target.dataset.event || event.target.dataset.setting)) {
     saveField(event.target);
   }
   if (event.target === startField || event.target === finishField) {
@@ -943,7 +959,7 @@ async function planRoute(from) {
   planButton.disabled = true;
   replanButton.disabled = true;
   try {
-    for (const query of searchesNeeded({ setup: state.setup, locations: state.locations, searchResults: state.searchResults, isFromPosition: from !== null })) {
+    for (const query of searchesNeeded({ event: state.event, locations: state.locations, searchResults: state.searchResults, isFromPosition: from !== null })) {
       lookUp(query);
     }
     showRows();
@@ -954,7 +970,7 @@ async function planRoute(from) {
     planButton.textContent = 'Planning…';
     await nextFrame();
     const result = planFromSetup({
-      setup: state.setup,
+      event: state.event,
       locations: state.locations,
       settings: state.settings,
       now: Date.now(),
@@ -1349,15 +1365,8 @@ settingsButton.addEventListener('click', () => {
   // speed can be out of range, so show the speed that Save would store.
   const shownSpeed = Number.isFinite(speedKmh) ? speedKmh : defaultState().settings.speedKmh;
   showSettingsSpeed(Math.min(SPEED_RANGE.max, Math.max(SPEED_RANGE.min, shownSpeed)));
-  for (const field of panelFields) {
-    if (field.dataset.panelSetup) {
-      field.value = state.setup[field.dataset.panelSetup];
-    } else {
-      const value = state.settings[field.dataset.panelSetting];
-      field.value = field.dataset.scale ? String(value / Number(field.dataset.scale)) : String(value);
-    }
-  }
-  hadCheckInForm = state.settings.checkInFormUrl !== '';
+  panelFields.forEach(fillField);
+  hadCheckInForm = state.event.checkInFormUrl !== '';
   isSelfieTimeEdited = false;
   // Check the link as filled in, since setting a value doesn't fire input.
   checkInFormField.dispatchEvent(new Event('input'));
@@ -1398,19 +1407,18 @@ settingsDialog.addEventListener('close', () => {
   if (isSpeedChanged) {
     state.settings.speedKmh = Number(speedSlider.value);
   }
-  const savedCheckInFormUrl = state.settings.checkInFormUrl;
+  const savedCheckInFormUrl = state.event.checkInFormUrl;
   // The fields are range-checked, and the check-in form URL checked by its
   // input listener, so the dialog only closes with "save" when they're valid.
   for (const field of panelFields) {
-    if (field.dataset.panelSetup) {
-      state.setup[field.dataset.panelSetup] = field.value;
-    } else if (field.type === 'number') {
-      state.settings[field.dataset.panelSetting] = Number(field.value) * Number(field.dataset.scale ?? 1);
+    const { group, key } = boundTo(field);
+    if (field.type === 'number') {
+      group[key] = Number(field.value) * Number(field.dataset.scale ?? 1);
     } else if (field === checkInFormField) {
       // Keep the saved link rather than clearing it if an invalid one gets through.
-      state.settings.checkInFormUrl = checkInFormUrl(field.value) ?? state.settings.checkInFormUrl;
+      group[key] = checkInFormUrl(field.value) ?? group[key];
     } else {
-      state.settings[field.dataset.panelSetting] = field.value;
+      group[key] = field.value;
     }
   }
   saveState(state);
@@ -1419,7 +1427,7 @@ settingsDialog.addEventListener('close', () => {
   showSettingsSummary();
   showCountdown();
   // Show or hide the Check in buttons now, even if re-planning fails.
-  if (state.settings.checkInFormUrl !== savedCheckInFormUrl) {
+  if (state.event.checkInFormUrl !== savedCheckInFormUrl) {
     showPlan();
   }
   // Re-plan with the new settings, keeping ticks: from the Start field if
@@ -1429,8 +1437,8 @@ settingsDialog.addEventListener('close', () => {
     // A plan's times are on the day it was made, so only today's counts.
     const isPlanForToday = new Date(state.plan.deadline).toDateString() === new Date(now).toDateString();
     const startingPoint = replanStartingPoint({
-      startTimeText: state.setup.startTimeText,
-      deadline: state.settings.deadline,
+      startTime: state.event.startTime,
+      deadline: state.event.deadline,
       hasVisited: state.locations.some(({ isVisited }) => isVisited),
       isReplannedFromPositionToday: Boolean(state.plan.isFromPosition) && isPlanForToday,
       now,

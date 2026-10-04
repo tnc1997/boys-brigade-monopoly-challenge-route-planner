@@ -18,10 +18,10 @@ const pinnedRows = () => [
 
 const locations = pinnedRows();
 
-const savedPlan = (setup = {}, settings = {}) => {
+const savedPlan = (event = {}, settings = {}) => {
   const state = defaultState();
   return planFromSetup({
-    setup: { ...state.setup, ...setup },
+    event: { ...state.event, ...event },
     locations,
     settings: { ...state.settings, ...settings },
     now,
@@ -114,7 +114,7 @@ describe('describeRoute', () => {
   });
 
   test('lists the skipped locations in list order', () => {
-    const plan = savedPlan({ startTimeText: '15:40' });
+    const plan = savedPlan({ startTime: '15:40' });
     const { stops, skipped } = describeRoute(plan);
     assert.equal(stops.length, 0);
     assert.deepEqual(skipped.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
@@ -164,7 +164,7 @@ describe('mapRoute', () => {
     assert.match(done[0].title, /selfie done$/);
 
     const replanned = planFromSetup({
-      setup: defaultState().setup,
+      event: defaultState().event,
       locations: locations.map((record) => (record.id === first.location.key ? { ...record, isVisited: true } : record)),
       settings: defaultState().settings,
       now,
@@ -182,7 +182,7 @@ describe('mapRoute', () => {
   });
 
   test('includes skipped locations, but not in the line', () => {
-    const plan = savedPlan({ startTimeText: '15:40' });
+    const plan = savedPlan({ startTime: '15:40' });
     const { markers, path } = mapRoute(plan, [], formatTime);
     assert.deepEqual(markers.filter(({ kind }) => kind === 'skipped').map(({ location }) => location.label), ['Old Kent Road', 'Temple Meads']);
     assert.deepEqual(path, [plan.start]);
@@ -233,7 +233,7 @@ describe('timeWarning', () => {
   test('warns when the team is running late enough to push the route into the safety margin', () => {
     // A short deadline leaves the route with little spare time, so running
     // late for the first stop pushes the end into the margin.
-    const plan = savedPlan({ startTimeText: '15:10' });
+    const plan = savedPlan({ startTime: '15:10' });
     assert.ok(plan.order.length > 0);
     const spareMinutes = plan.spareSeconds / 60;
     const late = timeWarning(plan, [], plan.arrivalTimes[0] + minutes(spareMinutes + 2));
@@ -244,7 +244,7 @@ describe('timeWarning', () => {
   });
 
   test('measures lateness against the next stop that is not done', () => {
-    const plan = savedPlan({ startTimeText: '15:10' });
+    const plan = savedPlan({ startTime: '15:10' });
     const allDone = plan.order.map((index) => plan.points[index].key);
     // Everything is done, so there's no stop to be late for, and the time
     // left is more than the margin.
@@ -264,7 +264,7 @@ describe('timeWarning', () => {
     // Re-planning with the deadline 5 minutes away leaves less than the
     // 15-minute safety margin, so every location is skipped.
     for (const finishText of ['', '51.4556,-2.5894']) {
-      const plan = savedPlan({ finishText }, { deadline: '11:05' });
+      const plan = savedPlan({ finishText, deadline: '11:05' });
       assert.deepEqual(plan.order, []);
       const warning = timeWarning(plan, [], plan.startTime);
       assert.ok(warning, `no warning ${finishText ? 'with' : 'without'} a finish`);
@@ -274,7 +274,7 @@ describe('timeWarning', () => {
 
   test("doesn't say the team is behind until they're at least a minute late", () => {
     // A plan that ends right at the safety margin, so any lateness pushes it in.
-    const plan = savedPlan({ startTimeText: '15:10' });
+    const plan = savedPlan({ startTime: '15:10' });
     const tightPlan = { ...plan, endEta: plan.deadline - plan.settings.safetyMarginSeconds * 1000, spareSeconds: 0 };
     assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + 30000), null);
     assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + minutes(1)).kind, 'late');
@@ -282,7 +282,7 @@ describe('timeWarning', () => {
 
   test('warns straight away when the plan already ends inside the safety margin', () => {
     // The finish is too far to reach before the deadline minus the margin.
-    const plan = savedPlan({ startTimeText: '15:30', finishText: '51.5300,-2.7000' });
+    const plan = savedPlan({ startTime: '15:30', finishText: '51.5300,-2.7000' });
     assert.ok(plan.spareSeconds < 0);
     const warning = timeWarning(plan, [], plan.startTime);
     assert.equal(warning.kind, 'short');
@@ -290,13 +290,13 @@ describe('timeWarning', () => {
   });
 
   test("doesn't warn about a finish that doesn't fit before the route starts", () => {
-    const plan = savedPlan({ startTimeText: '15:30', finishText: '51.5300,-2.7000' });
+    const plan = savedPlan({ startTime: '15:30', finishText: '51.5300,-2.7000' });
     assert.ok(plan.spareSeconds < 0);
     assert.equal(timeWarning(plan, [], plan.startTime - minutes(60)), null);
   });
 
   test('gives each kind of warning', () => {
-    const plan = savedPlan({ startTimeText: '15:10' });
+    const plan = savedPlan({ startTime: '15:10' });
     assert.equal(timeWarning(plan, [], plan.deadline - minutes(5)).kind, 'short');
     assert.equal(timeWarning(plan, [], plan.deadline + minutes(5)).kind, 'passed');
     assert.equal(timeWarning(plan, [], plan.arrivalTimes[0] + minutes(plan.spareSeconds / 60 + 2)).kind, 'late');

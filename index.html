@@ -50,24 +50,24 @@
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div class="flex flex-col gap-1">
               <label for="start" class="text-sm font-medium">Start</label>
-              <input id="start" data-setup="startText" type="text" autocapitalize="off" spellcheck="false" aria-describedby="start-status"
+              <input id="start" data-event="startText" type="text" autocapitalize="off" spellcheck="false" aria-describedby="start-status"
                 class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
               <p id="start-status" class="text-xs break-words"></p>
             </div>
             <div class="flex flex-col gap-1">
               <label for="finish" class="text-sm font-medium">Finish <span class="font-normal text-muted">(optional)</span></label>
-              <input id="finish" data-setup="finishText" type="text" autocapitalize="off" spellcheck="false" placeholder="Leave blank if there's no finish" aria-describedby="finish-status"
+              <input id="finish" data-event="finishText" type="text" autocapitalize="off" spellcheck="false" placeholder="Leave blank if there's no finish" aria-describedby="finish-status"
                 class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
               <p id="finish-status" class="text-xs break-words"></p>
             </div>
             <div class="flex flex-col gap-1">
               <label for="start-time" class="text-sm font-medium">Start time <span class="font-normal text-muted">(blank for now)</span></label>
-              <input id="start-time" data-setup="startTimeText" type="time"
+              <input id="start-time" data-event="startTime" type="time"
                 class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
             </div>
             <div class="flex flex-col gap-1">
               <label for="deadline" class="text-sm font-medium">Deadline</label>
-              <input id="deadline" data-setting="deadline" type="time"
+              <input id="deadline" data-event="deadline" type="time"
                 class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
             </div>
             <div class="flex flex-col gap-1">
@@ -172,16 +172,16 @@
           </div>
           <div class="flex flex-col gap-1">
             <label for="settings-deadline" class="text-sm font-medium">Deadline</label>
-            <input id="settings-deadline" data-panel-setting="deadline" type="time" required class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
+            <input id="settings-deadline" data-panel-event="deadline" type="time" required class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
           </div>
           <div class="flex flex-col gap-1 sm:col-span-2">
             <label for="settings-finish" class="text-sm font-medium">Finish <span class="font-normal text-muted">(optional)</span></label>
-            <input id="settings-finish" data-panel-setup="finishText" type="text" autocapitalize="off" spellcheck="false" aria-describedby="settings-finish-hint" placeholder="Leave blank if there's no finish" class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
+            <input id="settings-finish" data-panel-event="finishText" type="text" autocapitalize="off" spellcheck="false" aria-describedby="settings-finish-hint" placeholder="Leave blank if there's no finish" class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
             <p id="settings-finish-hint" class="text-xs text-muted">A place or address, or coordinates. Clear it if the finish is cancelled.</p>
           </div>
           <div class="flex flex-col gap-1 sm:col-span-2">
             <label for="settings-check-in-form" class="text-sm font-medium">Check-in form URL <span class="font-normal text-muted">(optional)</span></label>
-            <input id="settings-check-in-form" data-panel-setting="checkInFormUrl" type="url" inputmode="url" autocapitalize="off" spellcheck="false" aria-describedby="settings-check-in-form-hint" placeholder="https://" class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
+            <input id="settings-check-in-form" data-panel-event="checkInFormUrl" type="url" inputmode="url" autocapitalize="off" spellcheck="false" aria-describedby="settings-check-in-form-hint" placeholder="https://" class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 invalid:border-danger">
             <p id="settings-check-in-form-hint" class="text-xs text-muted">The link to the organisers' online check-in form, if they have one. Must start with http:// or https://. Adds a Check in button to each stop, and raises the default selfie time to 5 minutes to allow for uploading.</p>
           </div>
         </div>
