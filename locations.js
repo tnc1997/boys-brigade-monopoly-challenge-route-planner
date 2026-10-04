@@ -23,6 +23,7 @@ import { searchKey } from './search.js';
  * @property {string} id A stable id for the row, a v4 UUID, which ticked-off selfies and plans refer to.
  * @property {string} text The row's text, as typed.
  * @property {import('./planner.js').LatLng} [pin] Where the row was pinned on the map, if it was. A pinned row isn't searched for.
+ * @property {true} [isVisited] Whether the location has been visited, with its selfie taken.
  */
 
 /**
@@ -169,6 +170,16 @@ export function usableLocations(rows) {
 }
 
 /**
+ * Gets the keys of the rows that have been visited, whose selfie has been taken.
+ *
+ * @param {LocationRecord[]} records The rows.
+ * @returns {string[]} Their ids, which are their locations' keys.
+ */
+export function visitedKeys(records) {
+  return records.filter(({ isVisited }) => isVisited).map(({ id }) => id);
+}
+
+/**
  * Cleans up saved rows of the location list, dropping anything that isn't a
  * row and rows with no text and no pin, so the app can rely on their shape.
  * Optional fields are only kept when they're valid, so an invalid one
@@ -192,6 +203,9 @@ export function cleanRecords(records) {
     const cleaned = { id: record.id, text: record.text };
     if (isCoordinate(record.pin?.lat, 90) && isCoordinate(record.pin?.lng, 180)) {
       cleaned.pin = { lat: record.pin.lat, lng: record.pin.lng };
+    }
+    if (record.isVisited === true) {
+      cleaned.isVisited = true;
     }
     return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
   });

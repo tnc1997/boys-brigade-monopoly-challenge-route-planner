@@ -135,44 +135,16 @@ export function describeRoute(plan) {
 }
 
 /**
- * Marks a location's selfie as done, or as not done if it already was.
- *
- * @param {string[]} doneKeys Keys of the locations whose selfie has been taken.
- * @param {string} key The key of the location to toggle.
- * @returns {string[]} The new list of keys. The original isn't changed.
- * @example
- * toggleDone(['a'], 'b'); // ['a', 'b']
- * toggleDone(['a', 'b'], 'a'); // ['b']
- */
-export function toggleDone(doneKeys, key) {
-  return doneKeys.includes(key) ? doneKeys.filter((doneKey) => doneKey !== key) : [...doneKeys, key];
-}
-
-/**
- * Marks a location's selfie as done, leaving it done if it already was.
- *
- * @param {string[]} doneKeys Keys of the locations whose selfie has been taken.
- * @param {string} key The key of the location to mark.
- * @returns {string[]} The new list of keys. The original isn't changed.
- * @example
- * markDone(['a'], 'b'); // ['a', 'b']
- * markDone(['a'], 'a'); // ['a']
- */
-export function markDone(doneKeys, key) {
-  return doneKeys.includes(key) ? doneKeys : [...doneKeys, key];
-}
-
-/**
  * Counts how many of a plan's locations have had their selfie taken.
  * Keys of locations that aren't in the plan (for example from an earlier
  * list) aren't counted.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
- * @param {string[]} doneKeys Keys of the locations whose selfie has been taken.
+ * @param {string[]} visitedKeys Keys of the locations that have been visited, whose selfie has been taken.
  * @returns {{ done: number, total: number }} The number of locations done, and the number in the list.
  */
-export function progress(plan, doneKeys) {
-  const done = new Set(doneKeys);
+export function progress(plan, visitedKeys) {
+  const done = new Set(visitedKeys);
   return { done: plan.points.filter(({ key }) => done.has(key)).length, total: plan.points.length };
 }
 
@@ -195,13 +167,13 @@ function named(kind, label) {
  * can be greyed out.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
- * @param {string[]} doneKeys Keys of the locations whose selfie has been taken.
+ * @param {string[]} visitedKeys Keys of the locations that have been visited, whose selfie has been taken.
  * @param {(time: number) => string} formatTime Formats a time for the marker descriptions.
  * @returns {{ path: import('./planner.js').LatLng[], markers: import('./map.js').MapMarker[] }} The line and the markers.
  */
-export function mapRoute(plan, doneKeys, formatTime) {
+export function mapRoute(plan, visitedKeys, formatTime) {
   const route = describeRoute(plan);
-  const done = new Set(doneKeys);
+  const done = new Set(visitedKeys);
   const routeKeys = new Set(route.stops.map(({ location }) => location.key));
 
   /** @type {import('./map.js').MapMarker[]} */
@@ -301,14 +273,14 @@ export function isPlanForToday(plan, now) {
  * day, whose times no longer apply.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
- * @param {string[]} doneKeys Keys of the locations whose selfie has been taken.
+ * @param {string[]} visitedKeys Keys of the locations that have been visited, whose selfie has been taken.
  * @param {number} now The current time, in milliseconds since the Unix epoch.
  * @returns {TimeWarning | null} The warning, or `null` if there's enough time.
  * @example
  * timeWarning(plan, [], deadline - 10 * 60_000);
  * // { kind: 'short', message: 'Head to the finish now: 10 minutes until the deadline.', minutesLeft: 10, minutesBehind: 0 }
  */
-export function timeWarning(plan, doneKeys, now) {
+export function timeWarning(plan, visitedKeys, now) {
   if (!isPlanForToday(plan, now)) {
     return null;
   }
@@ -317,7 +289,7 @@ export function timeWarning(plan, doneKeys, now) {
   const minutesLeft = Math.max(0, Math.ceil(leftMs / 60000));
 
   // How late the team is for the first stop that isn't done yet.
-  const done = new Set(doneKeys);
+  const done = new Set(visitedKeys);
   const next = plan.order.findIndex((index) => !done.has(plan.points[index].key));
   const behindMs = next === -1 ? 0 : Math.max(0, now - plan.arrivalTimes[next]);
   const minutesBehind = Math.floor(behindMs / 60000);

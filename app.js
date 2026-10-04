@@ -1,6 +1,6 @@
-import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, markDone, newLocationMarkers, plural, progress, timeWarning, toggleDone } from './route.js';
+import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations } from './locations.js';
+import { FINISH_KEY, START_KEY, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -678,7 +678,7 @@ function checkInLink(location, isDone) {
  * @returns {HTMLLIElement} The list item.
  */
 function stopItem(stop, isFinish) {
-  const isDone = !isFinish && state.doneKeys.includes(stop.location.key);
+  const isDone = !isFinish && visitedKeys(state.locations).includes(stop.location.key);
   const item = element('li', `flex gap-3 rounded-md p-3 ring-1 ${isDone ? 'bg-accent-soft ring-accent-line' : 'ring-line'}`);
   const badgeColours = isFinish ? 'bg-ink text-surface' : isDone ? 'bg-accent-line text-accent-ink' : 'bg-accent text-white';
   const badge = element(
@@ -732,7 +732,7 @@ function showTime() {
  * its numbers, and cleared once read so it can't disagree with the banner.
  */
 function showTimeWarning() {
-  const warning = state.plan?.settings ? timeWarning(state.plan, state.doneKeys, Date.now()) : null;
+  const warning = state.plan?.settings ? timeWarning(state.plan, visitedKeys(state.locations), Date.now()) : null;
   timeWarningText.textContent = warning?.message ?? '';
   timeWarningBanner.classList.toggle('hidden', warning === null);
   const wording = warning ? warning.message.replace(/\d+/g, '#') : null;
@@ -761,10 +761,11 @@ function showPlan() {
   }
   const route = describeRoute(plan);
   const ending = route.finish ? `arriving at the finish at ${timeFormat.format(route.endEta)}` : `with the last selfie at ${timeFormat.format(route.endEta)}`;
-  const { done, total } = progress(plan, state.doneKeys);
+  const visited = visitedKeys(state.locations);
+  const { done, total } = progress(plan, visited);
   // Count only stops still to visit, since a stop on this route may have
   // been ticked off since it was planned.
-  const stopsToVisit = route.stops.filter(({ location }) => !state.doneKeys.includes(location.key)).length;
+  const stopsToVisit = route.stops.filter(({ location }) => !visited.includes(location.key)).length;
   const remaining = total - done;
   const locations = (count) => (count === 1 ? 'location' : 'locations');
   const visiting = done === 0 ? `${stopsToVisit} of ${total} ${locations(total)}` : `${stopsToVisit} of ${remaining} ${locations(remaining)} still to do`;
@@ -803,7 +804,7 @@ function showPlan() {
   // Done locations that aren't stops on this route (because it was planned
   // after their selfie) are listed so a mistaken tick can be undone.
   const routeKeys = new Set(route.stops.map(({ location }) => location.key));
-  const doneElsewhere = plan.points.filter(({ key }) => state.doneKeys.includes(key) && !routeKeys.has(key));
+  const doneElsewhere = plan.points.filter(({ key }) => visited.includes(key) && !routeKeys.has(key));
   if (doneElsewhere.length > 0) {
     const heading = element('h3', 'mt-4 text-sm font-semibold', `Done (${doneElsewhere.length})`);
     const doneList = element('ul', 'mt-2 flex flex-col gap-2');
@@ -820,6 +821,27 @@ function showPlan() {
 }
 
 /**
+ * Marks a row of the location list as visited, with its selfie taken, or
+ * not visited, and saves it. A location whose row has been removed can't
+ * be marked.
+ *
+ * @param {string} key The location's key, which is its row's id.
+ * @param {boolean} isVisited Whether it's been visited.
+ */
+function setVisited(key, isVisited) {
+  const record = state.locations.find(({ id }) => id === key);
+  if (!record) {
+    return;
+  }
+  if (isVisited) {
+    record.isVisited = true;
+  } else {
+    delete record.isVisited;
+  }
+  saveState(state);
+}
+
+/**
  * Marks a stop's selfie as done when its Check in link is followed.
  *
  * @param {MouseEvent} event The click.
@@ -831,8 +853,7 @@ function checkInClicked(event) {
     return false;
   }
   const key = checkIn.dataset.checkInKey;
-  state.doneKeys = markDone(state.doneKeys, key);
-  saveState(state);
+  setVisited(key, true);
   // A link removed from the page can't open, so only re-render once it has.
   setTimeout(() => {
     showPlan();
@@ -855,8 +876,8 @@ stopList.addEventListener('click', (event) => {
   }
   const toggle = event.target instanceof Element ? event.target.closest('[data-done-key]') : null;
   if (toggle instanceof HTMLButtonElement) {
-    state.doneKeys = toggleDone(state.doneKeys, toggle.dataset.doneKey);
-    saveState(state);
+    const key = toggle.dataset.doneKey;
+    setVisited(key, !visitedKeys(state.locations).includes(key));
     showPlan();
     // Re-rendering replaces the button, so move focus to its replacement.
     stopList.querySelector(`[data-done-key="${CSS.escape(toggle.dataset.doneKey)}"]`)?.focus();
@@ -937,7 +958,6 @@ async function planRoute(from) {
       locations: state.locations,
       settings: state.settings,
       now: Date.now(),
-      doneKeys: state.doneKeys,
       from,
       searchResults: state.searchResults,
     });
@@ -1138,7 +1158,7 @@ function updateMap() {
     return;
   }
   const plan = currentPlan();
-  const route = plan ? mapRoute(plan, state.doneKeys, (time) => timeFormat.format(time)) : { path: [], markers: [] };
+  const route = plan ? mapRoute(plan, visitedKeys(state.locations), (time) => timeFormat.format(time)) : { path: [], markers: [] };
   const newMarkers = newLocationMarkers(usableLocations(resolveRecords(state.locations, state.searchResults)), plan);
   route.markers.push(...newMarkers);
   drawnNewLocations = newLocationsText(newMarkers);
@@ -1411,7 +1431,7 @@ settingsDialog.addEventListener('close', () => {
     const startingPoint = replanStartingPoint({
       startTimeText: state.setup.startTimeText,
       deadline: state.settings.deadline,
-      doneKeys: state.doneKeys,
+      hasVisited: state.locations.some(({ isVisited }) => isVisited),
       isReplannedFromPositionToday: Boolean(state.plan.isFromPosition) && isPlanForToday,
       now,
     });

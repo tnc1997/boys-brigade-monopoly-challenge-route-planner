@@ -39,9 +39,8 @@ describe('storage', () => {
     state.settings.speedKmh = 3.5;
     state.locations = [
       { id: 'a', text: 'Old Kent Road', pin: { lat: 51.4545, lng: -2.5879 } },
-      { id: 'b', text: 'Queen Square, Bristol' },
+      { id: 'b', text: 'Queen Square, Bristol', isVisited: true },
     ];
-    state.doneKeys = ['a'];
     state.plan = { order: [0], arrivalTimes: [1], endEta: 2, spareSeconds: 3, skipped: [] };
     assert.equal(saveState(state, storage), true);
     assert.deepEqual(loadState(storage), state);
@@ -56,7 +55,7 @@ describe('storage', () => {
 
   test('falls back to the defaults for an older or unknown version', () => {
     for (const version of [0, SCHEMA_VERSION + 1, 'one', undefined]) {
-      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), version, doneKeys: ['x'] }) });
+      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), version, view: 'map' }) });
       assert.deepEqual(loadState(storage), defaultState());
     }
   });
@@ -69,14 +68,13 @@ describe('storage', () => {
 
   test('fills in missing or invalid fields with the defaults', () => {
     const storage = memoryStorage({
-      [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, settings: { speedKmh: 5.5 }, doneKeys: ['a', 1, null], searchResults: [], plan: 'nope' }),
+      [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, settings: { speedKmh: 5.5 }, locations: 'nope', searchResults: [], plan: 'nope' }),
     });
     const state = loadState(storage);
     const defaults = defaultState();
     assert.deepEqual(state.settings, { ...defaults.settings, speedKmh: 5.5 });
     assert.deepEqual(state.setup, defaults.setup);
     assert.deepEqual(state.locations, []);
-    assert.deepEqual(state.doneKeys, ['a']);
     assert.deepEqual(state.searchResults, {});
     assert.equal(state.plan, null);
   });
@@ -128,8 +126,8 @@ describe('storage', () => {
 
   test('returns a fresh default state each time', () => {
     const state = defaultState();
-    state.doneKeys.push('x');
-    assert.deepEqual(defaultState().doneKeys, []);
+    state.locations.push({ id: 'x', text: 'X' });
+    assert.deepEqual(defaultState().locations, []);
   });
 });
 
@@ -138,14 +136,12 @@ describe('resetChallenge', () => {
     const state = defaultState();
     state.settings.speedKmh = 3.5;
     state.setup = { startText: '51.4556,-2.5894', finishText: '51.4492,-2.5813', startTimeText: '11:00' };
-    state.locations = [{ id: 'a', text: '51.4545,-2.5879' }];
-    state.doneKeys = ['a'];
+    state.locations = [{ id: 'a', text: '51.4545,-2.5879', isVisited: true }];
     state.view = 'map';
     state.searchResults = { 'queen square': { isFound: false, error: 'No match', isTemporary: false } };
     state.plan = { order: [0] };
     const reset = resetChallenge(state);
     assert.deepEqual(reset.locations, []);
-    assert.deepEqual(reset.doneKeys, []);
     assert.equal(reset.plan, null);
     assert.deepEqual(reset.settings, state.settings);
     assert.deepEqual(reset.setup, state.setup);
@@ -170,28 +166,28 @@ describe('legacy storage keys', () => {
   });
 
   test('moves state saved under the old key to the new key', () => {
-    const saved = { ...defaultState(), doneKeys: ['51.449200,-2.581300'] };
+    const saved = { ...defaultState(), view: 'map' };
     const storage = memoryStorage({ [legacyKey]: JSON.stringify(saved) });
-    assert.deepEqual(loadState(storage).doneKeys, ['51.449200,-2.581300']);
+    assert.equal(loadState(storage).view, 'map');
     assert.equal(storage.items.has(legacyKey), false);
-    assert.deepEqual(JSON.parse(storage.items.get(STORAGE_KEY)).doneKeys, ['51.449200,-2.581300']);
+    assert.equal(JSON.parse(storage.items.get(STORAGE_KEY)).view, 'map');
   });
 
   test('uses the old state and keeps the old key when saving under the new key fails', () => {
-    const storage = memoryStorage({ [legacyKey]: JSON.stringify({ ...defaultState(), doneKeys: ['old'] }) });
+    const storage = memoryStorage({ [legacyKey]: JSON.stringify({ ...defaultState(), view: 'map' }) });
     storage.setItem = () => {
       throw new Error('QuotaExceededError');
     };
-    assert.deepEqual(loadState(storage).doneKeys, ['old']);
+    assert.equal(loadState(storage).view, 'map');
     assert.equal(storage.items.has(legacyKey), true);
   });
 
   test('prefers state saved under the new key', () => {
     const storage = memoryStorage({
-      [STORAGE_KEY]: JSON.stringify({ ...defaultState(), doneKeys: ['new'] }),
-      [legacyKey]: JSON.stringify({ ...defaultState(), doneKeys: ['old'] }),
+      [STORAGE_KEY]: JSON.stringify({ ...defaultState(), view: 'map' }),
+      [legacyKey]: JSON.stringify({ ...defaultState(), view: 'list' }),
     });
-    assert.deepEqual(loadState(storage).doneKeys, ['new']);
+    assert.equal(loadState(storage).view, 'map');
   });
 
   test('clears state saved under both keys', () => {
@@ -239,7 +235,7 @@ describe('loading state saved with schema version 1', () => {
   test('drops the location list, the ticks and the plan', () => {
     const state = loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(version1) }));
     assert.deepEqual(state.locations, []);
-    assert.deepEqual(state.doneKeys, []);
+    assert.equal(state.doneKeys, undefined);
     assert.equal(state.plan, null);
   });
 });

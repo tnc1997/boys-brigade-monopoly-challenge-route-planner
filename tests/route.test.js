@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, markDone, newLocationMarkers, plural, progress, timeWarning, toggleDone } from '../route.js';
+import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from '../route.js';
 import { planFromSetup } from '../setup.js';
 import { defaultState } from '../storage.js';
 
@@ -121,38 +121,6 @@ describe('describeRoute', () => {
   });
 });
 
-describe('toggleDone', () => {
-  test('marks a location as done', () => {
-    assert.deepEqual(toggleDone(['a'], 'b'), ['a', 'b']);
-  });
-
-  test('un-marks a location that was done', () => {
-    assert.deepEqual(toggleDone(['a', 'b'], 'a'), ['b']);
-  });
-
-  test("doesn't change the original list", () => {
-    const doneKeys = ['a'];
-    toggleDone(doneKeys, 'b');
-    assert.deepEqual(doneKeys, ['a']);
-  });
-});
-
-describe('markDone', () => {
-  test('marks a location as done', () => {
-    assert.deepEqual(markDone(['a'], 'b'), ['a', 'b']);
-  });
-
-  test('leaves a location that was done as done', () => {
-    assert.deepEqual(markDone(['a', 'b'], 'a'), ['a', 'b']);
-  });
-
-  test("doesn't change the original list", () => {
-    const doneKeys = ['a'];
-    markDone(doneKeys, 'b');
-    assert.deepEqual(doneKeys, ['a']);
-  });
-});
-
 describe('progress', () => {
   test('counts the done locations out of every location in the list', () => {
     const plan = savedPlan();
@@ -197,10 +165,9 @@ describe('mapRoute', () => {
 
     const replanned = planFromSetup({
       setup: defaultState().setup,
-      locations,
+      locations: locations.map((record) => (record.id === first.location.key ? { ...record, isVisited: true } : record)),
       settings: defaultState().settings,
       now,
-      doneKeys: [first.location.key],
     }).plan;
     const offRoute = mapRoute(replanned, [first.location.key], formatTime).markers.filter(({ kind }) => kind === 'done');
     assert.deepEqual(offRoute.map(({ label }) => label), ['✓']);

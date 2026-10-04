@@ -31,7 +31,6 @@ import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
  * @property {Settings} settings Settings for planning.
  * @property {Setup} setup What was entered in the setup form, apart from the location list.
  * @property {import('./locations.js').LocationRecord[]} locations The location list, one row per location.
- * @property {string[]} doneKeys Keys of the locations whose selfie has been taken, which are the ids of their rows.
  * @property {'list' | 'map'} view Which tab of the Route section is showing.
  * @property {import('./search.js').SearchResults} searchResults Saved results of looking up addresses and place names, so each is only looked up once and re-planning works offline. Temporary failures aren't saved.
  * @property {import('./setup.js').SavedPlan | null} plan The current plan, or `null` if there isn't one yet.
@@ -79,7 +78,6 @@ export function defaultState() {
       startTimeText: '',
     },
     locations: [],
-    doneKeys: [],
     view: 'list',
     searchResults: {},
     plan: null,
@@ -139,7 +137,6 @@ export function loadState(storage = browserStorage()) {
     settings,
     setup: { ...defaults.setup, ...(isObject(saved.setup) ? saved.setup : {}) },
     locations: cleanRecords(saved.locations),
-    doneKeys: Array.isArray(saved.doneKeys) ? saved.doneKeys.filter((key) => typeof key === 'string') : [],
     view: saved.view === 'map' ? 'map' : 'list',
     searchResults: isObject(saved.searchResults) ? saved.searchResults : {},
     plan: isObject(saved.plan) ? saved.plan : null,
@@ -178,7 +175,7 @@ function fromVersion1(saved) {
       searchResults[searchKey(text)] = oldSearchResults[oldKey];
     }
   }
-  return { ...saved, setup, locations: [], doneKeys: [], searchResults, plan: null };
+  return { ...saved, setup, locations: [], searchResults, plan: null };
 }
 
 /**
@@ -258,7 +255,6 @@ export function resetChallenge(state) {
   return {
     ...state,
     locations: [],
-    doneKeys: [],
     plan: null,
   };
 }

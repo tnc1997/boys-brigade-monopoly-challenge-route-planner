@@ -1,4 +1,4 @@
-import { FINISH_KEY, START_KEY, resolveRecords, resolveText, usableLocations } from './locations.js';
+import { FINISH_KEY, START_KEY, resolveRecords, resolveText, usableLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
 import { SPEED_RANGE } from './settings.js';
 
@@ -83,12 +83,11 @@ export function timeToday(time, now) {
  * @param {import('./locations.js').LocationRecord[]} options.locations The location list.
  * @param {import('./storage.js').Settings} options.settings Settings for planning.
  * @param {number} options.now The current time, in milliseconds since the Unix epoch.
- * @param {string[]} [options.doneKeys=[]] Keys of the locations whose selfie has been taken.
  * @param {import('./search.js').SearchResults} [options.searchResults={}] Search results for addresses and place names, by `searchKey`.
  * @param {import('./planner.js').LatLng | null} [options.from=null] The team's current position, to re-plan from.
  * @returns {SetupResult} The plan, or what stops planning, and the rows left out.
  */
-export function planFromSetup({ setup, locations, settings, now, doneKeys = [], from = null, searchResults = {} }) {
+export function planFromSetup({ setup, locations, settings, now, from = null, searchResults = {} }) {
   const rows = resolveRecords(locations, searchResults);
   const leftOut = rows.filter(({ resolved }) => resolved.status === 'notFound' || resolved.status === 'unknown');
   const failure = (error) => ({ plan: null, error, rows, leftOut });
@@ -137,7 +136,7 @@ export function planFromSetup({ setup, locations, settings, now, doneKeys = [], 
   };
   // Plan only the locations still to visit, then map the result back to
   // indexes into every location, leaving done ones out of `skipped`.
-  const done = new Set(doneKeys);
+  const done = new Set(visitedKeys(locations));
   const remaining = points.map((point, index) => ({ point, index })).filter(({ point }) => !done.has(point.key));
   const result = plan({
     start: start.location,
@@ -213,16 +212,16 @@ export function startTimeToday(startTimeText, now) {
  * @param {object} options What's known now.
  * @param {string} options.startTimeText The Start time field, as `HH:MM`, or an empty string to start now.
  * @param {string} options.deadline The deadline, as `HH:MM`.
- * @param {string[]} options.doneKeys Keys of the locations whose selfie has been taken.
+ * @param {boolean} options.hasVisited Whether any location has been visited, with its selfie taken.
  * @param {boolean} options.isReplannedFromPositionToday Whether the current plan was made today with Re-plan from here.
  * @param {number} options.now The current time, in milliseconds since the Unix epoch.
  * @returns {'start' | 'position'} Where to re-plan from.
  * @example
- * replanStartingPoint({ startTimeText: '11:00', deadline: '16:00', doneKeys: [], isReplannedFromPositionToday: false, now: Date.parse('2026-10-03T09:00:00') }); // 'start'
- * replanStartingPoint({ startTimeText: '11:00', deadline: '16:00', doneKeys: [], isReplannedFromPositionToday: false, now: Date.parse('2026-10-03T14:00:00') }); // 'position'
+ * replanStartingPoint({ startTimeText: '11:00', deadline: '16:00', hasVisited: false, isReplannedFromPositionToday: false, now: Date.parse('2026-10-03T09:00:00') }); // 'start'
+ * replanStartingPoint({ startTimeText: '11:00', deadline: '16:00', hasVisited: false, isReplannedFromPositionToday: false, now: Date.parse('2026-10-03T14:00:00') }); // 'position'
  */
-export function replanStartingPoint({ startTimeText, deadline, doneKeys, isReplannedFromPositionToday, now }) {
-  if (doneKeys.length > 0 || isReplannedFromPositionToday) {
+export function replanStartingPoint({ startTimeText, deadline, hasVisited, isReplannedFromPositionToday, now }) {
+  if (hasVisited || isReplannedFromPositionToday) {
     return 'position';
   }
   const startTime = startTimeToday(startTimeText, now);

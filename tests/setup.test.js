@@ -99,8 +99,8 @@ describe('planFromSetup', () => {
 
   test('leaves done locations out of the route but keeps them in the points', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
-    const doneKey = firstPlan.points[0].key;
-    const { plan } = planFromSetup({ ...setupWith(), doneKeys: [doneKey] });
+    const locations = pinnedRows().map((record) => (record.id === firstPlan.points[0].key ? { ...record, isVisited: true } : record));
+    const { plan } = planFromSetup(setupWith({ locations }));
     assert.deepEqual(plan.points.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
     assert.deepEqual(plan.order, [1]);
     assert.deepEqual(plan.skipped, []);
@@ -109,7 +109,8 @@ describe('planFromSetup', () => {
 
   test('maps skipped locations back to their place in the list', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
-    const { plan } = planFromSetup({ ...setupWith({ startTimeText: '15:40' }), doneKeys: [firstPlan.points[0].key] });
+    const locations = pinnedRows().map((record) => (record.id === firstPlan.points[0].key ? { ...record, isVisited: true } : record));
+    const { plan } = planFromSetup(setupWith({ startTimeText: '15:40', locations }));
     assert.deepEqual(plan.order, []);
     assert.deepEqual(plan.skipped, [1]);
   });
@@ -208,7 +209,7 @@ describe('startTimeToday', () => {
 
 describe('replanStartingPoint', () => {
   const at = (day, hours, minutes) => new Date(2026, 9, day, hours, minutes).getTime();
-  const options = (overrides) => ({ startTimeText: '11:00', deadline: '16:00', doneKeys: [], isReplannedFromPositionToday: false, ...overrides });
+  const options = (overrides) => ({ startTimeText: '11:00', deadline: '16:00', hasVisited: false, isReplannedFromPositionToday: false, ...overrides });
 
   test('re-plans from the Start field before the start time, when nothing is ticked off', () => {
     assert.equal(replanStartingPoint(options({ now: at(3, 10, 30) })), 'start');
@@ -228,7 +229,7 @@ describe('replanStartingPoint', () => {
   });
 
   test("re-plans from the team's position once a selfie is ticked off, even before the start time", () => {
-    assert.equal(replanStartingPoint(options({ doneKeys: ['51.449200,-2.581300'], now: at(3, 10, 50) })), 'position');
+    assert.equal(replanStartingPoint(options({ hasVisited: true, now: at(3, 10, 50) })), 'position');
   });
 
   test("re-plans from the team's position after re-planning from there today, even before the start time", () => {

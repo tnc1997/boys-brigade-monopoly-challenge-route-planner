@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, cleanRecords, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations } from '../locations.js';
+import { FINISH_KEY, START_KEY, cleanRecords, newLocationId, resolveRecord, resolveRecords, resolveText, usableLocations, visitedKeys } from '../locations.js';
 import { searchKey } from '../search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
@@ -117,6 +117,12 @@ describe('resolveRecord', () => {
   });
 });
 
+describe('visitedKeys', () => {
+  test("gets the ids of the visited rows", () => {
+    assert.deepEqual(visitedKeys([{ id: 'a', text: 'A', isVisited: true }, { id: 'b', text: 'B' }]), ['a']);
+  });
+});
+
 describe('resolveRecords and usableLocations', () => {
   test('numbers the rows and gets the locations that can be planned', () => {
     const records = [
@@ -146,6 +152,14 @@ describe('cleanRecords', () => {
   test('drops blank rows, rows without an id and repeated ids', () => {
     const records = [{ id: 'a', text: ' ' }, { text: 'No id' }, { id: 'b', text: 'B' }, { id: 'b', text: 'Again' }, null, 'text'];
     assert.deepEqual(cleanRecords(records), [{ id: 'b', text: 'B' }]);
+  });
+
+  test('keeps isVisited only when it is true', () => {
+    assert.deepEqual(cleanRecords([{ id: 'a', text: 'A', isVisited: true }, { id: 'b', text: 'B', isVisited: false }, { id: 'c', text: 'C', isVisited: 'yes' }]), [
+      { id: 'a', text: 'A', isVisited: true },
+      { id: 'b', text: 'B' },
+      { id: 'c', text: 'C' },
+    ]);
   });
 
   test('leaves out a pin that is null, and fields it does not know', () => {
