@@ -367,7 +367,7 @@ function showRow(item, number) {
   pin.setAttribute('aria-label', `Pin location ${number} on the map`);
   remove.setAttribute('aria-label', `Remove location ${number}`);
   const more = /** @type {HTMLButtonElement} */ (item.querySelector('[data-action="more"]'));
-  const options = /** @type {HTMLDivElement} */ (document.getElementById(more.getAttribute('aria-controls')));
+  const options = /** @type {HTMLDivElement} */ (item.lastElementChild);
   const isOpen = record !== null && openRows.has(record.id);
   // Must visit no longer applies once the location's been visited. The box
   // stays ticked, so it applies again if the tick is undone.
