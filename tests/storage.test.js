@@ -141,7 +141,7 @@ describe('storage', () => {
 
   test('makes each location worth 10 points by default, and only loads whole numbers of points', () => {
     assert.equal(defaultState().event.pointsPerLocation, 10);
-    for (const [pointsPerLocation, expected] of [[20, 20], [0, 0], [2.5, 10], [-5, 10], ['20', 10]]) {
+    for (const [pointsPerLocation, expected] of [[20, 20], [0, 0], [9999, 9999], [10000, 10], [2.5, 10], [-5, 10], ['20', 10]]) {
       const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, event: { pointsPerLocation } }) });
       assert.equal(loadState(storage).event.pointsPerLocation, expected, String(pointsPerLocation));
     }

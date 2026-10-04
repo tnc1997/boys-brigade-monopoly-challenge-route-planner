@@ -118,8 +118,8 @@ describe('resolveRecord', () => {
 });
 
 describe('isPoints', () => {
-  test('accepts whole numbers of 0 or more', () => {
-    assert.deepEqual([0, 5, 20, 1.5, -1, NaN, Infinity, '5', null].map(isPoints), [true, true, true, false, false, false, false, false, false]);
+  test('accepts whole numbers from 0 to 9999', () => {
+    assert.deepEqual([0, 5, 20, 9999, 10000, 1e23, 1.5, -1, NaN, Infinity, '5', null].map(isPoints), [true, true, true, true, false, false, false, false, false, false, false, false]);
   });
 });
 
@@ -131,8 +131,8 @@ describe('parsePoints', () => {
   });
 
   test('says what is wrong with anything else', () => {
-    for (const text of ['2.5', '-1', 'ten', '1e3', '+5']) {
-      assert.deepEqual(parsePoints(text), { isValid: false, error: 'Enter a whole number of points, 0 or more, or leave it blank.' }, text);
+    for (const text of ['2.5', '-1', 'ten', '1e3', '+5', '10000', '100000000000000000000000']) {
+      assert.deepEqual(parsePoints(text), { isValid: false, error: 'Enter a whole number of points from 0 to 9999, or leave it blank.' }, text);
     }
   });
 });
@@ -188,7 +188,7 @@ describe('cleanRecords', () => {
     assert.deepEqual(cleanRecords(records), [{ id: 'b', text: 'B' }]);
   });
 
-  test('keeps points only when they are a whole number of 0 or more', () => {
+  test('keeps points only when they are a whole number from 0 to 9999', () => {
     const records = [
       { id: 'a', text: 'A', points: 20 },
       { id: 'b', text: 'B', points: 0 },

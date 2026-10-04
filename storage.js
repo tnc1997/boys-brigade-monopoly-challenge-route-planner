@@ -24,7 +24,7 @@ import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
  * @property {string} startTime When the route starts, as `HH:MM` local time, or an empty string to start when Plan route is pressed.
  * @property {string} deadline The time the team must have finished by, at the finish if there is one, as `HH:MM` local time.
  * @property {string} checkInFormUrl The organisers' online check-in form, as an http or https URL, or an empty string if there isn't one.
- * @property {number} pointsPerLocation What each location is worth unless its row says otherwise, a whole number of 0 or more.
+ * @property {number} pointsPerLocation What each location is worth unless its row says otherwise, a whole number from 0 to 9999.
  */
 
 /**
