@@ -27,6 +27,7 @@ import { searchKey } from './search.js';
  * @property {true} [isVisited] Whether the location has been visited, with its selfie taken.
  * @property {true} [isMustVisit] Whether the route must include the location, while it's still to visit.
  * @property {number} [points] What the location is worth, a whole number from 0 to 9999, if it isn't worth the event's Points per location.
+ * @property {string} [at] The time the team must be at the location, as `HH:MM` local time on the day of the challenge, if it has a fixed time. The selfie time comes after it.
  */
 
 /**
@@ -236,6 +237,45 @@ export function hasOwnPoints(setupLocations) {
 }
 
 /**
+ * Whether a value is a time of day as `HH:MM`, as a time field gives it.
+ *
+ * @param {unknown} value The value.
+ * @returns {value is string} Whether it is.
+ */
+export function isTime(value) {
+  return typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+/**
+ * Says what's wrong with a location's fixed time: it must be between the
+ * start time and the deadline. Without a start time, the route starts when
+ * it's planned, so only the deadline is checked. A start time or deadline
+ * that isn't a time, ignoring spaces around it as planning does, isn't
+ * checked either, nor are both when the deadline
+ * isn't after the start time, since planning says what's wrong with them
+ * and no At could fix it. Times are `HH:MM` on the same day, so compare as
+ * text.
+ *
+ * @param {string} at The location's fixed time, as `HH:MM`.
+ * @param {Pick<import('./storage.js').EventDetails, 'startTime' | 'deadline'>} event The event's start time and deadline.
+ * @returns {string | null} What's wrong, or `null` if nothing is.
+ * @example
+ * atError('10:30', { startTime: '11:00', deadline: '16:00' }); // 'At must be between 11:00 and 16:00.'
+ * atError('13:30', { startTime: '', deadline: '16:00' }); // null
+ */
+export function atError(at, { startTime, deadline }) {
+  const start = isTime(startTime.trim()) ? startTime.trim() : null;
+  const end = isTime(deadline.trim()) ? deadline.trim() : null;
+  if (start !== null && end !== null && end <= start) {
+    return null;
+  }
+  if ((start === null || at >= start) && (end === null || at <= end)) {
+    return null;
+  }
+  return start === null ? `At must be by the deadline, ${end}.` : end === null ? `At must be no earlier than the start time, ${start}.` : `At must be between ${start} and ${end}.`;
+}
+
+/**
  * Gets the keys of the setup locations that have been visited, whose selfie has been taken.
  *
  * @param {SetupLocation[]} setupLocations The setup locations.
@@ -278,6 +318,9 @@ export function cleanSetupLocations(setupLocations) {
     }
     if (isPoints(setupLocation.points)) {
       cleaned.points = setupLocation.points;
+    }
+    if (isTime(setupLocation.at)) {
+      cleaned.at = setupLocation.at;
     }
     return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
   });
