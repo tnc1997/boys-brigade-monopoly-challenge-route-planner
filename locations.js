@@ -272,7 +272,7 @@ export function atError(at, { startTime, deadline }) {
   if ((start === null || at >= start) && (end === null || at <= end)) {
     return null;
   }
-  return start === null ? `At must be by the deadline, ${end}.` : end === null ? `At must be after the start time, ${start}.` : `At must be between ${start} and ${end}.`;
+  return start === null ? `At must be by the deadline, ${end}.` : end === null ? `At must be no earlier than the start time, ${start}.` : `At must be between ${start} and ${end}.`;
 }
 
 /**
