@@ -250,8 +250,10 @@ export function isTime(value) {
  * Says what's wrong with a location's fixed time: it must be between the
  * start time and the deadline. Without a start time, the route starts when
  * it's planned, so only the deadline is checked. A start time or deadline
- * that isn't a time isn't checked either, since planning says what's wrong
- * with it. Times are `HH:MM` on the same day, so compare as text.
+ * that isn't a time isn't checked either, nor are both when the deadline
+ * isn't after the start time, since planning says what's wrong with them
+ * and no At could fix it. Times are `HH:MM` on the same day, so compare as
+ * text.
  *
  * @param {string} at The location's fixed time, as `HH:MM`.
  * @param {Pick<import('./storage.js').EventDetails, 'startTime' | 'deadline'>} event The event's start time and deadline.
@@ -263,6 +265,9 @@ export function isTime(value) {
 export function atError(at, { startTime, deadline }) {
   const start = isTime(startTime) ? startTime : null;
   const end = isTime(deadline) ? deadline : null;
+  if (start !== null && end !== null && end <= start) {
+    return null;
+  }
   if ((start === null || at >= start) && (end === null || at <= end)) {
     return null;
   }

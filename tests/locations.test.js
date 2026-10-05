@@ -181,6 +181,11 @@ describe('atError', () => {
     assert.equal(atError('16:30', { startTime: '', deadline: '16:00' }), 'At must be by the deadline, 16:00.');
   });
 
+  test('checks neither when the deadline is not after the start time, which no At could fix', () => {
+    assert.equal(atError('13:30', { startTime: '16:00', deadline: '11:00' }), null);
+    assert.equal(atError('11:00', { startTime: '11:00', deadline: '11:00' }), null);
+  });
+
   test('only checks the start time without a deadline, which planning says is missing', () => {
     assert.equal(atError('18:00', { startTime: '11:00', deadline: '' }), null);
     assert.equal(atError('10:00', { startTime: '11:00', deadline: '' }), 'At must be after the start time, 11:00.');
