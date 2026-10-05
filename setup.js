@@ -1,4 +1,4 @@
-import { FINISH_KEY, START_KEY, pointsById, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, isTime, pointsById, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
 import { SPEED_RANGE } from './settings.js';
 
@@ -59,12 +59,13 @@ function fieldError(source, routeLocationResult) {
  * timeToday('16:00', Date.parse('2026-10-03T10:45:00+01:00')); // Date.parse('2026-10-03T16:00:00+01:00')
  */
 export function timeToday(time, now) {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time.trim());
-  if (!match) {
+  const trimmed = time.trim();
+  if (!isTime(trimmed)) {
     return null;
   }
+  const [hours, minutes] = trimmed.split(':').map(Number);
   const date = new Date(now);
-  date.setHours(Number(match[1]), Number(match[2]), 0, 0);
+  date.setHours(hours, minutes, 0, 0);
   return date.getTime();
 }
 

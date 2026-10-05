@@ -250,7 +250,8 @@ export function isTime(value) {
  * Says what's wrong with a location's fixed time: it must be between the
  * start time and the deadline. Without a start time, the route starts when
  * it's planned, so only the deadline is checked. A start time or deadline
- * that isn't a time isn't checked either, nor are both when the deadline
+ * that isn't a time, ignoring spaces around it as planning does, isn't
+ * checked either, nor are both when the deadline
  * isn't after the start time, since planning says what's wrong with them
  * and no At could fix it. Times are `HH:MM` on the same day, so compare as
  * text.
@@ -263,8 +264,8 @@ export function isTime(value) {
  * atError('13:30', { startTime: '', deadline: '16:00' }); // null
  */
 export function atError(at, { startTime, deadline }) {
-  const start = isTime(startTime) ? startTime : null;
-  const end = isTime(deadline) ? deadline : null;
+  const start = isTime(startTime.trim()) ? startTime.trim() : null;
+  const end = isTime(deadline.trim()) ? deadline.trim() : null;
   if (start !== null && end !== null && end <= start) {
     return null;
   }
