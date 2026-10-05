@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, atError, hasOwnPoints, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -689,6 +689,10 @@ function saveAt({ item, setupLocation }, field) {
   // A time field is also blank while it's partly filled in, which isn't a
   // request to clear the time, so keep the saved one.
   if (!setupLocation || field.validity.badInput || (field.value || undefined) === setupLocation.at) {
+    return;
+  }
+  // Only save what loading keeps, such as 13:30 but not 13:30:00.
+  if (field.value !== '' && !isTime(field.value)) {
     return;
   }
   if (field.value === '') {
