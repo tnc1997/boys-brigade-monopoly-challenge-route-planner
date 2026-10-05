@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, cleanSetupLocations, hasOwnPoints, isPoints, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from '../locations.js';
+import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from '../locations.js';
 import { searchKey } from '../search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
@@ -155,6 +155,38 @@ describe('pointsOf, pointsById and hasOwnPoints', () => {
   });
 });
 
+describe('isTime', () => {
+  test('accepts times of day as HH:MM', () => {
+    assert.deepEqual(['00:00', '09:05', '13:30', '23:59', '24:00', '9:05', '13:60', '13:30:00', ' 13:30', '', 1330, null].map(isTime), [true, true, true, true, false, false, false, false, false, false, false, false]);
+  });
+});
+
+describe('atError', () => {
+  const event = { startTime: '11:00', deadline: '16:00' };
+
+  test('accepts a time between the start time and the deadline, including both', () => {
+    for (const at of ['11:00', '13:30', '16:00']) {
+      assert.equal(atError(at, event), null, at);
+    }
+  });
+
+  test('says what is wrong with a time before the start time or after the deadline', () => {
+    for (const at of ['10:59', '16:01']) {
+      assert.equal(atError(at, event), 'At must be between 11:00 and 16:00.', at);
+    }
+  });
+
+  test('only checks the deadline without a start time, since the route starts when it is planned', () => {
+    assert.equal(atError('08:00', { startTime: '', deadline: '16:00' }), null);
+    assert.equal(atError('16:30', { startTime: '', deadline: '16:00' }), 'At must be by the deadline, 16:00.');
+  });
+
+  test('only checks the start time without a deadline, which planning says is missing', () => {
+    assert.equal(atError('18:00', { startTime: '11:00', deadline: '' }), null);
+    assert.equal(atError('10:00', { startTime: '11:00', deadline: '' }), 'At must be after the start time, 11:00.');
+  });
+});
+
 describe('visitedKeys', () => {
   test("gets the ids of the visited rows", () => {
     assert.deepEqual(visitedKeys([{ id: 'a', text: 'A', isVisited: true }, { id: 'b', text: 'B' }]), ['a']);
@@ -197,6 +229,15 @@ describe('cleanSetupLocations', () => {
       { id: 'e', text: 'E', points: '20' },
     ];
     assert.deepEqual(cleanSetupLocations(setupLocations), [{ id: 'a', text: 'A', points: 20 }, { id: 'b', text: 'B', points: 0 }, { id: 'c', text: 'C' }, { id: 'd', text: 'D' }, { id: 'e', text: 'E' }]);
+  });
+
+  test('keeps at only when it is a time as HH:MM', () => {
+    assert.deepEqual(cleanSetupLocations([{ id: 'a', text: 'A', at: '13:30' }, { id: 'b', text: 'B', at: '25:00' }, { id: 'c', text: 'C', at: '' }, { id: 'd', text: 'D', at: 1330 }]), [
+      { id: 'a', text: 'A', at: '13:30' },
+      { id: 'b', text: 'B' },
+      { id: 'c', text: 'C' },
+      { id: 'd', text: 'D' },
+    ]);
   });
 
   test('keeps isMustVisit only when it is true', () => {

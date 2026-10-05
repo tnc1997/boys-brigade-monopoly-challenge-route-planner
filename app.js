@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, hasOwnPoints, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, atError, hasOwnPoints, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -217,6 +217,10 @@ function saveField(field) {
   if (key === 'deadline') {
     showCountdown();
   }
+  // Each row's At is checked against the start time and deadline.
+  if (key === 'startTime' || key === 'deadline') {
+    showRows();
+  }
 }
 
 /**
@@ -365,12 +369,29 @@ function rowItem(setupLocation) {
   pointsField.setAttribute('aria-describedby', pointsError.id);
   pointsLine.append('Points', pointsField);
   points.append(pointsLine, pointsError);
-  options.append(mustVisit, points);
+  const atLine = element('label', 'flex items-center gap-2 pb-2 text-sm');
+  const atField = element(
+    'input',
+    'min-h-11 w-32 rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30 aria-invalid:border-danger',
+  );
+  // A time field, so phones show their own time picker.
+  atField.type = 'time';
+  atField.dataset.field = 'at';
+  atField.value = setupLocation?.at ?? '';
+  atLine.append('At', atField);
+  options.append(mustVisit, points, atLine);
+  // At's error stays outside More, since a new start time or deadline can
+  // make it wrong while More is closed.
+  const atErrorLine = element('p', 'text-xs text-danger');
+  atErrorLine.id = `location-at-error-${id}`;
+  atErrorLine.dataset.atError = '';
+  atErrorLine.hidden = true;
+  atField.setAttribute('aria-describedby', atErrorLine.id);
   // The empty row at the end has nothing to remove or set options for. It
   // keeps the space for ✕ so the fields line up.
   remove.classList.toggle('invisible', setupLocation === null);
   more.hidden = setupLocation === null;
-  item.append(line, footer, options);
+  item.append(line, footer, atErrorLine, options);
   return item;
 }
 
@@ -395,7 +416,11 @@ function showRow(item, number) {
   // stays ticked, so it applies again if the tick is undone.
   const isMustVisit = Boolean(setupLocation?.isMustVisit && !setupLocation.isVisited);
   // Say what's set under More while it's closed.
-  const summary = [...(isMustVisit ? ['Must visit'] : []), ...(setupLocation?.points === undefined ? [] : [plural(setupLocation.points, 'point')])];
+  const summary = [
+    ...(isMustVisit ? ['Must visit'] : []),
+    ...(setupLocation?.points === undefined ? [] : [plural(setupLocation.points, 'point')]),
+    ...(setupLocation?.at === undefined ? [] : [`At ${setupLocation.at}`]),
+  ];
   more.textContent = ['More', ...summary].join(' · ');
   more.setAttribute('aria-label', [`More options for location ${number}`, ...summary.map((text) => text.toLowerCase())].join(', '));
   // Blank uses Points per location, which can change.
@@ -405,6 +430,13 @@ function showRow(item, number) {
   more.setAttribute('aria-expanded', String(isOpen));
   options.hidden = !isOpen;
   /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(setupLocation?.isMustVisit);
+  const atField = /** @type {HTMLInputElement} */ (options.querySelector('[data-field="at"]'));
+  atField.setAttribute('aria-label', `At, the fixed time for location ${number}`);
+  const atErrorText = setupLocation?.at === undefined ? null : atError(setupLocation.at, state.event);
+  const atErrorLine = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-at-error]'));
+  atField.setAttribute('aria-invalid', String(atErrorText !== null));
+  atErrorLine.textContent = atErrorText ?? '';
+  atErrorLine.hidden = atErrorText === null;
   const routeLocationResult = setupLocation ? routeLocationOf(setupLocation, number, state.searchResults) : { status: 'empty' };
   const description = describeRouteLocationResult(routeLocationResult);
   // Only rebuild the status when it changes, so a focused ✕ isn't replaced.
@@ -645,6 +677,28 @@ function savePoints({ item, setupLocation }, field) {
   }
 }
 
+/**
+ * Saves the time in a row's At field, or clears it when the field is
+ * blank. A time field's value is blank until a whole time is entered. A
+ * time outside the start time and deadline is still saved, since either
+ * can change, and the row says what's wrong with it.
+ *
+ * @param {{ item: HTMLLIElement, setupLocation: import('./locations.js').SetupLocation | null }} row The row.
+ * @param {HTMLInputElement} field Its At field.
+ */
+function saveAt({ item, setupLocation }, field) {
+  if (!setupLocation || (field.value || undefined) === setupLocation.at) {
+    return;
+  }
+  if (field.value === '') {
+    delete setupLocation.at;
+  } else {
+    setupLocation.at = field.value;
+  }
+  saveState(state);
+  showRow(item, state.setupLocations.indexOf(setupLocation) + 1);
+}
+
 locationRows.addEventListener('input', (event) => {
   const row = rowOf(event.target);
   if (!row || !(event.target instanceof HTMLInputElement)) {
@@ -652,6 +706,10 @@ locationRows.addEventListener('input', (event) => {
   }
   if (event.target.dataset.field === 'points') {
     savePoints(row, event.target);
+    return;
+  }
+  if (event.target.dataset.field === 'at') {
+    saveAt(row, event.target);
     return;
   }
   if (event.target.dataset.field !== 'text') {
