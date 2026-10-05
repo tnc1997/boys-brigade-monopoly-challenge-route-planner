@@ -432,7 +432,8 @@ function showRow(item, number) {
   /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(setupLocation?.isMustVisit);
   const atField = /** @type {HTMLInputElement} */ (options.querySelector('[data-field="at"]'));
   atField.setAttribute('aria-label', `At, the fixed time for location ${number}`);
-  const atErrorText = setupLocation?.at === undefined ? null : atError(setupLocation.at, state.event);
+  // Like Must visit, At no longer applies once the location's been visited.
+  const atErrorText = setupLocation?.at === undefined || setupLocation.isVisited ? null : atError(setupLocation.at, state.event);
   const atErrorLine = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-at-error]'));
   atField.setAttribute('aria-invalid', String(atErrorText !== null));
   atErrorLine.textContent = atErrorText ?? '';
