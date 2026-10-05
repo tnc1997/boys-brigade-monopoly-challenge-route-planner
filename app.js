@@ -679,15 +679,16 @@ function savePoints({ item, setupLocation }, field) {
 
 /**
  * Saves the time in a row's At field, or clears it when the field is
- * blank. A time field's value is blank until a whole time is entered. A
- * time outside the start time and deadline is still saved, since either
- * can change, and the row says what's wrong with it.
+ * blank. A time outside the start time and deadline is still saved,
+ * since either can change, and the row says what's wrong with it.
  *
  * @param {{ item: HTMLLIElement, setupLocation: import('./locations.js').SetupLocation | null }} row The row.
  * @param {HTMLInputElement} field Its At field.
  */
 function saveAt({ item, setupLocation }, field) {
-  if (!setupLocation || (field.value || undefined) === setupLocation.at) {
+  // A time field is also blank while it's partly filled in, which isn't a
+  // request to clear the time, so keep the saved one.
+  if (!setupLocation || field.validity.badInput || (field.value || undefined) === setupLocation.at) {
     return;
   }
   if (field.value === '') {
@@ -765,6 +766,16 @@ locationRows.addEventListener('change', (event) => {
   }
   if (event.target instanceof HTMLInputElement && event.target.dataset.field === 'text') {
     lookUpFinished(routeLocationOf(row.setupLocation, state.setupLocations.indexOf(row.setupLocation) + 1, state.searchResults));
+  }
+});
+
+// A partly filled in time isn't saved, so when its field is left, put back
+// the saved time. This can't wait for change, which a time field fires as
+// each part of the time is changed, before it's finished.
+locationRows.addEventListener('focusout', (event) => {
+  const row = rowOf(event.target);
+  if (row?.setupLocation && event.target instanceof HTMLInputElement && event.target.dataset.field === 'at' && event.target.validity.badInput) {
+    event.target.value = row.setupLocation.at ?? '';
   }
 });
 
