@@ -219,7 +219,7 @@ function saveField(field) {
   }
   // Each row's At is checked against the start time and deadline.
   if (key === 'startTime' || key === 'deadline') {
-    showRows();
+    showAtErrors();
   }
 }
 
@@ -430,14 +430,8 @@ function showRow(item, number) {
   more.setAttribute('aria-expanded', String(isOpen));
   options.hidden = !isOpen;
   /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(setupLocation?.isMustVisit);
-  const atField = /** @type {HTMLInputElement} */ (options.querySelector('[data-field="at"]'));
-  atField.setAttribute('aria-label', `At, the fixed time for location ${number}`);
-  // Like Must visit, At no longer applies once the location's been visited.
-  const atErrorText = setupLocation?.at === undefined || setupLocation.isVisited ? null : atError(setupLocation.at, state.event);
-  const atErrorLine = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-at-error]'));
-  atField.setAttribute('aria-invalid', String(atErrorText !== null));
-  atErrorLine.textContent = atErrorText ?? '';
-  atErrorLine.hidden = atErrorText === null;
+  /** @type {HTMLInputElement} */ (options.querySelector('[data-field="at"]')).setAttribute('aria-label', `At, the fixed time for location ${number}`);
+  showAtError(item, setupLocation);
   const routeLocationResult = setupLocation ? routeLocationOf(setupLocation, number, state.searchResults) : { status: 'empty' };
   const description = describeRouteLocationResult(routeLocationResult);
   // Only rebuild the status when it changes, so a focused ✕ isn't replaced.
@@ -453,6 +447,28 @@ function showRow(item, number) {
     clear.dataset.action = 'clear-pin';
     clear.setAttribute('aria-label', `Clear the pin for location ${number} and look it up instead`);
     status.append(clear);
+  }
+}
+
+/**
+ * Shows what's wrong with a row's At, if anything, under the row.
+ *
+ * @param {HTMLLIElement} item The row's list item.
+ * @param {import('./locations.js').SetupLocation | null} setupLocation The row, or `null` for the empty row at the end.
+ */
+function showAtError(item, setupLocation) {
+  // Like Must visit, At no longer applies once the location's been visited.
+  const error = setupLocation?.at === undefined || setupLocation.isVisited ? null : atError(setupLocation.at, state.event);
+  const errorLine = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-at-error]'));
+  /** @type {HTMLInputElement} */ (item.querySelector('[data-field="at"]')).setAttribute('aria-invalid', String(error !== null));
+  errorLine.textContent = error ?? '';
+  errorLine.hidden = error === null;
+}
+
+/** Shows what's wrong with each row's At, for a new start time or deadline, without redrawing the rest of the rows. */
+function showAtErrors() {
+  for (const item of /** @type {HTMLCollectionOf<HTMLLIElement>} */ (locationRows.children)) {
+    showAtError(item, state.setupLocations.find(({ id }) => id === item.dataset.id) ?? null);
   }
 }
 
