@@ -350,7 +350,7 @@ function rowItem(setupLocation) {
   mustVisitBox.type = 'checkbox';
   mustVisitBox.dataset.field = 'isMustVisit';
   mustVisit.append(mustVisitBox, 'Must visit');
-  const points = element('div', 'flex flex-col gap-1 pb-2');
+  const points = element('div', 'flex flex-col gap-1');
   const pointsLine = element('label', 'flex items-center gap-2 text-sm');
   const pointsField = element(
     'input',
