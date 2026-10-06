@@ -1002,23 +1002,11 @@ function stopItem(stop, isFinish, points) {
 
   const details = element('div', 'flex min-w-0 flex-1 flex-col gap-1');
   const title = element('p', 'font-medium break-words', stop.location.label);
-  const timing = element(
-    'p',
-    'text-sm text-muted',
-    `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk${stopPoints === undefined ? '' : ` · ${plural(stopPoints, 'point')}`}`,
-  );
+  // At a stop with an At, the team must be there then rather than take the
+  // selfie on arrival and leave early, so its At shows in place of the ETA.
+  const when = isFinish ? `Finish · arrive ${timeFormat.format(stop.arrivalTime)}` : stop.fixedTime !== null && !isDone ? `At ${timeFormat.format(stop.fixedTime)}` : `ETA ${timeFormat.format(stop.arrivalTime)}`;
+  const timing = element('p', 'text-sm text-muted', `${when} · ${formatDuration(stop.walkSeconds)} walk${stopPoints === undefined ? '' : ` · ${plural(stopPoints, 'point')}`}`);
   details.append(title, timing);
-  // At a stop with an At, the selfie waits until then, so the team mustn't
-  // take it on arrival.
-  if (stop.fixedTime !== null && !isDone) {
-    const at = timeFormat.format(stop.fixedTime);
-    // Compare the times as shown, to the minute, as the plan's warnings do.
-    const isLate = Math.floor(stop.arrivalTime / 60000) > Math.floor(stop.fixedTime / 60000);
-    const lateSeconds = (stop.arrivalTime - stop.fixedTime) / 1000;
-    const when = isLate ? `but you'd be ${formatDuration(lateSeconds)} late` : stop.waitSeconds > 0 ? `so wait ${formatDuration(stop.waitSeconds)}` : 'as soon as you arrive';
-    const text = `Selfie at ${at}, ${when}`;
-    details.append(element('p', `text-sm font-medium ${stop.isLateForAt ? 'text-danger' : 'text-accent-ink'}`, text));
-  }
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
     links.append(...(state.event.checkInFormUrl ? [checkInLink(stop.location, isDone)] : []), doneToggle(stop.location, isDone));
