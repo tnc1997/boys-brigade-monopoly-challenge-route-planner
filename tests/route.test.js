@@ -120,6 +120,32 @@ describe('describeRoute', () => {
     assert.deepEqual(skipped.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
   });
 
+  test("gives each stop its At, and whether it's reached the safety margin before it", () => {
+    const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '13:00' } : setupLocation));
+    const { stops } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));
+    const byLabel = new Map(stops.map((stop) => [stop.location.label, stop]));
+    assert.equal(byLabel.get('Old Kent Road').fixedTime, null);
+    assert.equal(byLabel.get('Old Kent Road').isLateForAt, false);
+    assert.equal(byLabel.get('Temple Meads').fixedTime, new Date(2026, 9, 3, 13, 0).getTime());
+    assert.equal(byLabel.get('Temple Meads').isLateForAt, false);
+  });
+
+  test('says a must-visit stop is late when it would be reached less than the safety margin before its At', () => {
+    // Temple Meads is a few minutes' walk away, so it's reached after 10:50,
+    // the 15-minute safety margin before 11:05.
+    const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '11:05', isMustVisit: true } : setupLocation));
+    const { stops } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));
+    assert.equal(stops.find(({ location }) => location.label === 'Temple Meads').isLateForAt, true);
+  });
+
+  test('compares a stop with its At to the minute, as times are shown', () => {
+    const plan = savedPlan({ startTime: '11:00' }, {}, pinnedRows().map((setupLocation) => ({ ...setupLocation, at: '13:00' })));
+    const atStops = (arrivalTimes) => describeRoute({ ...plan, order: [0], arrivalTimes }).stops[0].isLateForAt;
+    // The cut-off is 12:45, the 15-minute safety margin before 13:00.
+    assert.equal(atStops([new Date(2026, 9, 3, 12, 45, 30).getTime()]), false);
+    assert.equal(atStops([new Date(2026, 9, 3, 12, 46).getTime()]), true);
+  });
+
   test('lists the skipped locations with an At time apart', () => {
     const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '10:30' } : setupLocation));
     const { stops, skipped, skippedForAt } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));

@@ -135,7 +135,6 @@ describe('planFromSetup', () => {
     assert.ok(plan.arrivalTimes[position] <= new Date(2026, 9, 3, 12, 45).getTime());
     // The selfie is taken at 13:00, so the route can't end before 13:00 plus the selfie time.
     assert.ok(plan.endEta >= new Date(2026, 9, 3, 13, 0).getTime() + plan.settings.dwellSeconds * 1000);
-    assert.deepEqual(plan.lateForFixedTime, []);
     assert.deepEqual(plan.routeLocations.map(({ at }) => at), [undefined, '13:00']);
   });
 
@@ -146,11 +145,10 @@ describe('planFromSetup', () => {
     assert.deepEqual(plan.skipped, [1]);
   });
 
-  test("lists a must-visit location that can't be reached in time for its At time", () => {
+  test("visits a must-visit location that can't be reached in time for its At time", () => {
     const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '11:05', isMustVisit: true } : setupLocation));
     const { plan } = planFromSetup(setupWith({ startTime: '11:00', setupLocations }));
     assert.ok(plan.order.includes(1));
-    assert.deepEqual(plan.lateForFixedTime, [1]);
   });
 
   test('maps skipped locations back to their place in the list', () => {

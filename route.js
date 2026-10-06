@@ -1,4 +1,5 @@
 import { walkSeconds } from './planner.js';
+import { timeToday } from './setup.js';
 
 /**
  * A stop on the route, ready to show.
@@ -8,6 +9,8 @@ import { walkSeconds } from './planner.js';
  * @property {import('./locations.js').RouteLocation} location The location.
  * @property {number} arrivalTime When the team arrives, in milliseconds since the Unix epoch.
  * @property {number} walkSeconds How long the walk from the previous stop (or the start) takes, in seconds.
+ * @property {number | null} fixedTime The location's At, on the day of the plan, in milliseconds since the Unix epoch, or `null` if it doesn't have one.
+ * @property {boolean} isLateForAt Whether the team arrives less than the safety margin before the location's At, or after it, to the minute, as times are shown. Only a must-visit location can be, since planning skips any other location it can't reach in time.
  * @property {string} googleMapsDirectionsUrl A Google Maps URL with walking directions to the location.
  * @property {string} appleMapsDirectionsUrl An Apple Maps URL with walking directions to the location.
  */
@@ -113,14 +116,20 @@ export function formatDuration(seconds) {
  */
 export function describeRoute(plan) {
   const walkOptions = { speedKmh: plan.settings.speedKmh, detourFactor: plan.settings.detourFactor };
-  const stop = (number, location, previous, arrivalTime) => ({
-    number,
-    location,
-    arrivalTime,
-    walkSeconds: walkSeconds(previous, location, walkOptions),
-    googleMapsDirectionsUrl: googleMapsDirectionsUrl(location),
-    appleMapsDirectionsUrl: appleMapsDirectionsUrl(location),
-  });
+  const marginMs = plan.settings.safetyMarginSeconds * 1000;
+  const stop = (number, location, previous, arrivalTime) => {
+    const fixedTime = location.at === undefined ? null : timeToday(location.at, plan.startTime);
+    return {
+      number,
+      location,
+      arrivalTime,
+      walkSeconds: walkSeconds(previous, location, walkOptions),
+      fixedTime,
+      isLateForAt: fixedTime !== null && Math.floor(arrivalTime / 60000) > Math.floor((fixedTime - marginMs) / 60000),
+      googleMapsDirectionsUrl: googleMapsDirectionsUrl(location),
+      appleMapsDirectionsUrl: appleMapsDirectionsUrl(location),
+    };
+  };
 
   const stops = plan.order.map((index, position) =>
     stop(position + 1, plan.routeLocations[index], position === 0 ? plan.start : plan.routeLocations[plan.order[position - 1]], plan.arrivalTimes[position]),

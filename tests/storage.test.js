@@ -19,7 +19,6 @@ const memoryStorage = (initial = {}) => {
 const savedPlan = () => ({
   order: [0],
   skipped: [],
-  lateForFixedTime: [],
   arrivalTimes: [1],
   endEta: 2,
   spareSeconds: 3,
@@ -82,12 +81,6 @@ describe('storage', () => {
   test('drops a saved plan that keeps its route locations in points, as before they were renamed', () => {
     const { routeLocations, ...rest } = savedPlan();
     const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), plan: { ...rest, points: routeLocations } }) });
-    assert.equal(loadState(storage).plan, null);
-  });
-
-  test('drops a saved plan from before fixed times were planned', () => {
-    const { lateForFixedTime, ...rest } = savedPlan();
-    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), plan: rest }) });
     assert.equal(loadState(storage).plan, null);
   });
 

@@ -696,7 +696,6 @@ function insertCheapest(route, node, context) {
  * @property {number} spareSeconds Time left between `endEta` and the deadline minus the safety margin. Negative only when even the walk to the finish doesn't fit, or when `isMustVisitLate` is `true`.
  * @property {number[]} skipped Indexes into `locations` that aren't in `order`, in ascending order.
  * @property {boolean} isMustVisitLate Whether the must-visit locations alone don't fit before the deadline minus the safety margin, so the route is only those, in the shortest order found.
- * @property {number[]} lateForFixedTime Indexes into `locations` of the must-visit locations in `order` that the route reaches less than the safety margin before their fixed times, or after them, in visiting order.
  */
 
 /**
@@ -719,8 +718,8 @@ function insertCheapest(route, node, context) {
  * time can't be kept is skipped. Waiting counts towards the time a route
  * takes, so a route fills a wait with a nearby location where it can. A
  * must-visit location whose fixed time can't be kept is visited anyway, as
- * early as the planner can manage, and listed in `lateForFixedTime`. Other
- * routes may reach it no later than the must-visit locations alone do.
+ * early as the planner can manage. Other routes may reach it no later than
+ * the must-visit locations alone do.
  *
  * @param {PlanOptions} options The candidate locations and the settings to plan with.
  * @returns {Plan} The visiting order, the timings and the locations left out.
@@ -780,6 +779,5 @@ export function plan({ timeLimitMs = 200, ...options }) {
   });
   const visited = new Set(order);
   const skipped = options.locations.map((_, index) => index).filter((index) => !visited.has(index));
-  const lateForFixedTime = order.filter((_, position) => (arrivalTimes[position] - options.startTime) / 1000 > strictContext.latestSeconds[route[position]] + LATE_SECONDS);
-  return { order, arrivalTimes, endEta, spareSeconds, skipped, isMustVisitLate, lateForFixedTime };
+  return { order, arrivalTimes, endEta, spareSeconds, skipped, isMustVisitLate };
 }

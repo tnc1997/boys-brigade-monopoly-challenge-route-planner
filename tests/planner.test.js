@@ -876,7 +876,6 @@ describe('plan with fixed times', () => {
     assertTimeClose(planned.arrivalTimes[0], at(1000), 'arrives');
     // The selfie is taken at the fixed time, then the route ends.
     assertTimeClose(planned.endEta, at(3100), 'ends');
-    assert.deepEqual(planned.lateForFixedTime, []);
   });
 
   test('fills a wait with a nearby stop', () => {
@@ -915,7 +914,6 @@ describe('plan with fixed times', () => {
     const planned = plan(options(10000, { locations: [kmFrom(3), kmFrom(-0.5)], fixedTimes: [at(2000), null] }));
     assert.deepEqual(planned.order, [1]);
     assert.deepEqual(planned.skipped, [0]);
-    assert.deepEqual(planned.lateForFixedTime, []);
   });
 
   test('skips a location whose fixed time has passed', () => {
@@ -923,25 +921,13 @@ describe('plan with fixed times', () => {
     assert.deepEqual(planned.order, []);
   });
 
-  test("plans a must-visit location whose fixed time can't be kept, late, and says so", () => {
+  test("plans a must-visit location whose fixed time can't be kept, late", () => {
     const planned = plan(options(10000, { locations: [kmFrom(3), kmFrom(-0.5)], fixedTimes: [at(2000), null], mustVisit: [0] }));
     // Visiting the other location first would make it even later, so that's
     // only visited afterwards.
     assert.deepEqual(planned.order, [0, 1]);
     assertTimeClose(planned.arrivalTimes[0], at(3000), 'arrives');
-    assert.deepEqual(planned.lateForFixedTime, [0]);
     assert.equal(planned.isMustVisitLate, false);
-  });
-
-  test('says a must-visit location is late when it would be reached within the safety margin of its fixed time', () => {
-    // Reached at 1000 s, after the 900 s cut-off for its 1500 s fixed time.
-    const planned = plan(options(10000, { locations: [kmFrom(1)], fixedTimes: [at(1500)], mustVisit: [0] }));
-    assert.deepEqual(planned.lateForFixedTime, [0]);
-  });
-
-  test("doesn't say a must-visit location is late when its fixed time is kept", () => {
-    const planned = plan(options(10000, { locations: [kmFrom(1)], fixedTimes: [at(3000)], mustVisit: [0] }));
-    assert.deepEqual(planned.lateForFixedTime, []);
   });
 
   test('keeps two fixed times in order', () => {
@@ -966,11 +952,10 @@ describe('plan with fixed times', () => {
         assert.ok(planned.order.includes(index), `run ${run} leaves out must-visit location ${index}`);
       }
       for (const [position, index] of planned.order.entries()) {
-        if (fixedTimes[index] !== null && !planned.lateForFixedTime.includes(index)) {
+        if (fixedTimes[index] !== null && !mustVisit.includes(index)) {
           assert.ok(planned.arrivalTimes[position] <= fixedTimes[index] - 600_000 + 1, `run ${run} reaches location ${index} too late`);
         }
       }
-      assert.ok(planned.lateForFixedTime.every((index) => mustVisit.includes(index)), `run ${run} is late for a location that isn't a must-visit`);
       if (!planned.isMustVisitLate) {
         assert.ok(planned.spareSeconds >= 0, `run ${run} is over budget`);
       }

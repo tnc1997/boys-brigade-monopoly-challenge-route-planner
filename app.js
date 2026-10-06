@@ -1256,16 +1256,16 @@ function mustVisitLateText(plan) {
  * @param {import('./setup.js').SavedPlan} plan The plan.
  * @returns {string[]} The warnings, like "You'd reach Queen's Square at 13:12, after its 13:00 time."
  */
-function lateForFixedTimeTexts(plan) {
-  return plan.lateForFixedTime.map((index) => {
-    const fixedTime = timeToday(plan.routeLocations[index].at, plan.startTime);
-    const arrival = plan.arrivalTimes[plan.order.indexOf(index)];
-    // Compare the times as shown, to the minute, so the wording matches them.
-    const arrivalMinute = Math.floor(arrival / 60000);
-    const fixedMinute = Math.floor(fixedTime / 60000);
-    const when = arrivalMinute > fixedMinute ? 'after' : arrivalMinute === fixedMinute ? 'right at' : `less than ${plural(plan.settings.safetyMarginSeconds / 60, 'minute')} before`;
-    return `You'd reach ${plan.routeLocations[index].label} at ${timeFormat.format(arrival)}, ${when} its ${timeFormat.format(fixedTime)} time.`;
-  });
+function lateForAtTexts(plan) {
+  return describeRoute(plan)
+    .stops.filter(({ isLateForAt }) => isLateForAt)
+    .map(({ location, arrivalTime, fixedTime }) => {
+      // Compare the times as shown, to the minute, so the wording matches them.
+      const arrivalMinute = Math.floor(arrivalTime / 60000);
+      const fixedMinute = Math.floor(fixedTime / 60000);
+      const when = arrivalMinute > fixedMinute ? 'after' : arrivalMinute === fixedMinute ? 'right at' : `less than ${plural(plan.settings.safetyMarginSeconds / 60, 'minute')} before`;
+      return `You'd reach ${location.label} at ${timeFormat.format(arrivalTime)}, ${when} its ${timeFormat.format(fixedTime)} time.`;
+    });
 }
 
 /**
@@ -1276,7 +1276,7 @@ function lateForFixedTimeTexts(plan) {
  * @returns {string[]} The warnings, if any.
  */
 function planWarnings(plan) {
-  return [...(plan.isMustVisitLate ? [mustVisitLateText(plan)] : []), ...lateForFixedTimeTexts(plan)];
+  return [...(plan.isMustVisitLate ? [mustVisitLateText(plan)] : []), ...lateForAtTexts(plan)];
 }
 
 /**
