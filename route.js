@@ -19,7 +19,8 @@ import { walkSeconds } from './planner.js';
  * @property {RouteStop[]} stops The stops in visiting order.
  * @property {RouteStop | null} finish The walk to the finish, or `null` if there's no finish. Its `number` is 0.
  * @property {number} endEta When the route ends, in milliseconds since the Unix epoch.
- * @property {import('./locations.js').RouteLocation[]} skipped The locations that don't fit, in list order.
+ * @property {import('./locations.js').RouteLocation[]} skipped The locations that don't fit, in list order, other than those in `skippedForAt`.
+ * @property {import('./locations.js').RouteLocation[]} skippedForAt The locations with an At time that don't fit, since the route can't reach them in time, in list order.
  */
 
 /**
@@ -108,7 +109,7 @@ export function formatDuration(seconds) {
  * Describes a saved plan as stops to show, with walk times and directions URLs.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
- * @returns {RouteView} The stops, the walk to the finish, the end ETA and the skipped locations.
+ * @returns {RouteView} The stops, the walk to the finish, the end ETA and the skipped locations, with those skipped for their At times apart.
  */
 export function describeRoute(plan) {
   const walkOptions = { speedKmh: plan.settings.speedKmh, detourFactor: plan.settings.detourFactor };
@@ -130,7 +131,8 @@ export function describeRoute(plan) {
     stops,
     finish: plan.finish ? stop(0, plan.finish, last, plan.endEta) : null,
     endEta: plan.endEta,
-    skipped: plan.skipped.map((index) => plan.routeLocations[index]),
+    skipped: plan.skipped.filter((index) => plan.fixedTimes[index] === null).map((index) => plan.routeLocations[index]),
+    skippedForAt: plan.skipped.filter((index) => plan.fixedTimes[index] !== null).map((index) => plan.routeLocations[index]),
   };
 }
 
@@ -202,6 +204,9 @@ export function mapRoute(plan, visitedKeys, formatTime) {
   }
   for (const location of route.skipped) {
     markers.push({ kind: 'skipped', location, label: '', title: `${location.label}, skipped: not enough time` });
+  }
+  for (const location of route.skippedForAt) {
+    markers.push({ kind: 'skipped', location, label: '', title: `${location.label}, skipped: its At time can't be met` });
   }
 
   const path = [plan.start, ...route.stops.map(({ location }) => location), ...(route.finish ? [route.finish.location] : [])];

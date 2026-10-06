@@ -1116,11 +1116,16 @@ function showPlan({ isMapUnchanged = false } = {}) {
   }
   sections.push(stops);
 
-  if (route.skipped.length > 0) {
-    const heading = element('h3', 'mt-4 text-sm font-semibold', `Skipped (${route.skipped.length}): not enough time`);
-    const skipped = element('ul', 'mt-2 flex flex-col gap-1 text-sm text-muted');
-    skipped.append(...route.skipped.map((location) => element('li', '', location.label)));
-    sections.push(heading, skipped);
+  for (const [locations, reason] of [
+    [route.skipped, 'not enough time'],
+    [route.skippedForAt, "At time can't be met"],
+  ]) {
+    if (locations.length > 0) {
+      const heading = element('h3', 'mt-4 text-sm font-semibold', `Skipped (${locations.length}): ${reason}`);
+      const skipped = element('ul', 'mt-2 flex flex-col gap-1 text-sm text-muted');
+      skipped.append(...locations.map((location) => element('li', '', location.label)));
+      sections.push(heading, skipped);
+    }
   }
 
   // Done locations that aren't stops on this route (because it was planned

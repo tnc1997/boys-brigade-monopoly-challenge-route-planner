@@ -18,11 +18,11 @@ const pinnedRows = () => [
 
 const setupLocations = pinnedRows();
 
-const savedPlan = (event = {}, settings = {}) => {
+const savedPlan = (event = {}, settings = {}, locations = setupLocations) => {
   const state = defaultState();
   return planFromSetup({
     event: { ...state.event, ...event },
-    setupLocations,
+    setupLocations: locations,
     settings: { ...state.settings, ...settings },
     now,
   }).plan;
@@ -119,6 +119,14 @@ describe('describeRoute', () => {
     assert.equal(stops.length, 0);
     assert.deepEqual(skipped.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
   });
+
+  test('lists the skipped locations with an At time apart', () => {
+    const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '10:30' } : setupLocation));
+    const { stops, skipped, skippedForAt } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));
+    assert.deepEqual(stops.map(({ location }) => location.label), ['Old Kent Road']);
+    assert.deepEqual(skipped, []);
+    assert.deepEqual(skippedForAt.map(({ label }) => label), ['Temple Meads']);
+  });
 });
 
 describe('progress', () => {
@@ -186,6 +194,12 @@ describe('mapRoute', () => {
     const { markers, path } = mapRoute(plan, [], formatTime);
     assert.deepEqual(markers.filter(({ kind }) => kind === 'skipped').map(({ location }) => location.label), ['Old Kent Road', 'Temple Meads']);
     assert.deepEqual(path, [plan.start]);
+  });
+
+  test('says why a location with an At time is skipped', () => {
+    const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '10:30' } : setupLocation));
+    const { markers } = mapRoute(savedPlan({ startTime: '11:00' }, {}, locations), [], formatTime);
+    assert.deepEqual(markers.filter(({ kind }) => kind === 'skipped').map(({ title }) => title), ["Temple Meads, skipped: its At time can't be met"]);
   });
 });
 
