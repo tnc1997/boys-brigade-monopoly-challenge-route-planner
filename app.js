@@ -686,9 +686,9 @@ function savePoints({ item, setupLocation }, field) {
     pointsTimer = setTimeout(() => {
       showPlan({ isMapUnchanged: true });
       if (isReplanForPointsNeeded && state.plan) {
-        // Keep the warning that the must-visit locations don't fit in front.
-        const late = state.plan.isMustVisitLate ? `${mustVisitLateText(state.plan)} ` : '';
-        showPlanStatus(`${late}Press Re-plan from here to update the route with your new points.`, state.plan.isMustVisitLate);
+        // Keep any warnings about the must-visit locations in front.
+        const warnings = planWarnings(state.plan);
+        showPlanStatus([...warnings, 'Press Re-plan from here to update the route with your new points.'].join(' '), warnings.length > 0);
       }
     }, 250);
   }
@@ -719,6 +719,11 @@ function saveAt({ item, setupLocation }, field) {
   }
   saveState(state);
   showRow(item, state.setupLocations.indexOf(setupLocation) + 1);
+  // The route only changes when it's planned again, which only matters for
+  // a location still to visit.
+  if (state.plan && !setupLocation.isVisited) {
+    showPlanStatus('Press Re-plan from here to update the route with your new At times.');
+  }
 }
 
 locationRows.addEventListener('input', (event) => {
@@ -1236,8 +1241,36 @@ function mustVisitLateText(plan) {
 }
 
 /**
+ * Warns about each must-visit location the route reaches after its At
+ * time, or less than the safety margin before it.
+ *
+ * @param {import('./setup.js').SavedPlan} plan The plan.
+ * @returns {string[]} The warnings, like "You'd reach Queen's Square at 13:12, after its 13:00 time."
+ */
+function lateForFixedTimeTexts(plan) {
+  return plan.lateForFixedTime.map((index) => {
+    const fixedTime = plan.fixedTimes[index];
+    const arrival = plan.arrivalTimes[plan.order.indexOf(index)];
+    const when = arrival > fixedTime ? 'after' : `less than ${plural(plan.settings.safetyMarginSeconds / 60, 'minute')} before`;
+    return `You'd reach ${plan.routeLocations[index].label} at ${timeFormat.format(arrival)}, ${when} its ${timeFormat.format(fixedTime)} time.`;
+  });
+}
+
+/**
+ * Warns about any must-visit locations the route can't fit in, or reaches
+ * late for their At times.
+ *
+ * @param {import('./setup.js').SavedPlan} plan The plan.
+ * @returns {string[]} The warnings, if any.
+ */
+function planWarnings(plan) {
+  return [...(plan.isMustVisitLate ? [mustVisitLateText(plan)] : []), ...lateForFixedTimeTexts(plan)];
+}
+
+/**
  * Describes how planning went, including any rows that were left out
- * because they couldn't be found, and whether the must-visit rows fit.
+ * because they couldn't be found, and whether the must-visit rows fit and
+ * keep their At times.
  *
  * @param {import('./setup.js').SetupResult} setupResult The result of planning.
  * @returns {string} The message, like "Planned 22 stops."
@@ -1251,9 +1284,7 @@ function planResultText(setupResult) {
     const labels = setupResult.leftOut.map((routeLocationResult) => routeLocationResult.label);
     parts.push(`Left out because ${setupResult.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`);
   }
-  if (setupResult.plan.isMustVisitLate) {
-    parts.push(mustVisitLateText(setupResult.plan));
-  }
+  parts.push(...planWarnings(setupResult.plan));
   return parts.join(' ');
 }
 
@@ -1296,7 +1327,7 @@ async function planRoute(from) {
       searchResults: state.searchResults,
     });
     showSetupError(setupResult.error);
-    showPlanStatus(setupResult.plan ? planResultText(setupResult) : null, Boolean(setupResult.plan?.isMustVisitLate));
+    showPlanStatus(setupResult.plan ? planResultText(setupResult) : null, setupResult.plan !== null && planWarnings(setupResult.plan).length > 0);
     if (setupResult.plan) {
       // The route now uses the rows' points, so it no longer needs the
       // pending message to re-plan for them.
@@ -1364,7 +1395,8 @@ async function replanAndReport(position, successMessage) {
     if (error !== null) {
       showReplanStatus(error, true);
     } else {
-      showReplanStatus(`${successMessage()}${plan.isMustVisitLate ? ` ${mustVisitLateText(plan)}` : ''}`, plan.isMustVisitLate);
+      const warnings = planWarnings(plan);
+      showReplanStatus([successMessage(), ...warnings].join(' '), warnings.length > 0);
     }
   } catch {
     showReplanStatus("Re-planning didn't work. Try again.", true);

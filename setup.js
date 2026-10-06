@@ -10,6 +10,7 @@ import { SPEED_RANGE } from './settings.js';
  *
  * @typedef {import('./planner.js').Plan & {
  *   routeLocations: import('./locations.js').RouteLocation[],
+ *   fixedTimes: (number | null)[],
  *   start: import('./locations.js').RouteLocation,
  *   finish: import('./locations.js').RouteLocation | null,
  *   startTime: number,
@@ -17,6 +18,8 @@ import { SPEED_RANGE } from './settings.js';
  *   settings: Pick<import('./storage.js').Settings, 'speedKmh' | 'detourFactor' | 'dwellSeconds' | 'safetyMarginSeconds'>,
  *   isFromPosition: boolean,
  * }} SavedPlan
+ * `fixedTimes` is when the team had to be at each of `routeLocations`, in
+ * milliseconds since the Unix epoch, or `null` for one without an At time.
  * `isFromPosition` is whether the plan was made with Re-plan from here.
  */
 
@@ -78,7 +81,10 @@ export function timeToday(time, now) {
  * doesn't say. Locations whose selfie is done are kept in the plan's `routeLocations`
  * but left out of the route. Must-visit locations still to visit are always
  * in the route, and the plan's `isMustVisitLate` says when they don't all fit
- * before the deadline minus the safety margin.
+ * before the deadline minus the safety margin. A location with an At time
+ * is only visited at that time, on the day of `now`, except a must-visit
+ * one, which is visited late if it has to be and listed in the plan's
+ * `lateForFixedTime`.
  *
  * To re-plan during the challenge, pass the team's position as `from`: the
  * route then starts there and now, instead of at the Start field and start
@@ -147,11 +153,14 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
   // has already been visited.
   const mustVisitKeys = new Set(setupLocations.filter(({ isMustVisit }) => isMustVisit).map(({ id }) => id));
   const pointsByKey = pointsById(setupLocations, event.pointsPerLocation);
+  const atByKey = new Map(setupLocations.flatMap(({ id, at }) => (at === undefined ? [] : [[id, at]])));
+  const fixedTimes = usable.map(({ key }) => (atByKey.has(key) ? timeToday(atByKey.get(key), now) : null));
   const planned = plan({
     start: start.routeLocation,
     locations: remaining.map(({ routeLocation }) => routeLocation),
     points: remaining.map(({ routeLocation }) => pointsByKey.get(routeLocation.key)),
     mustVisit: remaining.flatMap(({ routeLocation }, index) => (mustVisitKeys.has(routeLocation.key) ? [index] : [])),
+    fixedTimes: remaining.map(({ index }) => fixedTimes[index]),
     finish: finish?.routeLocation ?? null,
     startTime,
     deadline,
@@ -164,7 +173,9 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
       ...planned,
       order: planned.order.map(toRouteLocationIndex),
       skipped: planned.skipped.map(toRouteLocationIndex),
+      lateForFixedTime: planned.lateForFixedTime.map(toRouteLocationIndex),
       routeLocations: usable,
+      fixedTimes,
       start: start.routeLocation,
       finish: finish?.routeLocation ?? null,
       startTime,

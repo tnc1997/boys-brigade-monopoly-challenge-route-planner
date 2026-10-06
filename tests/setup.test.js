@@ -127,6 +127,32 @@ describe('planFromSetup', () => {
     assert.equal(plan.isMustVisitLate, false);
   });
 
+  test('plans a location with an At time to arrive the safety margin before it, then waits', () => {
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '13:00' } : setupLocation));
+    const { plan } = planFromSetup(setupWith({ startTime: '11:00', setupLocations }));
+    const position = plan.order.indexOf(1);
+    assert.notEqual(position, -1);
+    assert.ok(plan.arrivalTimes[position] <= new Date(2026, 9, 3, 12, 45).getTime());
+    // The selfie is taken at 13:00, so the route can't end before 13:00 plus the selfie time.
+    assert.ok(plan.endEta >= new Date(2026, 9, 3, 13, 0).getTime() + plan.settings.dwellSeconds * 1000);
+    assert.deepEqual(plan.lateForFixedTime, []);
+    assert.deepEqual(plan.fixedTimes, [null, new Date(2026, 9, 3, 13, 0).getTime()]);
+  });
+
+  test('skips a location whose At time has passed', () => {
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '10:30' } : setupLocation));
+    const { plan } = planFromSetup(setupWith({ startTime: '11:00', setupLocations }));
+    assert.deepEqual(plan.order, [0]);
+    assert.deepEqual(plan.skipped, [1]);
+  });
+
+  test("lists a must-visit location that can't be reached in time for its At time", () => {
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '11:05', isMustVisit: true } : setupLocation));
+    const { plan } = planFromSetup(setupWith({ startTime: '11:00', setupLocations }));
+    assert.ok(plan.order.includes(1));
+    assert.deepEqual(plan.lateForFixedTime, [1]);
+  });
+
   test('maps skipped locations back to their place in the list', () => {
     const { plan: firstPlan } = planFromSetup(setupWith());
     const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === firstPlan.routeLocations[0].key ? { ...setupLocation, isVisited: true } : setupLocation));
