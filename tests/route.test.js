@@ -158,6 +158,22 @@ describe('describeRoute', () => {
     assert.equal(atStops([new Date(2026, 9, 3, 12, 46).getTime()]), true);
   });
 
+  test('lists a skipped location whose At could be met as skipped for lack of time', () => {
+    const plan = savedPlan({ startTime: '11:00' });
+    const withAt = (at) => ({
+      ...plan,
+      order: [0],
+      skipped: [1],
+      routeLocations: plan.routeLocations.map((routeLocation, index) => (index === 1 ? { ...routeLocation, at } : routeLocation)),
+    });
+    // Temple Meads is a few minutes' walk from the start, so 13:00 can be met,
+    // but 11:05 can't, and nor can 15:50, since its selfie would end inside
+    // the safety margin before the deadline.
+    assert.deepEqual(describeRoute(withAt('13:00')).skipped.map(({ label }) => label), ['Temple Meads']);
+    assert.deepEqual(describeRoute(withAt('11:05')).skippedForAt.map(({ label }) => label), ['Temple Meads']);
+    assert.deepEqual(describeRoute(withAt('15:50')).skippedForAt.map(({ label }) => label), ['Temple Meads']);
+  });
+
   test('lists the skipped locations with an At time apart', () => {
     const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '10:30' } : setupLocation));
     const { stops, skipped, skippedForAt } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));

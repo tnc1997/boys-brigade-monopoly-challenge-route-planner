@@ -24,7 +24,7 @@ import { timeToday } from './setup.js';
  * @property {RouteStop | null} finish The walk to the finish, or `null` if there's no finish. Its `number` is 0.
  * @property {number} endEta When the route ends, in milliseconds since the Unix epoch.
  * @property {import('./locations.js').RouteLocation[]} skipped The locations that don't fit, in list order, other than those in `skippedForAt`.
- * @property {import('./locations.js').RouteLocation[]} skippedForAt The locations with an At time that don't fit, since the route can't reach them in time, in list order.
+ * @property {import('./locations.js').RouteLocation[]} skippedForAt The locations whose At can't be met at all, in list order: even walking straight there from the start doesn't reach one the safety margin before its At, or its selfie can't be done by the safety margin before the deadline.
  */
 
 /**
@@ -137,13 +137,23 @@ export function describeRoute(plan) {
     stop(position + 1, plan.routeLocations[index], position === 0 ? plan.start : plan.routeLocations[plan.order[position - 1]], plan.arrivalTimes[position]),
   );
   const last = stops.length === 0 ? plan.start : stops[stops.length - 1].location;
+  // A location skipped for lack of time may still have an At that could
+  // be met, so only those whose At can't be met at all are told apart.
+  const isAtUnmeetable = (location) => {
+    if (location.at === undefined) {
+      return false;
+    }
+    const fixedTime = timeToday(location.at, plan.startTime);
+    const earliestArrival = plan.startTime + walkSeconds(plan.start, location, walkOptions) * 1000;
+    return earliestArrival > fixedTime - marginMs || fixedTime + plan.settings.dwellSeconds * 1000 > plan.deadline - marginMs;
+  };
 
   return {
     stops,
     finish: plan.finish ? stop(0, plan.finish, last, plan.endEta) : null,
     endEta: plan.endEta,
-    skipped: plan.skipped.map((index) => plan.routeLocations[index]).filter(({ at }) => at === undefined),
-    skippedForAt: plan.skipped.map((index) => plan.routeLocations[index]).filter(({ at }) => at !== undefined),
+    skipped: plan.skipped.map((index) => plan.routeLocations[index]).filter((location) => !isAtUnmeetable(location)),
+    skippedForAt: plan.skipped.map((index) => plan.routeLocations[index]).filter(isAtUnmeetable),
   };
 }
 
