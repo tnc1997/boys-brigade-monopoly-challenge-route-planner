@@ -432,7 +432,7 @@ const locationNodes = ({ locationCount }) => Array.from({ length: locationCount 
  * @param {number} node The location node to add.
  * @param {RouteContext} context The walking times and limits.
  * @param {RouteTiming} [timing] The route's timings, if already worked out.
- * @returns {{ position: number, addedSeconds: number, walkSeconds: number, lateSeconds: number }} Where to add it, as an index into `route`, the time and walking it adds, and how much later than allowed it makes the route for its fixed times.
+ * @returns {{ position: number, added: Timing }} Where to add it, as an index into `route`, and the time and walking it adds, and how much later than allowed it makes the route for its fixed times.
  */
 function cheapestInsertion(route, node, context, timing = routeTiming(route, context)) {
   const { walk, startNode, finishNode, dwellSeconds, fixedSeconds, latestSeconds } = context;
@@ -468,8 +468,9 @@ function cheapestInsertion(route, node, context, timing = routeTiming(route, con
       }
       addedSeconds = delay;
     }
-    if (best === null || isQuicker({ seconds: addedSeconds, walkSeconds, lateSeconds }, { seconds: best.addedSeconds, walkSeconds: best.walkSeconds, lateSeconds: best.lateSeconds })) {
-      best = { position, addedSeconds, walkSeconds, lateSeconds };
+    const added = { seconds: addedSeconds, walkSeconds, lateSeconds };
+    if (best === null || isQuicker(added, best.added)) {
+      best = { position, added };
     }
   }
   return best;
@@ -504,15 +505,16 @@ function insertGreedily(route, context, { candidates = locationNodes(context), b
     let best = null;
     for (const node of unvisited) {
       const insertion = cheapestInsertion(extended, node, context, timing);
-      if (timing.seconds + insertion.addedSeconds > budgetSeconds || (!isLateAllowed && insertion.lateSeconds > LATE_SECONDS)) {
+      const { added } = insertion;
+      if (timing.seconds + added.seconds > budgetSeconds || (!isLateAllowed && added.lateSeconds > LATE_SECONDS)) {
         continue;
       }
-      const pointsPerSecond = context.points[node] / Math.max(insertion.addedSeconds, MIN_ADDED_SECONDS);
+      const pointsPerSecond = context.points[node] / Math.max(added.seconds, MIN_ADDED_SECONDS);
       if (
         best === null ||
-        insertion.lateSeconds < best.lateSeconds - LATE_SECONDS ||
-        (insertion.lateSeconds <= best.lateSeconds + LATE_SECONDS &&
-          (pointsPerSecond > best.pointsPerSecond || (pointsPerSecond === best.pointsPerSecond && isQuicker({ ...insertion, seconds: insertion.addedSeconds, lateSeconds: 0 }, { ...best, seconds: best.addedSeconds, lateSeconds: 0 }))))
+        added.lateSeconds < best.added.lateSeconds - LATE_SECONDS ||
+        (added.lateSeconds <= best.added.lateSeconds + LATE_SECONDS &&
+          (pointsPerSecond > best.pointsPerSecond || (pointsPerSecond === best.pointsPerSecond && isQuicker(added, best.added))))
       ) {
         best = { node, pointsPerSecond, ...insertion };
       }
