@@ -1012,8 +1012,11 @@ function stopItem(stop, isFinish, points) {
   // take it on arrival.
   if (stop.fixedTime !== null && !isDone) {
     const at = timeFormat.format(stop.fixedTime);
+    // Compare the times as shown, to the minute, as the plan's warnings do.
+    const isLate = Math.floor(stop.arrivalTime / 60000) > Math.floor(stop.fixedTime / 60000);
     const lateSeconds = (stop.arrivalTime - stop.fixedTime) / 1000;
-    const text = stop.waitSeconds > 0 ? `Selfie at ${at}, so wait ${formatDuration(stop.waitSeconds)}` : `Selfie at ${at}, but you'd be ${formatDuration(lateSeconds)} late`;
+    const when = isLate ? `but you'd be ${formatDuration(lateSeconds)} late` : stop.waitSeconds > 0 ? `so wait ${formatDuration(stop.waitSeconds)}` : 'as soon as you arrive';
+    const text = `Selfie at ${at}, ${when}`;
     details.append(element('p', `text-sm font-medium ${stop.isLateForAt ? 'text-danger' : 'text-accent-ink'}`, text));
   }
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
