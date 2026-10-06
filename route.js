@@ -332,7 +332,7 @@ export function timeWarning(plan, visitedKeys, now) {
   // would reach one too late for its At, and how late they'd be at the end.
   // A stop already planned late for its At has been warned about.
   let delayMs = behindMs;
-  let missedAt = next !== -1 && stops[next].fixedTime !== null && !stops[next].isLateForAt && behindMs > 0 ? stops[next] : null;
+  let missedAt = next !== -1 && stops[next].fixedTime !== null && !stops[next].isLateForAt && behindMs > 0 ? { stop: stops[next], arrivalTime: now } : null;
   for (const stop of next === -1 ? [] : stops.slice(next + 1)) {
     if (delayMs <= 0) {
       break;
@@ -342,7 +342,7 @@ export function timeWarning(plan, visitedKeys, now) {
     }
     const arrivalTime = stop.arrivalTime + delayMs;
     if (missedAt === null && !stop.isLateForAt && arrivalTime > stop.fixedTime - marginMs) {
-      missedAt = stop;
+      missedAt = { stop, arrivalTime };
     }
     delayMs = Math.max(arrivalTime, stop.fixedTime) - Math.max(stop.arrivalTime, stop.fixedTime);
   }
@@ -372,13 +372,28 @@ export function timeWarning(plan, visitedKeys, now) {
     const message = plan.finish ? `Head to the finish now: ${time}.` : `Last few selfies, time's nearly up: ${time}.`;
     return { kind: 'short', message, minutesLeft, minutesBehind };
   }
-  const risk = missedAt ? `you may not reach ${missedAt.location.label} in time for its ${missedAt.location.at} At` : 'the route may not fit';
   return {
     kind: 'late',
-    message: `Running ${plural(minutesBehind, 'minute')} behind plan, so ${risk}. Re-plan from here to see what still fits.`,
+    message: `Running ${plural(minutesBehind, 'minute')} behind plan, so ${missedAt ? atRisk(missedAt, stops[next], marginMs) : 'the route may not fit'}. Re-plan from here to see what still fits.`,
     minutesLeft,
     minutesBehind,
   };
+}
+
+/**
+ * Says how being late puts a stop's At at risk, for the running-late warning.
+ *
+ * @param {{ stop: RouteStop, arrivalTime: number }} missedAt The stop, and when the team would reach it.
+ * @param {RouteStop} next The first stop that isn't done yet.
+ * @param {number} marginMs The safety margin, in milliseconds.
+ * @returns {string} What's at risk, like `you'd reach Temple Meads after its 12:40 At`.
+ */
+function atRisk({ stop, arrivalTime }, next, marginMs) {
+  const { label, at } = stop.location;
+  if (stop === next) {
+    return `you're late for the ${at} At at ${label}`;
+  }
+  return arrivalTime > stop.fixedTime ? `you'd reach ${label} after its ${at} At` : `you'd reach ${label} less than ${plural(marginMs / 60000, 'minute')} before its ${at} At`;
 }
 
 /**
