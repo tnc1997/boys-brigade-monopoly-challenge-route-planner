@@ -207,7 +207,7 @@ export function mapRoute(plan, visitedKeys, formatTime) {
       kind: isDone ? 'done' : 'stop',
       location,
       label: String(number),
-      title: `${number}. ${location.label}, ETA ${formatTime(arrivalTime)}${fixedTime === null ? '' : `, selfie at ${formatTime(fixedTime)}`}${isDone ? ', selfie done' : ''}`,
+      title: `${number}. ${location.label}, ETA ${formatTime(arrivalTime)}${fixedTime === null || isDone ? '' : `, selfie at ${formatTime(fixedTime)}`}${isDone ? ', selfie done' : ''}`,
     });
   }
   for (const location of plan.routeLocations) {

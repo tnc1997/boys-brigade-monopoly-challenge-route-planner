@@ -254,6 +254,8 @@ describe('mapRoute', () => {
     const { markers } = mapRoute(savedPlan({ startTime: '11:00' }, {}, locations), [], formatTime);
     const title = markers.find(({ location }) => location.label === 'Temple Meads').title;
     assert.ok(title.endsWith(`, selfie at ${formatTime(new Date(2026, 9, 3, 13, 0).getTime())}`), title);
+    const doneTitle = mapRoute(savedPlan({ startTime: '11:00' }, {}, locations), ['b'], formatTime).markers.find(({ location }) => location.label === 'Temple Meads').title;
+    assert.ok(doneTitle.endsWith(', selfie done') && !doneTitle.includes('selfie at'), doneTitle);
   });
 
   test('says why a location with an At time is skipped', () => {
