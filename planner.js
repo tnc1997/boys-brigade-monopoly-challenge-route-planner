@@ -282,6 +282,8 @@ const LATE_SECONDS = 1e-6;
  * @property {number} seconds How long the route takes, from the start to the finish (or the last selfie if there's no finish), including waits.
  * @property {number} walkSeconds How much of that is spent walking.
  * @property {number} lateSeconds How much later than allowed the route reaches its stops with fixed times, in total. 0 when it keeps them all.
+ * @property {number[]} walkSecondsBefore How much walking there is before reaching each stop.
+ * @property {number[]} lateSecondsBefore How much later than allowed the route is for the stops before each stop, in total.
  */
 
 /**
@@ -296,11 +298,15 @@ function routeTiming(route, { walk, startNode, finishNode, dwellSeconds, fixedSe
   const arrivals = [];
   const departures = [];
   const fixedPositions = [];
+  const walkSecondsBefore = [];
+  const lateSecondsBefore = [];
   let lateSeconds = 0;
   let walkSeconds = 0;
   let time = 0;
   let previous = startNode;
   for (const [position, node] of route.entries()) {
+    walkSecondsBefore.push(walkSeconds);
+    lateSecondsBefore.push(lateSeconds);
     time += walk[previous][node];
     walkSeconds += walk[previous][node];
     arrivals.push(time);
@@ -314,7 +320,49 @@ function routeTiming(route, { walk, startNode, finishNode, dwellSeconds, fixedSe
     previous = node;
   }
   const finishWalkSeconds = finishNode === null ? 0 : walk[previous][finishNode];
-  return { arrivals, departures, fixedPositions, seconds: time + finishWalkSeconds, walkSeconds: walkSeconds + finishWalkSeconds, lateSeconds };
+  return {
+    arrivals,
+    departures,
+    fixedPositions,
+    seconds: time + finishWalkSeconds,
+    walkSeconds: walkSeconds + finishWalkSeconds,
+    lateSeconds,
+    walkSecondsBefore,
+    lateSecondsBefore,
+  };
+}
+
+/**
+ * Works out how long a route would take, how much of that is walking and
+ * how late it would be for its fixed times, with a section reversed. The
+ * stops before the section are reached at the same times, so only the
+ * section and the stops after it are stepped through.
+ *
+ * @param {number[]} route Location nodes in visiting order.
+ * @param {number} i Where the section starts, as an index into `route`.
+ * @param {number} j Where the section ends, as an index into `route`.
+ * @param {RouteContext} context The walking times and limits.
+ * @param {RouteTiming} timing The route's timings.
+ * @returns {Timing} The time taken, walking and lateness with the section reversed.
+ */
+function reversedTiming(route, i, j, { walk, startNode, finishNode, dwellSeconds, fixedSeconds, latestSeconds }, timing) {
+  let lateSeconds = timing.lateSecondsBefore[i];
+  let walkSeconds = timing.walkSecondsBefore[i];
+  let time = i === 0 ? 0 : timing.departures[i - 1];
+  let previous = i === 0 ? startNode : route[i - 1];
+  for (let position = i; position < route.length; position += 1) {
+    const node = position <= j ? route[i + j - position] : route[position];
+    time += walk[previous][node];
+    walkSeconds += walk[previous][node];
+    if (fixedSeconds[node] !== null) {
+      lateSeconds += Math.max(0, time - latestSeconds[node]);
+      time = Math.max(time, fixedSeconds[node]);
+    }
+    time += dwellSeconds;
+    previous = node;
+  }
+  const finishWalkSeconds = finishNode === null ? 0 : walk[previous][finishNode];
+  return { seconds: time + finishWalkSeconds, walkSeconds: walkSeconds + finishWalkSeconds, lateSeconds };
 }
 
 /**
@@ -485,8 +533,8 @@ const IMPROVEMENT_SECONDS = 1e-6;
  * Improves a route with 2-opt. Walking times are the same in both
  * directions, so reversing a section only changes the walks at its two ends.
  * With a fixed time in the route, it also changes the waits after it, so
- * each reversal is timed in full instead, and only kept if it's no later
- * for the fixed times.
+ * the route from the start of each reversal is stepped through instead, and
+ * the reversal is only kept if it's no later for the fixed times.
  *
  * @param {number[]} route Location nodes in visiting order. This isn't changed.
  * @param {RouteContext} context The walking times and limits.
@@ -503,11 +551,9 @@ function twoOpt(route, context) {
     for (let i = 0; i < shortened.length - 1; i += 1) {
       for (let j = i + 1; j < shortened.length; j += 1) {
         if (hasFixedTimes) {
-          const reversed = [...shortened.slice(0, i), ...shortened.slice(i, j + 1).reverse(), ...shortened.slice(j + 1)];
-          const reversedTiming = routeTiming(reversed, context);
-          if (isQuicker(reversedTiming, timing)) {
-            shortened.splice(0, shortened.length, ...reversed);
-            timing = reversedTiming;
+          if (isQuicker(reversedTiming(shortened, i, j, context, timing), timing)) {
+            shortened.splice(i, j - i + 1, ...shortened.slice(i, j + 1).reverse());
+            timing = routeTiming(shortened, context);
             isImproved = true;
           }
           continue;
