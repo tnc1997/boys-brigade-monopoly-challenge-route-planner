@@ -720,9 +720,11 @@ function saveAt({ item, setupLocation }, field) {
   saveState(state);
   showRow(item, state.setupLocations.indexOf(setupLocation) + 1);
   // The route only changes when it's planned again, which only matters for
-  // a location still to visit.
-  if (state.plan && !setupLocation.isVisited) {
-    showPlanStatus('Press Re-plan from here to update the route with your new At times.');
+  // a location in the plan still to visit. Keep any warnings about the
+  // must-visit locations in front.
+  if (state.plan && !setupLocation.isVisited && state.plan.routeLocations.some(({ key }) => key === setupLocation.id)) {
+    const warnings = planWarnings(state.plan);
+    showPlanStatus([...warnings, 'Press Re-plan from here to update the route with your new At times.'].join(' '), warnings.length > 0);
   }
 }
 
