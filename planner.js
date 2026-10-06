@@ -149,8 +149,8 @@ export function evaluateRoute({
  * order, in milliseconds since the Unix epoch, or `null` for a location
  * without a fixed time (none by default). A route must reach each of them
  * at least the safety margin before its fixed time, then waits until that
- * time. A must-visit location whose fixed time can't be met is still
- * visited, as early as the planner can manage.
+ * time. A location whose fixed time can't be met is skipped, even a
+ * must-visit one.
  * `timeLimitMs` limits how long {@link plan} spends improving the route,
  * in milliseconds (200 by default).
  *
@@ -214,7 +214,7 @@ export function improveWithTwoOpt(options, order) {
  * @property {number[]} points What each node is worth. Only location nodes are worth anything.
  * @property {Set<number>} mustVisitNodes Location nodes that every route must include.
  * @property {(number | null)[]} fixedSeconds When the team must be at each node, in seconds after the start time, or `null` for a node without a fixed time.
- * @property {number[]} latestSeconds The latest the team may reach each node with a fixed time, in seconds after the start time: the safety margin before its fixed time, unless {@link plan} has allowed a must-visit location to be late.
+ * @property {number[]} latestSeconds The latest the team may reach each node with a fixed time, in seconds after the start time: the safety margin before its fixed time.
  * @property {number} dwellSeconds Time spent at each stop taking the selfie, in seconds.
  * @property {number} budgetSeconds Time available for the route, in seconds.
  */
@@ -493,10 +493,9 @@ const MIN_ADDED_SECONDS = 1e-9;
  * @param {object} [options] Which locations to add, and the budget.
  * @param {number[]} [options.candidates] Location nodes that may be added, in order. Defaults to every location.
  * @param {number} [options.budgetSeconds] The time the route must fit in. Defaults to the context's.
- * @param {boolean} [options.isLateAllowed=false] Whether locations may be added that make the route later than allowed for its fixed times, those that make it least late first.
  * @returns {number[]} The route with the locations that fit added.
  */
-function insertGreedily(route, context, { candidates = locationNodes(context), budgetSeconds = context.budgetSeconds, isLateAllowed = false } = {}) {
+function insertGreedily(route, context, { candidates = locationNodes(context), budgetSeconds = context.budgetSeconds } = {}) {
   const extended = [...route];
   const unvisited = new Set(candidates.filter((node) => !extended.includes(node)));
 
@@ -506,16 +505,11 @@ function insertGreedily(route, context, { candidates = locationNodes(context), b
     for (const node of unvisited) {
       const insertion = cheapestInsertion(extended, node, context, timing);
       const { added } = insertion;
-      if (timing.seconds + added.seconds > budgetSeconds || (!isLateAllowed && added.lateSeconds > LATE_SECONDS)) {
+      if (timing.seconds + added.seconds > budgetSeconds || added.lateSeconds > LATE_SECONDS) {
         continue;
       }
       const pointsPerSecond = context.points[node] / Math.max(added.seconds, MIN_ADDED_SECONDS);
-      if (
-        best === null ||
-        added.lateSeconds < best.added.lateSeconds - LATE_SECONDS ||
-        (added.lateSeconds <= best.added.lateSeconds + LATE_SECONDS &&
-          (pointsPerSecond > best.pointsPerSecond || (pointsPerSecond === best.pointsPerSecond && isQuicker(added, best.added))))
-      ) {
+      if (best === null || pointsPerSecond > best.pointsPerSecond || (pointsPerSecond === best.pointsPerSecond && isQuicker(added, best.added))) {
         best = { node, pointsPerSecond, ...insertion };
       }
     }
@@ -658,21 +652,77 @@ function improveRoute(route, context, stopAt) {
 }
 
 /**
- * Builds the route that every route the planner considers starts from: every
- * must-visit location, each added where it adds the least time, then shortened
- * with 2-opt. It may not fit the time budget, nor keep every fixed time, in
- * which case it's as little late for them as the planner can manage. Every
- * must-visit location is included whatever it's worth, so points don't
- * change the route.
+ * Chooses which must-visit locations with fixed times to keep, when they
+ * can't all be met: those that earn the most points, then the most of them,
+ * then those with the least walking between them. Only those whose selfie
+ * can be done by the end of the time budget are considered. A location
+ * with a fixed time is always left at that time plus the selfie time, since
+ * it's reached before its fixed time, so stops with fixed times must be in
+ * time order, and whether one can follow another doesn't depend on the
+ * stops before it. That makes it a longest path through them in time order,
+ * found exactly by stepping through them once for each.
+ *
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {number[]} The must-visit location nodes with fixed times to keep, in time order.
+ */
+function fixedMustVisitNodes(context) {
+  const { walk, startNode, points, mustVisitNodes, fixedSeconds, latestSeconds, dwellSeconds, budgetSeconds } = context;
+  const nodes = [...mustVisitNodes]
+    .filter((node) => fixedSeconds[node] !== null && fixedSeconds[node] + dwellSeconds <= budgetSeconds + LATE_SECONDS)
+    .sort((a, b) => fixedSeconds[a] - fixedSeconds[b] || a - b);
+  // The best chain of stops ending at each node: its points, how many stops,
+  // its walking, and the node before it, as an index into `nodes`.
+  const isBetter = (candidate, current) =>
+    current === null ||
+    candidate.points > current.points ||
+    (candidate.points === current.points &&
+      (candidate.count > current.count || (candidate.count === current.count && candidate.walkSeconds < current.walkSeconds - IMPROVEMENT_SECONDS)));
+  const chains = [];
+  for (const [i, node] of nodes.entries()) {
+    let best = walk[startNode][node] <= latestSeconds[node] + LATE_SECONDS ? { points: points[node], count: 1, walkSeconds: walk[startNode][node], previous: -1 } : null;
+    for (let j = 0; j < i; j += 1) {
+      const before = nodes[j];
+      if (chains[j] === null || fixedSeconds[before] + dwellSeconds + walk[before][node] > latestSeconds[node] + LATE_SECONDS) {
+        continue;
+      }
+      const candidate = { points: chains[j].points + points[node], count: chains[j].count + 1, walkSeconds: chains[j].walkSeconds + walk[before][node], previous: j };
+      if (isBetter(candidate, best)) {
+        best = candidate;
+      }
+    }
+    chains.push(best);
+  }
+  let last = -1;
+  for (const [i, chain] of chains.entries()) {
+    if (chain !== null && (last === -1 || isBetter(chain, chains[last]))) {
+      last = i;
+    }
+  }
+  const kept = [];
+  for (let i = last; i !== -1; i = chains[i].previous) {
+    kept.unshift(nodes[i]);
+  }
+  return kept;
+}
+
+/**
+ * Builds the route that every route the planner considers starts from: the
+ * must-visit locations, then shortened with 2-opt. It may not fit the time
+ * budget, but it keeps every fixed time, so a must-visit location whose
+ * fixed time can't be met is left out, and where fixed times clash, those
+ * chosen by {@link fixedMustVisitNodes} are kept. The rest can always be
+ * added on time, at the end if nowhere else, and are each added where they
+ * add the least time, whatever they're worth, so points don't change where
+ * they go.
  *
  * @param {RouteContext} context The walking times and limits.
  * @returns {number[]} The must-visit location nodes, in visiting order.
  */
 function mustVisitRoute(context) {
-  const candidates = locationNodes(context).filter((node) => context.mustVisitNodes.has(node));
+  const candidates = locationNodes(context).filter((node) => context.mustVisitNodes.has(node) && context.fixedSeconds[node] === null);
   // With every location worth the same, greedy insertion adds the location that adds the least time.
   const unweighted = { ...context, points: context.points.map(() => 1) };
-  return twoOpt(insertGreedily([], unweighted, { candidates, budgetSeconds: Infinity, isLateAllowed: true }), context);
+  return twoOpt(insertGreedily(fixedMustVisitNodes(context), unweighted, { candidates, budgetSeconds: Infinity }), context);
 }
 
 /**
@@ -697,6 +747,7 @@ function insertCheapest(route, node, context) {
  * @property {number} endEta When the route ends, in milliseconds since the Unix epoch. With a finish, this is the arrival time at the finish. Without one, it's when the last selfie is taken.
  * @property {number} spareSeconds Time left between `endEta` and the deadline minus the safety margin. Negative only when even the walk to the finish doesn't fit, or when `isMustVisitLate` is `true`.
  * @property {number[]} skipped Indexes into `locations` that aren't in `order`, in ascending order.
+ * @property {number[]} skippedMustVisit The indexes in `skipped` of must-visit locations, left out because their fixed times can't be met, in ascending order.
  * @property {boolean} isMustVisitLate Whether the must-visit locations alone don't fit before the deadline minus the safety margin, so the route is only those, in the shortest order found.
  */
 
@@ -710,18 +761,18 @@ function insertCheapest(route, node, context) {
  * location in turn, for up to `timeLimitMs` in total, and keeps the best
  * route.
  *
- * Every route includes every must-visit location: each route starts from them,
- * added where they add the least time, and no improvement removes one. If
- * they don't all fit on their own, the route is only them, in the shortest
+ * Every route includes every must-visit location whose fixed time, if it
+ * has one, can be met: each route starts from them, added where they add
+ * the least time, and no improvement removes one. If they don't all fit
+ * before the deadline on their own, the route is only them, in the shortest
  * order found, and `isMustVisitLate` is `true`.
  *
  * Every route reaches each location with a fixed time at least the safety
  * margin before that time, then waits until it, so a location whose fixed
- * time can't be kept is skipped. Waiting counts towards the time a route
- * takes, so a route fills a wait with a nearby location where it can. A
- * must-visit location whose fixed time can't be kept is visited anyway, as
- * early as the planner can manage. Other routes may reach it no later than
- * the must-visit locations alone do.
+ * time can't be kept is skipped, even a must-visit one, which is listed in
+ * `skippedMustVisit`: a fixed time is one after which the visit doesn't
+ * count. Waiting counts towards the time a route takes, so a route fills a
+ * wait with a nearby location where it can.
  *
  * @param {PlanOptions} options The candidate locations and the settings to plan with.
  * @returns {Plan} The visiting order, the timings and the locations left out.
@@ -741,17 +792,9 @@ export function plan({ timeLimitMs = 200, ...options }) {
   // Build a route greedily, then improve it until nothing helps or the time
   // limit is reached: shorten it with 2-opt and use any time that frees up
   // for more locations, then try swapping one stop for others.
-  const strictContext = routeContext(options);
+  const context = routeContext(options);
   const stopAt = performance.now() + timeLimitMs;
-  const mustVisit = mustVisitRoute(strictContext);
-  // A must-visit location may be late for its fixed time when it can't be
-  // kept, but no later than with only the must-visit locations.
-  const latestSeconds = [...strictContext.latestSeconds];
-  const { arrivals } = routeTiming(mustVisit, strictContext);
-  for (const [position, node] of mustVisit.entries()) {
-    latestSeconds[node] = Math.max(latestSeconds[node], arrivals[position]);
-  }
-  const context = { ...strictContext, latestSeconds };
+  const mustVisit = mustVisitRoute(context);
   // An empty route can be over budget too, when even the walk to the finish
   // doesn't fit, so the must-visit locations are only late when the route
   // would fit without them.
@@ -781,5 +824,6 @@ export function plan({ timeLimitMs = 200, ...options }) {
   });
   const visited = new Set(order);
   const skipped = options.locations.map((_, index) => index).filter((index) => !visited.has(index));
-  return { order, arrivalTimes, endEta, spareSeconds, skipped, isMustVisitLate };
+  const skippedMustVisit = skipped.filter((index) => context.mustVisitNodes.has(index + 1));
+  return { order, arrivalTimes, endEta, spareSeconds, skipped, skippedMustVisit, isMustVisitLate };
 }

@@ -508,6 +508,18 @@ function mustVisitKeys() {
   return new Set(state.setupLocations.filter(({ isMustVisit, isVisited }) => isMustVisit && !isVisited).map(({ id }) => id));
 }
 
+/**
+ * Updates what's said about a must-visit location skipped for its At after
+ * its row changes: the notice in the route, which only applies while it's
+ * still must-visit with the same At, and its marker as not in the route yet.
+ */
+function refreshSkippedMustVisit() {
+  if (state.plan) {
+    showPlan({ isMapUnchanged: true });
+  }
+  updateMapIfChanged();
+}
+
 /** Redraws the map if the locations not in the route yet have changed, or been renamed, so typing doesn't keep rebuilding it or closing an open popup. */
 function updateMapIfChanged() {
   const usable = usableRouteLocations(state.setupLocations, state.searchResults);
@@ -721,6 +733,7 @@ function saveAt({ item, setupLocation }, field) {
   }
   saveState(state);
   showRow(item, state.setupLocations.indexOf(setupLocation) + 1);
+  refreshSkippedMustVisit();
   // The route only changes when it's planned again, which only matters for
   // a location in the plan still to visit. Keep any warnings about the
   // must-visit locations in front.
@@ -780,7 +793,7 @@ locationRows.addEventListener('change', (event) => {
     }
     saveState(state);
     showRow(row.item, state.setupLocations.indexOf(row.setupLocation) + 1);
-    updateMapIfChanged();
+    refreshSkippedMustVisit();
     // The route only changes when it's planned again.
     if (state.plan) {
       showPlanStatus('Press Re-plan from here to update the route with your must-visit locations.');
@@ -1119,6 +1132,11 @@ function showPlan({ isMapUnchanged = false } = {}) {
     stops.append(stopItem(route.finish, true, points));
   }
   const sections = [summary, counter];
+  // The planning result says so too, but only until the next message, so a
+  // skipped must-visit location is also noted here, where it stays.
+  sections.push(
+    ...skippedMustVisitTexts(plan, route, visited).map((text) => element('p', 'mt-2 rounded-md bg-danger-soft px-3 py-2 text-sm font-semibold text-danger ring-1 ring-danger-line', text)),
+  );
   if (state.event.checkInFormUrl && remaining > 0) {
     sections.push(
       element('p', 'mt-2 rounded-md bg-accent-soft px-3 py-2 text-sm text-accent-ink ring-1 ring-accent-line', 'Tip: check in straight after each selfie. The first team to upload at a location gets a bonus.'),
@@ -1260,40 +1278,37 @@ function mustVisitLateText(plan) {
 }
 
 /**
- * Warns about each must-visit location still to visit that the route
- * reaches after its At time, or less than the safety margin before it.
+ * Says that each must-visit location still to visit was skipped because its
+ * At can't be met, unless its row has changed since, so it's no longer
+ * must-visit or has another At, or none.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
- * @returns {string[]} The warnings, like "You'd reach Queen's Square at 13:12, after its 13:00 time."
+ * @param {import('./route.js').RouteView} [route] The plan's route, if already described.
+ * @param {string[]} [visited] Keys of the locations that have been visited, if already known.
+ * @returns {string[]} The notices, like "Queen's Square was skipped: it can't be reached by 13:00. Clear its At to visit it later."
  */
-function lateForAtTexts(plan) {
-  const done = new Set(visitedKeys(state.setupLocations));
-  return describeRoute(plan)
-    .stops.filter(({ isLateForAt, location }) => isLateForAt && !done.has(location.key))
-    .map(({ location, arrivalTime, fixedTime }) => {
-      // Compare the times as shown, to the minute, so the wording matches them.
-      const arrivalMinute = Math.floor(arrivalTime / 60000);
-      const fixedMinute = Math.floor(fixedTime / 60000);
-      const when = arrivalMinute > fixedMinute ? 'after' : arrivalMinute === fixedMinute ? 'right at' : `less than ${plural(plan.settings.safetyMarginSeconds / 60, 'minute')} before`;
-      return `You'd reach ${location.label} at ${timeFormat.format(arrivalTime)}, ${when} its ${timeFormat.format(fixedTime)} time.`;
-    });
+function skippedMustVisitTexts(plan, route = describeRoute(plan), visited = visitedKeys(state.setupLocations)) {
+  const rows = new Map(state.setupLocations.map((setupLocation) => [setupLocation.id, setupLocation]));
+  return route.skippedMustVisit
+    .filter(({ key, at }) => rows.get(key)?.isMustVisit === true && rows.get(key).at === at && !visited.includes(key))
+    .map(({ label, at }) => `${label} was skipped: it can't be reached by ${timeFormat.format(timeToday(at, plan.startTime))}. Clear its At to visit it later.`);
 }
 
 /**
- * Warns about any must-visit locations the route can't fit in, or reaches
- * late for their At times.
+ * Warns about any must-visit locations the route can't fit in, or skips
+ * because their At times can't be met.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
  * @returns {string[]} The warnings, if any.
  */
 function planWarnings(plan) {
-  return [...(plan.isMustVisitLate ? [mustVisitLateText(plan)] : []), ...lateForAtTexts(plan)];
+  return [...(plan.isMustVisitLate ? [mustVisitLateText(plan)] : []), ...skippedMustVisitTexts(plan)];
 }
 
 /**
  * Describes how planning went, including any rows that were left out
  * because they couldn't be found, and whether the must-visit rows fit and
- * keep their At times.
+ * can keep their At times.
  *
  * @param {import('./setup.js').SetupResult} setupResult The result of planning.
  * @returns {string} The message, like "Planned 22 stops."

@@ -123,30 +123,28 @@ describe('describeRoute', () => {
     assert.deepEqual(skipped.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
   });
 
-  test("gives each stop its At, and whether it's reached the safety margin before it", () => {
+  test('gives each stop its At', () => {
     const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '13:00' } : setupLocation));
     const { stops } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));
     const byLabel = new Map(stops.map((stop) => [stop.location.label, stop]));
     assert.equal(byLabel.get('Old Kent Road').fixedTime, null);
-    assert.equal(byLabel.get('Old Kent Road').isLateForAt, false);
     assert.equal(byLabel.get('Temple Meads').fixedTime, new Date(2026, 9, 3, 13, 0).getTime());
-    assert.equal(byLabel.get('Temple Meads').isLateForAt, false);
   });
 
-  test('says a must-visit stop is late when it would be reached less than the safety margin before its At', () => {
-    // Temple Meads is a few minutes' walk away, so it's reached after 10:50,
-    // the 15-minute safety margin before 11:05.
-    const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '11:05', isMustVisit: true } : setupLocation));
-    const { stops } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));
-    assert.equal(stops.find(({ location }) => location.label === 'Temple Meads').isLateForAt, true);
-  });
-
-  test('compares a stop with its At to the minute, as times are shown', () => {
-    const plan = savedPlan({ startTime: '11:00' }, {}, pinnedRows().map((setupLocation) => ({ ...setupLocation, at: '13:00' })));
-    const atStops = (arrivalTimes) => describeRoute({ ...plan, order: [0], arrivalTimes }).stops[0].isLateForAt;
-    // The cut-off is 12:45, the 15-minute safety margin before 13:00.
-    assert.equal(atStops([new Date(2026, 9, 3, 12, 45, 30).getTime()]), false);
-    assert.equal(atStops([new Date(2026, 9, 3, 12, 46).getTime()]), true);
+  test('lists a skipped must-visit location as skipped for its At, even if its At could be met on its own', () => {
+    // Temple Meads is a few minutes' walk from the start, so 13:00 could be
+    // met on its own, but the planner skipped it, such as for a clash.
+    const plan = savedPlan({ startTime: '11:00' });
+    const view = describeRoute({
+      ...plan,
+      order: [0],
+      skipped: [1],
+      skippedMustVisit: [1],
+      routeLocations: plan.routeLocations.map((routeLocation, index) => (index === 1 ? { ...routeLocation, at: '13:00' } : routeLocation)),
+    });
+    assert.deepEqual(view.skipped, []);
+    assert.deepEqual(view.skippedForAt.map(({ label }) => label), ['Temple Meads']);
+    assert.deepEqual(view.skippedMustVisit.map(({ label }) => label), ['Temple Meads']);
   });
 
   test('lists a skipped location whose At could be met as skipped for lack of time', () => {
@@ -260,6 +258,16 @@ describe('mapRoute', () => {
 describe('newLocationMarkers', () => {
   const cabotTower = { lat: 51.45174, lng: -2.6034, label: 'Cabot Tower', key: 'c' };
 
+  test('leaves out a must-visit location skipped for its At, until its At changes', () => {
+    const plan = savedPlan({ startTime: '11:00' });
+    const withAt = (routeLocations, at) => routeLocations.map((routeLocation, index) => (index === 1 ? { ...routeLocation, ...(at === undefined ? {} : { at }) } : routeLocation));
+    const skipped = { ...plan, order: [0], skipped: [1], skippedMustVisit: [1], routeLocations: withAt(plan.routeLocations, '11:05') };
+    const mustVisitKeys = new Set([skipped.routeLocations[1].key]);
+    assert.deepEqual(newLocationMarkers(skipped.routeLocations, skipped, mustVisitKeys), []);
+    assert.deepEqual(newLocationMarkers(withAt(plan.routeLocations, '13:00'), skipped, mustVisitKeys).map(({ title }) => title), ['Temple Meads, must visit, not in the route yet']);
+    assert.deepEqual(newLocationMarkers(plan.routeLocations, skipped, mustVisitKeys).map(({ title }) => title), ['Temple Meads, must visit, not in the route yet']);
+  });
+
   test('marks every location when there is no plan', () => {
     assert.deepEqual(newLocationMarkers([cabotTower], null), [
       { kind: 'new', location: cabotTower, label: '+', title: 'Cabot Tower, not in the route yet' },
@@ -352,18 +360,6 @@ describe('timeWarning', () => {
     // 12:10, so they aren't behind until its 12:40 At has passed.
     assert.equal(timeWarning(planWithAt(), ['a'], at(12, 39), formatTime), null);
     assert.match(timeWarning(planWithAt(), ['a'], at(12, 42), formatTime).message, /^Running 2 minutes behind plan, so you're late for the 12:40 At at Temple Meads\./);
-  });
-
-  test("carries on what a wait for an At doesn't take up to the end of the route", () => {
-    // Planned to reach Temple Meads at 12:30, already inside the safety
-    // margin before its 12:40 At, so that's been warned about when planning.
-    const plan = planWithAt();
-    plan.arrivalTimes = [at(12, 20), at(12, 30)];
-    // 8 minutes behind is taken up by the 10-minute wait.
-    assert.equal(timeWarning(plan, [], at(12, 28), formatTime), null);
-    // 15 minutes behind starts the selfie 5 minutes late, which pushes the end
-    // into the margin.
-    assert.match(timeWarning(plan, [], at(12, 35), formatTime).message, /^Running 15 minutes behind plan, so the route may not fit/);
   });
 
   test('measures lateness against the next stop that is not done', () => {

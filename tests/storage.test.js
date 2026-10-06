@@ -19,6 +19,7 @@ const memoryStorage = (initial = {}) => {
 const savedPlan = () => ({
   order: [0],
   skipped: [],
+  skippedMustVisit: [],
   arrivalTimes: [1],
   endEta: 2,
   spareSeconds: 3,

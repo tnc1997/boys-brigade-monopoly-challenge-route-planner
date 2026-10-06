@@ -79,8 +79,9 @@ export function timeToday(time, now) {
  * but left out of the route. Must-visit locations still to visit are always
  * in the route, and the plan's `isMustVisitLate` says when they don't all fit
  * before the deadline minus the safety margin. A location with an At time
- * is only visited at that time, on the day of `now`, except a must-visit
- * one, which is visited late if it has to be.
+ * is only visited at that time, on the day of `now`, so one whose At can't
+ * be met is skipped, even a must-visit one, which the plan's
+ * `skippedMustVisit` lists.
  *
  * To re-plan during the challenge, pass the team's position as `from`: the
  * route then starts there and now, instead of at the Start field and start
@@ -167,6 +168,7 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
       ...planned,
       order: planned.order.map(toRouteLocationIndex),
       skipped: planned.skipped.map(toRouteLocationIndex),
+      skippedMustVisit: planned.skippedMustVisit.map(toRouteLocationIndex),
       routeLocations: usable,
       start: start.routeLocation,
       finish: finish?.routeLocation ?? null,
