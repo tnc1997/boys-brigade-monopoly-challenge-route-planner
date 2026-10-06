@@ -409,7 +409,7 @@ function cheapestInsertion(route, node, context, timing = routeTiming(route, con
       }
       addedSeconds = delay;
     }
-    if (best === null || lateSeconds < best.lateSeconds - LATE_SECONDS || (lateSeconds <= best.lateSeconds && addedSeconds < best.addedSeconds)) {
+    if (best === null || isQuicker({ seconds: addedSeconds, lateSeconds }, { seconds: best.addedSeconds, lateSeconds: best.lateSeconds })) {
       best = { position, addedSeconds, lateSeconds };
     }
   }
