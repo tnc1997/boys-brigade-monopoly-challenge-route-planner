@@ -163,36 +163,54 @@ describe('isTime', () => {
 
 describe('atError', () => {
   const event = { startTime: '11:00', deadline: '16:00' };
+  // A 15-minute safety margin and a 3-minute selfie.
+  const settings = { safetyMarginSeconds: 900, dwellSeconds: 180 };
+  const between = 'At must be between 11:15 and 15:42, to allow for the safety margin and selfie time.';
 
-  test('accepts a time between the start time and the deadline, including both', () => {
-    for (const at of ['11:00', '13:30', '16:00']) {
-      assert.equal(atError(at, event), null, at);
+  test('accepts a time from the safety margin after the start time, to the safety margin and selfie time before the deadline', () => {
+    for (const at of ['11:15', '13:30', '15:42']) {
+      assert.equal(atError(at, event, settings), null, at);
     }
   });
 
-  test('says what is wrong with a time before the start time or after the deadline', () => {
-    for (const at of ['10:59', '16:01']) {
-      assert.equal(atError(at, event), 'At must be between 11:00 and 16:00.', at);
+  test('says what is wrong with a time too soon after the start time or too close to the deadline', () => {
+    for (const at of ['10:59', '11:14', '15:43', '16:00']) {
+      assert.equal(atError(at, event, settings), between, at);
     }
+  });
+
+  test('rounds a selfie time that is not whole minutes up', () => {
+    assert.equal(atError('15:42', event, { safetyMarginSeconds: 900, dwellSeconds: 150 }), null);
+    assert.equal(atError('15:42', event, { safetyMarginSeconds: 900, dwellSeconds: 210 }), 'At must be between 11:15 and 15:41, to allow for the safety margin and selfie time.');
+  });
+
+  test('accepts the start time and deadline themselves without a safety margin or selfie time', () => {
+    for (const at of ['11:00', '16:00']) {
+      assert.equal(atError(at, event, { safetyMarginSeconds: 0, dwellSeconds: 0 }), null, at);
+    }
+  });
+
+  test('says when no time fits between the start time and the deadline', () => {
+    assert.equal(atError('11:20', { startTime: '11:00', deadline: '11:30' }, settings), 'No At fits between the start time and the deadline, with the safety margin and selfie time.');
   });
 
   test('only checks the deadline without a start time, since the route starts when it is planned', () => {
-    assert.equal(atError('08:00', { startTime: '', deadline: '16:00' }), null);
-    assert.equal(atError('16:30', { startTime: '', deadline: '16:00' }), 'At must be by the deadline, 16:00.');
+    assert.equal(atError('08:00', { startTime: '', deadline: '16:00' }, settings), null);
+    assert.equal(atError('15:50', { startTime: '', deadline: '16:00' }, settings), 'At must be by 15:42, to allow for the safety margin and selfie time.');
   });
 
   test('ignores spaces around the start time and deadline, as planning does', () => {
-    assert.equal(atError('10:30', { startTime: ' 11:00 ', deadline: ' 16:00' }), 'At must be between 11:00 and 16:00.');
+    assert.equal(atError('10:30', { startTime: ' 11:00 ', deadline: ' 16:00' }, settings), between);
   });
 
   test('checks neither when the deadline is not after the start time, which no At could fix', () => {
-    assert.equal(atError('13:30', { startTime: '16:00', deadline: '11:00' }), null);
-    assert.equal(atError('11:00', { startTime: '11:00', deadline: '11:00' }), null);
+    assert.equal(atError('13:30', { startTime: '16:00', deadline: '11:00' }, settings), null);
+    assert.equal(atError('11:00', { startTime: '11:00', deadline: '11:00' }, settings), null);
   });
 
   test('only checks the start time without a deadline, which planning says is missing', () => {
-    assert.equal(atError('18:00', { startTime: '11:00', deadline: '' }), null);
-    assert.equal(atError('10:00', { startTime: '11:00', deadline: '' }), 'At must be no earlier than the start time, 11:00.');
+    assert.equal(atError('18:00', { startTime: '11:00', deadline: '' }, settings), null);
+    assert.equal(atError('11:10', { startTime: '11:00', deadline: '' }, settings), 'At must be no earlier than 11:15, to allow for the safety margin.');
   });
 });
 

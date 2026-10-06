@@ -217,7 +217,9 @@ function saveField(field) {
   if (key === 'deadline') {
     showCountdown();
   }
-  // Each row's At is checked against the start time and deadline.
+  // Each row's At is checked against the start time and deadline. The
+  // settings it's also checked against are only saved from the settings
+  // panel, which shows the rows again.
   if (key === 'startTime' || key === 'deadline') {
     showAtErrors();
   }
@@ -458,7 +460,7 @@ function showRow(item, number) {
  */
 function showAtError(item, setupLocation) {
   // Like Must visit, At no longer applies once the location's been visited.
-  const error = setupLocation?.at === undefined || setupLocation.isVisited ? null : atError(setupLocation.at, state.event);
+  const error = setupLocation?.at === undefined || setupLocation.isVisited ? null : atError(setupLocation.at, state.event, state.settings);
   const errorLine = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-at-error]'));
   /** @type {HTMLInputElement} */ (item.querySelector('[data-field="at"]')).setAttribute('aria-invalid', String(error !== null));
   errorLine.textContent = error ?? '';

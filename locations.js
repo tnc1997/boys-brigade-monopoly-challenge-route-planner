@@ -247,32 +247,50 @@ export function isTime(value) {
 }
 
 /**
- * Says what's wrong with a location's fixed time: it must be between the
- * start time and the deadline. Without a start time, the route starts when
- * it's planned, so only the deadline is checked. A start time or deadline
- * that isn't a time, ignoring spaces around it as planning does, isn't
- * checked either, nor are both when the deadline
- * isn't after the start time, since planning says what's wrong with them
- * and no At could fix it. Times are `HH:MM` on the same day, so compare as
- * text.
+ * Says what's wrong with a location's fixed time: the route must reach it
+ * at least the safety margin before then, so it must be at least the
+ * safety margin after the start time, and the selfie there must be done by
+ * the safety margin before the deadline. Without a start time, the route
+ * starts when it's planned, so only the deadline is checked. A start time
+ * or deadline that isn't a time, ignoring spaces around it as planning
+ * does, isn't checked either, nor are both when the deadline isn't after
+ * the start time, since planning says what's wrong with them and no At
+ * could fix it. Times are `HH:MM` on the same day.
  *
  * @param {string} at The location's fixed time, as `HH:MM`.
  * @param {Pick<import('./storage.js').EventDetails, 'startTime' | 'deadline'>} event The event's start time and deadline.
+ * @param {Pick<import('./storage.js').Settings, 'safetyMarginSeconds' | 'dwellSeconds'>} settings The safety margin and selfie time.
  * @returns {string | null} What's wrong, or `null` if nothing is.
  * @example
- * atError('10:30', { startTime: '11:00', deadline: '16:00' }); // 'At must be between 11:00 and 16:00.'
- * atError('13:30', { startTime: '', deadline: '16:00' }); // null
+ * const settings = { safetyMarginSeconds: 900, dwellSeconds: 180 };
+ * atError('11:05', { startTime: '11:00', deadline: '16:00' }, settings); // 'At must be between 11:15 and 15:42, to allow for the safety margin and selfie time.'
+ * atError('13:30', { startTime: '', deadline: '16:00' }, settings); // null
  */
-export function atError(at, { startTime, deadline }) {
-  const start = isTime(startTime.trim()) ? startTime.trim() : null;
-  const end = isTime(deadline.trim()) ? deadline.trim() : null;
+export function atError(at, { startTime, deadline }, { safetyMarginSeconds, dwellSeconds }) {
+  const minutesOf = (time) => (isTime(time.trim()) ? Number(time.trim().slice(0, 2)) * 60 + Number(time.trim().slice(3)) : null);
+  const timeOf = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  const start = minutesOf(startTime);
+  const end = minutesOf(deadline);
   if (start !== null && end !== null && end <= start) {
     return null;
   }
-  if ((start === null || at >= start) && (end === null || at <= end)) {
+  // At is in whole minutes, so round the earliest up and the latest down.
+  const earliest = start === null ? null : start + Math.ceil(safetyMarginSeconds / 60);
+  const latest = end === null ? null : end - Math.ceil((safetyMarginSeconds + dwellSeconds) / 60);
+  if ((earliest ?? 0) > (latest ?? 24 * 60 - 1)) {
+    return 'No At fits between the start time and the deadline, with the safety margin and selfie time.';
+  }
+  const minutes = minutesOf(at);
+  if ((earliest === null || minutes >= earliest) && (latest === null || minutes <= latest)) {
     return null;
   }
-  return start === null ? `At must be by the deadline, ${end}.` : end === null ? `At must be no earlier than the start time, ${start}.` : `At must be between ${start} and ${end}.`;
+  if (earliest === null) {
+    return `At must be by ${timeOf(latest)}, to allow for the safety margin and selfie time.`;
+  }
+  if (latest === null) {
+    return `At must be no earlier than ${timeOf(earliest)}, to allow for the safety margin.`;
+  }
+  return `At must be between ${timeOf(earliest)} and ${timeOf(latest)}, to allow for the safety margin and selfie time.`;
 }
 
 /**
