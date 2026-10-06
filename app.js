@@ -1053,7 +1053,7 @@ function showTime() {
  * its numbers, and cleared once read so it can't disagree with the banner.
  */
 function showTimeWarning() {
-  const warning = state.plan ? timeWarning(state.plan, visitedKeys(state.setupLocations), Date.now()) : null;
+  const warning = state.plan ? timeWarning(state.plan, visitedKeys(state.setupLocations), Date.now(), timeFormat.format) : null;
   timeWarningText.textContent = warning?.message ?? '';
   timeWarningBanner.classList.toggle('hidden', warning === null);
   const wording = warning ? warning.message.replace(/\d+/g, '#') : null;

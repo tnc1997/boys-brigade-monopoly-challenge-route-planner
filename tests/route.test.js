@@ -18,6 +18,9 @@ const pinnedRows = () => [
 
 const setupLocations = pinnedRows();
 
+/** Formats a time as `HH:MM` local time, as the app does in a 24-hour locale. */
+const formatTime = (time) => new Date(time).toTimeString().slice(0, 5);
+
 const savedPlan = (event = {}, settings = {}, locations = setupLocations) => {
   const state = defaultState();
   return planFromSetup({
@@ -178,7 +181,6 @@ describe('progress', () => {
 });
 
 describe('mapRoute', () => {
-  const formatTime = (time) => new Date(time).toISOString().slice(11, 16);
 
   test('marks the start and numbers the stops in visiting order, like the list', () => {
     const plan = savedPlan();
@@ -277,19 +279,19 @@ describe('timeWarning', () => {
 
   test('stays quiet when there is plenty of time and the team is on schedule', () => {
     const plan = savedPlan();
-    assert.equal(timeWarning(plan, [], plan.startTime), null);
-    assert.equal(timeWarning(plan, [], plan.arrivalTimes[0] - minutes(1)), null);
+    assert.equal(timeWarning(plan, [], plan.startTime, formatTime), null);
+    assert.equal(timeWarning(plan, [], plan.arrivalTimes[0] - minutes(1), formatTime), null);
   });
 
   test('tells the team to head to the finish when the time left is down to the safety margin', () => {
     const plan = savedPlan({ finishText: '51.4556,-2.5894' });
-    const warning = timeWarning(plan, [], plan.deadline - minutes(10));
+    const warning = timeWarning(plan, [], plan.deadline - minutes(10), formatTime);
     assert.deepEqual(warning, { kind: 'short', message: 'Head to the finish now: 10 minutes until the deadline.', minutesLeft: 10, minutesBehind: warning.minutesBehind });
   });
 
   test("says time's nearly up when there's no finish", () => {
     const plan = savedPlan();
-    assert.equal(timeWarning(plan, [], plan.deadline - minutes(1)).message, "Last few selfies, time's nearly up: 1 minute until the deadline.");
+    assert.equal(timeWarning(plan, [], plan.deadline - minutes(1), formatTime).message, "Last few selfies, time's nearly up: 1 minute until the deadline.");
   });
 
   test('warns when the team is running late enough to push the route into the safety margin', () => {
@@ -298,11 +300,11 @@ describe('timeWarning', () => {
     const plan = savedPlan({ startTime: '15:10' });
     assert.ok(plan.order.length > 0);
     const spareMinutes = plan.spareSeconds / 60;
-    const late = timeWarning(plan, [], plan.arrivalTimes[0] + minutes(spareMinutes + 2));
+    const late = timeWarning(plan, [], plan.arrivalTimes[0] + minutes(spareMinutes + 2), formatTime);
     assert.match(late.message, /^Running \d+ minutes behind plan/);
     assert.ok(late.minutesBehind >= spareMinutes);
     // Being late by less than the spare time is fine.
-    assert.equal(timeWarning(plan, [], plan.arrivalTimes[0] + minutes(spareMinutes / 2)), null);
+    assert.equal(timeWarning(plan, [], plan.arrivalTimes[0] + minutes(spareMinutes / 2), formatTime), null);
   });
 
   /**
@@ -325,21 +327,21 @@ describe('timeWarning', () => {
 
   test("doesn't warn when a wait for an At ahead takes up being late", () => {
     // Without the wait, 10 minutes behind would push the end into the margin.
-    assert.equal(timeWarning(planWithAt(), [], at(12, 10)), null);
+    assert.equal(timeWarning(planWithAt(), [], at(12, 10), formatTime), null);
   });
 
   test('warns when being late means reaching a stop less than the safety margin before its At', () => {
-    const warning = timeWarning(planWithAt(), [], at(12, 20));
+    const warning = timeWarning(planWithAt(), [], at(12, 20), formatTime);
     // Temple Meads would be reached at 12:30, after the 12:25 cut-off.
     assert.equal(warning.message, "Running 20 minutes behind plan, so you'd reach Temple Meads less than 15 minutes before its 12:40 At. Re-plan from here to see what still fits.");
-    assert.match(timeWarning(planWithAt(), [], at(12, 35)).message, /^Running 35 minutes behind plan, so you'd reach Temple Meads after its 12:40 At\./);
+    assert.match(timeWarning(planWithAt(), [], at(12, 35), formatTime).message, /^Running 35 minutes behind plan, so you'd reach Temple Meads after its 12:40 At\./);
   });
 
   test("doesn't warn a team waiting at a stop for its At", () => {
     // Old Kent Road is done, and the team may have reached Temple Meads at
     // 12:10, so they aren't behind until its 12:40 At has passed.
-    assert.equal(timeWarning(planWithAt(), ['a'], at(12, 39)), null);
-    assert.match(timeWarning(planWithAt(), ['a'], at(12, 42)).message, /^Running 2 minutes behind plan, so you're late for the 12:40 At at Temple Meads\./);
+    assert.equal(timeWarning(planWithAt(), ['a'], at(12, 39), formatTime), null);
+    assert.match(timeWarning(planWithAt(), ['a'], at(12, 42), formatTime).message, /^Running 2 minutes behind plan, so you're late for the 12:40 At at Temple Meads\./);
   });
 
   test("carries on what a wait for an At doesn't take up to the end of the route", () => {
@@ -348,10 +350,10 @@ describe('timeWarning', () => {
     const plan = planWithAt();
     plan.arrivalTimes = [at(12, 20), at(12, 30)];
     // 8 minutes behind is taken up by the 10-minute wait.
-    assert.equal(timeWarning(plan, [], at(12, 28)), null);
+    assert.equal(timeWarning(plan, [], at(12, 28), formatTime), null);
     // 15 minutes behind starts the selfie 5 minutes late, which pushes the end
     // into the margin.
-    assert.match(timeWarning(plan, [], at(12, 35)).message, /^Running 15 minutes behind plan, so the route may not fit/);
+    assert.match(timeWarning(plan, [], at(12, 35), formatTime).message, /^Running 15 minutes behind plan, so the route may not fit/);
   });
 
   test('measures lateness against the next stop that is not done', () => {
@@ -359,16 +361,16 @@ describe('timeWarning', () => {
     const allDone = plan.order.map((index) => plan.routeLocations[index].key);
     // Everything is done, so there's no stop to be late for, and the time
     // left is more than the margin.
-    assert.equal(timeWarning(plan, allDone, plan.arrivalTimes.at(-1) + minutes(1)), null);
+    assert.equal(timeWarning(plan, allDone, plan.arrivalTimes.at(-1) + minutes(1), formatTime), null);
   });
 
   test("doesn't warn when every stop is done and there's no finish to reach", () => {
     const plan = savedPlan();
     const allDone = plan.order.map((index) => plan.routeLocations[index].key);
-    assert.equal(timeWarning(plan, allDone, plan.deadline - minutes(5)), null);
+    assert.equal(timeWarning(plan, allDone, plan.deadline - minutes(5), formatTime), null);
     const withFinish = savedPlan({ finishText: '51.4556,-2.5894' });
     const allDoneWithFinish = withFinish.order.map((index) => withFinish.routeLocations[index].key);
-    assert.match(timeWarning(withFinish, allDoneWithFinish, withFinish.deadline - minutes(5)).message, /^Head to the finish now/);
+    assert.match(timeWarning(withFinish, allDoneWithFinish, withFinish.deadline - minutes(5), formatTime).message, /^Head to the finish now/);
   });
 
   test('warns when nothing fits before the deadline, as when it is only a few minutes away', () => {
@@ -377,7 +379,7 @@ describe('timeWarning', () => {
     for (const finishText of ['', '51.4556,-2.5894']) {
       const plan = savedPlan({ finishText, deadline: '11:05' });
       assert.deepEqual(plan.order, []);
-      const warning = timeWarning(plan, [], plan.startTime);
+      const warning = timeWarning(plan, [], plan.startTime, formatTime);
       assert.ok(warning, `no warning ${finishText ? 'with' : 'without'} a finish`);
       assert.equal(warning.minutesLeft, 5);
     }
@@ -387,8 +389,8 @@ describe('timeWarning', () => {
     // A plan that ends right at the safety margin, so any lateness pushes it in.
     const plan = savedPlan({ startTime: '15:10' });
     const tightPlan = { ...plan, endEta: plan.deadline - plan.settings.safetyMarginSeconds * 1000, spareSeconds: 0 };
-    assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + 30000), null);
-    assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + minutes(1)).kind, 'late');
+    assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + 30000, formatTime), null);
+    assert.equal(timeWarning(tightPlan, [], tightPlan.arrivalTimes[0] + minutes(1), formatTime).kind, 'late');
   });
 
   test("doesn't warn straight away when the must-visit locations make the plan late", () => {
@@ -396,15 +398,15 @@ describe('timeWarning', () => {
     const plan = planFromSetup({ event: { ...defaultState().event, startTime: '15:30' }, setupLocations, settings: defaultState().settings, now }).plan;
     assert.equal(plan.isMustVisitLate, true);
     assert.ok(plan.spareSeconds < 0);
-    assert.equal(timeWarning(plan, [], plan.startTime), null);
-    assert.equal(timeWarning(plan, [], plan.deadline - 10 * 60000).kind, 'short');
+    assert.equal(timeWarning(plan, [], plan.startTime, formatTime), null);
+    assert.equal(timeWarning(plan, [], plan.deadline - 10 * 60000, formatTime).kind, 'short');
   });
 
   test('warns straight away when the plan already ends inside the safety margin', () => {
     // The finish is too far to reach before the deadline minus the margin.
     const plan = savedPlan({ startTime: '15:30', finishText: '51.5300,-2.7000' });
     assert.ok(plan.spareSeconds < 0);
-    const warning = timeWarning(plan, [], plan.startTime);
+    const warning = timeWarning(plan, [], plan.startTime, formatTime);
     assert.equal(warning.kind, 'short');
     assert.match(warning.message, /^Head to the finish now/);
   });
@@ -412,28 +414,28 @@ describe('timeWarning', () => {
   test("doesn't warn about a finish that doesn't fit before the route starts", () => {
     const plan = savedPlan({ startTime: '15:30', finishText: '51.5300,-2.7000' });
     assert.ok(plan.spareSeconds < 0);
-    assert.equal(timeWarning(plan, [], plan.startTime - minutes(60)), null);
+    assert.equal(timeWarning(plan, [], plan.startTime - minutes(60), formatTime), null);
   });
 
   test('gives each kind of warning', () => {
     const plan = savedPlan({ startTime: '15:10' });
-    assert.equal(timeWarning(plan, [], plan.deadline - minutes(5)).kind, 'short');
-    assert.equal(timeWarning(plan, [], plan.deadline + minutes(5)).kind, 'passed');
-    assert.equal(timeWarning(plan, [], plan.arrivalTimes[0] + minutes(plan.spareSeconds / 60 + 2)).kind, 'late');
+    assert.equal(timeWarning(plan, [], plan.deadline - minutes(5), formatTime).kind, 'short');
+    assert.equal(timeWarning(plan, [], plan.deadline + minutes(5), formatTime).kind, 'passed');
+    assert.equal(timeWarning(plan, [], plan.arrivalTimes[0] + minutes(plan.spareSeconds / 60 + 2), formatTime).kind, 'late');
   });
 
   test("doesn't warn about a plan from an earlier day", () => {
     const plan = savedPlan({ finishText: '51.4556,-2.5894' });
     const nextMorning = plan.deadline + minutes(17 * 60);
     assert.equal(isPlanForToday(plan, nextMorning), false);
-    assert.equal(timeWarning(plan, [], nextMorning), null);
+    assert.equal(timeWarning(plan, [], nextMorning, formatTime), null);
     assert.equal(isPlanForToday(plan, plan.startTime), true);
   });
 
   test('says when the deadline has passed', () => {
-    assert.equal(timeWarning(savedPlan(), [], savedPlan().deadline + minutes(5)).message, "The deadline has passed. Time's up.");
+    assert.equal(timeWarning(savedPlan(), [], savedPlan().deadline + minutes(5), formatTime).message, "The deadline has passed. Time's up.");
     const withFinish = savedPlan({ finishText: '51.4556,-2.5894' });
-    assert.equal(timeWarning(withFinish, [], withFinish.deadline).message, 'The deadline has passed. Head to the finish now.');
+    assert.equal(timeWarning(withFinish, [], withFinish.deadline, formatTime).message, 'The deadline has passed. Head to the finish now.');
   });
 });
 

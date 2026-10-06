@@ -307,12 +307,13 @@ export function isPlanForToday(plan, now) {
  * @param {import('./setup.js').SavedPlan} plan The plan.
  * @param {string[]} visitedKeys Keys of the locations that have been visited, whose selfie has been taken.
  * @param {number} now The current time, in milliseconds since the Unix epoch.
+ * @param {(time: number) => string} formatTime Formats a time for the warning, such as a stop's At.
  * @returns {TimeWarning | null} The warning, or `null` if there's enough time.
  * @example
- * timeWarning(plan, [], deadline - 10 * 60_000);
+ * timeWarning(plan, [], deadline - 10 * 60_000, formatTime);
  * // { kind: 'short', message: 'Head to the finish now: 10 minutes until the deadline.', minutesLeft: 10, minutesBehind: 0 }
  */
-export function timeWarning(plan, visitedKeys, now) {
+export function timeWarning(plan, visitedKeys, now, formatTime) {
   if (!isPlanForToday(plan, now)) {
     return null;
   }
@@ -374,7 +375,7 @@ export function timeWarning(plan, visitedKeys, now) {
   }
   return {
     kind: 'late',
-    message: `Running ${plural(minutesBehind, 'minute')} behind plan, so ${missedAt ? atRisk(missedAt, stops[next], marginMs) : 'the route may not fit'}. Re-plan from here to see what still fits.`,
+    message: `Running ${plural(minutesBehind, 'minute')} behind plan, so ${missedAt ? atRisk(missedAt, stops[next], marginMs, formatTime) : 'the route may not fit'}. Re-plan from here to see what still fits.`,
     minutesLeft,
     minutesBehind,
   };
@@ -386,10 +387,12 @@ export function timeWarning(plan, visitedKeys, now) {
  * @param {{ stop: RouteStop, arrivalTime: number }} missedAt The stop, and when the team would reach it.
  * @param {RouteStop} next The first stop that isn't done yet.
  * @param {number} marginMs The safety margin, in milliseconds.
+ * @param {(time: number) => string} formatTime Formats a time.
  * @returns {string} What's at risk, like `you'd reach Temple Meads after its 12:40 At`.
  */
-function atRisk({ stop, arrivalTime }, next, marginMs) {
-  const { label, at } = stop.location;
+function atRisk({ stop, arrivalTime }, next, marginMs, formatTime) {
+  const { label } = stop.location;
+  const at = formatTime(stop.fixedTime);
   if (stop === next) {
     return `you're late for the ${at} At at ${label}`;
   }
