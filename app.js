@@ -1259,15 +1259,16 @@ function mustVisitLateText(plan) {
 }
 
 /**
- * Warns about each must-visit location the route reaches after its At
- * time, or less than the safety margin before it.
+ * Warns about each must-visit location still to visit that the route
+ * reaches after its At time, or less than the safety margin before it.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
  * @returns {string[]} The warnings, like "You'd reach Queen's Square at 13:12, after its 13:00 time."
  */
 function lateForAtTexts(plan) {
+  const done = new Set(visitedKeys(state.setupLocations));
   return describeRoute(plan)
-    .stops.filter(({ isLateForAt }) => isLateForAt)
+    .stops.filter(({ isLateForAt, location }) => isLateForAt && !done.has(location.key))
     .map(({ location, arrivalTime, fixedTime }) => {
       // Compare the times as shown, to the minute, so the wording matches them.
       const arrivalMinute = Math.floor(arrivalTime / 60000);
