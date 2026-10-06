@@ -4,12 +4,18 @@ import { searchKey } from './search.js';
  * A location the route can use, with coordinates: a setup location that's
  * been pinned, has coordinates or was found, or the route's start or finish.
  *
+ * A saved plan keeps the route locations it was made from, so as well as
+ * where each one is, a route location carries what the plan's times depend
+ * on, such as its At. What doesn't change the times, such as points and
+ * Must visit, is read from the location list instead.
+ *
  * @typedef {object} RouteLocation
  * @property {number} lat Latitude, from -90 to 90.
  * @property {number} lng Longitude, from -180 to 180.
  * @property {string} label What to call the location: the row's text, or "Location N" for a pinned row without any.
  * @property {string} key A stable key for the location, a v4 UUID. For a setup location, it's its id, so moving the location doesn't change which location it is. For the start and finish, it's {@link START_KEY} or {@link FINISH_KEY}.
  * @property {string} [matchedName] For a location found by searching, the name of the place that was found, so the team can check it.
+ * @property {string} [at] For a setup location with a fixed time, its At, as `HH:MM` local time on the day of the challenge.
  */
 
 /**
@@ -129,6 +135,7 @@ export function routeLocationOfText(text, key, searchResults, { coordinatesLabel
  * Gets the route location for a setup location. A pinned setup location is
  * where it was pinned, whatever its text, and is called "Location N" if it
  * has no text. Otherwise, its text is used as in {@link routeLocationOfText}.
+ * Either way, the route location has the setup location's At, if it has one.
  *
  * @param {SetupLocation} setupLocation The setup location.
  * @param {number} number Its position in the location list, starting at 1.
@@ -136,11 +143,18 @@ export function routeLocationOfText(text, key, searchResults, { coordinatesLabel
  * @returns {RouteLocationResult} The route location, or why there isn't one yet.
  */
 export function routeLocationOf(setupLocation, number, searchResults) {
+  /** @type {RouteLocationResult} */
+  let routeLocationResult;
   if (setupLocation.pin) {
     const label = setupLocation.text.trim() || `Location ${number}`;
-    return { status: 'pinned', routeLocation: { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng, label, key: setupLocation.id } };
+    routeLocationResult = { status: 'pinned', routeLocation: { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng, label, key: setupLocation.id } };
+  } else {
+    routeLocationResult = routeLocationOfText(setupLocation.text, setupLocation.id, searchResults);
   }
-  return routeLocationOfText(setupLocation.text, setupLocation.id, searchResults);
+  if (setupLocation.at === undefined || !('routeLocation' in routeLocationResult)) {
+    return routeLocationResult;
+  }
+  return { ...routeLocationResult, routeLocation: { ...routeLocationResult.routeLocation, at: setupLocation.at } };
 }
 
 /**
@@ -247,32 +261,50 @@ export function isTime(value) {
 }
 
 /**
- * Says what's wrong with a location's fixed time: it must be between the
- * start time and the deadline. Without a start time, the route starts when
- * it's planned, so only the deadline is checked. A start time or deadline
- * that isn't a time, ignoring spaces around it as planning does, isn't
- * checked either, nor are both when the deadline
- * isn't after the start time, since planning says what's wrong with them
- * and no At could fix it. Times are `HH:MM` on the same day, so compare as
- * text.
+ * Says what's wrong with a location's fixed time: the route must reach it
+ * at least the safety margin before then, so it must be at least the
+ * safety margin after the start time, and the selfie there must be done by
+ * the safety margin before the deadline. Without a start time, the route
+ * starts when it's planned, so only the deadline is checked. A start time
+ * or deadline that isn't a time, ignoring spaces around it as planning
+ * does, isn't checked either, nor are both when the deadline isn't after
+ * the start time, since planning says what's wrong with them and no At
+ * could fix it. Times are `HH:MM` on the same day.
  *
  * @param {string} at The location's fixed time, as `HH:MM`.
  * @param {Pick<import('./storage.js').EventDetails, 'startTime' | 'deadline'>} event The event's start time and deadline.
+ * @param {Pick<import('./storage.js').Settings, 'safetyMarginSeconds' | 'dwellSeconds'>} settings The safety margin and selfie time.
  * @returns {string | null} What's wrong, or `null` if nothing is.
  * @example
- * atError('10:30', { startTime: '11:00', deadline: '16:00' }); // 'At must be between 11:00 and 16:00.'
- * atError('13:30', { startTime: '', deadline: '16:00' }); // null
+ * const settings = { safetyMarginSeconds: 900, dwellSeconds: 180 };
+ * atError('11:05', { startTime: '11:00', deadline: '16:00' }, settings); // 'At must be between 11:15 and 15:42, to allow for the safety margin and selfie time.'
+ * atError('13:30', { startTime: '', deadline: '16:00' }, settings); // null
  */
-export function atError(at, { startTime, deadline }) {
-  const start = isTime(startTime.trim()) ? startTime.trim() : null;
-  const end = isTime(deadline.trim()) ? deadline.trim() : null;
+export function atError(at, { startTime, deadline }, { safetyMarginSeconds, dwellSeconds }) {
+  const minutesOf = (time) => (isTime(time.trim()) ? Number(time.trim().slice(0, 2)) * 60 + Number(time.trim().slice(3)) : null);
+  const timeOf = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  const start = minutesOf(startTime);
+  const end = minutesOf(deadline);
   if (start !== null && end !== null && end <= start) {
     return null;
   }
-  if ((start === null || at >= start) && (end === null || at <= end)) {
+  // At is in whole minutes, so round the earliest up and the latest down.
+  const earliest = start === null ? null : start + Math.ceil(safetyMarginSeconds / 60);
+  const latest = end === null ? null : end - Math.ceil((safetyMarginSeconds + dwellSeconds) / 60);
+  if ((earliest ?? 0) > (latest ?? 24 * 60 - 1)) {
+    return 'No At fits between the start time and the deadline, with the safety margin and selfie time.';
+  }
+  const minutes = minutesOf(at);
+  if ((earliest === null || minutes >= earliest) && (latest === null || minutes <= latest)) {
     return null;
   }
-  return start === null ? `At must be by the deadline, ${end}.` : end === null ? `At must be no earlier than the start time, ${start}.` : `At must be between ${start} and ${end}.`;
+  if (earliest === null) {
+    return `At must be by ${timeOf(latest)}, to allow for the safety margin and selfie time.`;
+  }
+  if (latest === null) {
+    return `At must be no earlier than ${timeOf(earliest)}, to allow for the safety margin.`;
+  }
+  return `At must be between ${timeOf(earliest)} and ${timeOf(latest)}, to allow for the safety margin and selfie time.`;
 }
 
 /**

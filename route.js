@@ -1,4 +1,5 @@
 import { walkSeconds } from './planner.js';
+import { timeToday } from './setup.js';
 
 /**
  * A stop on the route, ready to show.
@@ -8,6 +9,9 @@ import { walkSeconds } from './planner.js';
  * @property {import('./locations.js').RouteLocation} location The location.
  * @property {number} arrivalTime When the team arrives, in milliseconds since the Unix epoch.
  * @property {number} walkSeconds How long the walk from the previous stop (or the start) takes, in seconds.
+ * @property {number | null} fixedTime The location's At, on the day of the plan, in milliseconds since the Unix epoch, or `null` if it doesn't have one.
+ * @property {number} waitSeconds How long the team waits at the location for its At before taking the selfie, in seconds, or 0 if they don't.
+ * @property {boolean} isLateForAt Whether the team arrives less than the safety margin before the location's At, or after it, to the minute, as times are shown. Only a must-visit location can be, since planning skips any other location it can't reach in time.
  * @property {string} googleMapsDirectionsUrl A Google Maps URL with walking directions to the location.
  * @property {string} appleMapsDirectionsUrl An Apple Maps URL with walking directions to the location.
  */
@@ -19,7 +23,8 @@ import { walkSeconds } from './planner.js';
  * @property {RouteStop[]} stops The stops in visiting order.
  * @property {RouteStop | null} finish The walk to the finish, or `null` if there's no finish. Its `number` is 0.
  * @property {number} endEta When the route ends, in milliseconds since the Unix epoch.
- * @property {import('./locations.js').RouteLocation[]} skipped The locations that don't fit, in list order.
+ * @property {import('./locations.js').RouteLocation[]} skipped The locations that don't fit, in list order, other than those in `skippedForAt`.
+ * @property {import('./locations.js').RouteLocation[]} skippedForAt The locations whose At can't be met at all, in list order: even walking straight there from the start doesn't reach one the safety margin before its At, or its selfie can't be done by the safety margin before the deadline.
  */
 
 /**
@@ -108,29 +113,47 @@ export function formatDuration(seconds) {
  * Describes a saved plan as stops to show, with walk times and directions URLs.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
- * @returns {RouteView} The stops, the walk to the finish, the end ETA and the skipped locations.
+ * @returns {RouteView} The stops, the walk to the finish, the end ETA and the skipped locations, with those skipped for their At times apart.
  */
 export function describeRoute(plan) {
   const walkOptions = { speedKmh: plan.settings.speedKmh, detourFactor: plan.settings.detourFactor };
-  const stop = (number, location, previous, arrivalTime) => ({
-    number,
-    location,
-    arrivalTime,
-    walkSeconds: walkSeconds(previous, location, walkOptions),
-    googleMapsDirectionsUrl: googleMapsDirectionsUrl(location),
-    appleMapsDirectionsUrl: appleMapsDirectionsUrl(location),
-  });
+  const marginMs = plan.settings.safetyMarginSeconds * 1000;
+  const stop = (number, location, previous, arrivalTime) => {
+    const fixedTime = location.at === undefined ? null : timeToday(location.at, plan.startTime);
+    return {
+      number,
+      location,
+      arrivalTime,
+      walkSeconds: walkSeconds(previous, location, walkOptions),
+      fixedTime,
+      waitSeconds: fixedTime === null ? 0 : Math.max(0, (fixedTime - arrivalTime) / 1000),
+      isLateForAt: fixedTime !== null && Math.floor(arrivalTime / 60000) > Math.floor((fixedTime - marginMs) / 60000),
+      googleMapsDirectionsUrl: googleMapsDirectionsUrl(location),
+      appleMapsDirectionsUrl: appleMapsDirectionsUrl(location),
+    };
+  };
 
   const stops = plan.order.map((index, position) =>
     stop(position + 1, plan.routeLocations[index], position === 0 ? plan.start : plan.routeLocations[plan.order[position - 1]], plan.arrivalTimes[position]),
   );
   const last = stops.length === 0 ? plan.start : stops[stops.length - 1].location;
+  // A location skipped for lack of time may still have an At that could
+  // be met, so only those whose At can't be met at all are told apart.
+  const isAtUnmeetable = (location) => {
+    if (location.at === undefined) {
+      return false;
+    }
+    const fixedTime = timeToday(location.at, plan.startTime);
+    const earliestArrival = plan.startTime + walkSeconds(plan.start, location, walkOptions) * 1000;
+    return earliestArrival > fixedTime - marginMs || fixedTime + plan.settings.dwellSeconds * 1000 > plan.deadline - marginMs;
+  };
 
   return {
     stops,
     finish: plan.finish ? stop(0, plan.finish, last, plan.endEta) : null,
     endEta: plan.endEta,
-    skipped: plan.skipped.map((index) => plan.routeLocations[index]),
+    skipped: plan.skipped.map((index) => plan.routeLocations[index]).filter((location) => !isAtUnmeetable(location)),
+    skippedForAt: plan.skipped.map((index) => plan.routeLocations[index]).filter(isAtUnmeetable),
   };
 }
 
@@ -178,13 +201,13 @@ export function mapRoute(plan, visitedKeys, formatTime) {
 
   /** @type {import('./map.js').MapMarker[]} */
   const markers = [{ kind: 'start', location: plan.start, label: 'S', title: named('Start', plan.start.label) }];
-  for (const { number, location, arrivalTime } of route.stops) {
+  for (const { number, location, arrivalTime, fixedTime } of route.stops) {
     const isDone = done.has(location.key);
     markers.push({
       kind: isDone ? 'done' : 'stop',
       location,
       label: String(number),
-      title: `${number}. ${location.label}, ETA ${formatTime(arrivalTime)}${isDone ? ', selfie done' : ''}`,
+      title: `${number}. ${location.label}, ETA ${formatTime(arrivalTime)}${fixedTime === null || isDone ? '' : `, selfie at ${formatTime(fixedTime)}`}${isDone ? ', selfie done' : ''}`,
     });
   }
   for (const location of plan.routeLocations) {
@@ -202,6 +225,9 @@ export function mapRoute(plan, visitedKeys, formatTime) {
   }
   for (const location of route.skipped) {
     markers.push({ kind: 'skipped', location, label: '', title: `${location.label}, skipped: not enough time` });
+  }
+  for (const location of route.skippedForAt) {
+    markers.push({ kind: 'skipped', location, label: '', title: `${location.label}, skipped: its At time can't be met` });
   }
 
   const path = [plan.start, ...route.stops.map(({ location }) => location), ...(route.finish ? [route.finish.location] : [])];
@@ -279,19 +305,25 @@ export function isPlanForToday(plan, now) {
  * Works out whether to warn the team that time is running out. It warns when
  * the time left before the deadline is down to the safety margin (or the plan
  * already ends inside it), when the team is at least a minute late for the
- * next stop and that pushes the end of the route into the safety margin, or
- * once the deadline has passed. It doesn't warn about a plan from an earlier
- * day, whose times no longer apply.
+ * next stop and that pushes the end of the route into the safety margin or
+ * means reaching a stop less than the safety margin before its At, or once
+ * the deadline has passed. A wait for an At ahead takes up being late, so
+ * only what's left of it carries on to later stops and the end. The selfie
+ * at a stop with an At can't be taken before its At, so the team is only
+ * late for it once its At has passed, since until then they may be there,
+ * waiting. It doesn't warn about a plan from an earlier day, whose times no
+ * longer apply.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
  * @param {string[]} visitedKeys Keys of the locations that have been visited, whose selfie has been taken.
  * @param {number} now The current time, in milliseconds since the Unix epoch.
+ * @param {(time: number) => string} formatTime Formats a time for the warning, such as a stop's At.
  * @returns {TimeWarning | null} The warning, or `null` if there's enough time.
  * @example
- * timeWarning(plan, [], deadline - 10 * 60_000);
+ * timeWarning(plan, [], deadline - 10 * 60_000, formatTime);
  * // { kind: 'short', message: 'Head to the finish now: 10 minutes until the deadline.', minutesLeft: 10, minutesBehind: 0 }
  */
-export function timeWarning(plan, visitedKeys, now) {
+export function timeWarning(plan, visitedKeys, now, formatTime) {
   if (!isPlanForToday(plan, now)) {
     return null;
   }
@@ -299,11 +331,32 @@ export function timeWarning(plan, visitedKeys, now) {
   const leftMs = plan.deadline - now;
   const minutesLeft = Math.max(0, Math.ceil(leftMs / 60000));
 
-  // How late the team is for the first stop that isn't done yet.
+  // How late the team is for the selfie at the first stop that isn't done
+  // yet: when they arrive, or at its At if they'd have to wait for it.
   const done = new Set(visitedKeys);
-  const next = plan.order.findIndex((index) => !done.has(plan.routeLocations[index].key));
-  const behindMs = next === -1 ? 0 : Math.max(0, now - plan.arrivalTimes[next]);
+  const { stops } = describeRoute(plan);
+  const next = stops.findIndex(({ location }) => !done.has(location.key));
+  const behindMs = next === -1 ? 0 : Math.max(0, now - Math.max(stops[next].arrivalTime, stops[next].fixedTime ?? -Infinity));
   const minutesBehind = Math.floor(behindMs / 60000);
+
+  // Step through the stops after it still to visit, to see whether the team
+  // would reach one too late for its At, and how late they'd be at the end.
+  // A stop already planned late for its At has been warned about.
+  let delayMs = behindMs;
+  let missedAt = next !== -1 && stops[next].fixedTime !== null && !stops[next].isLateForAt && behindMs > 0 ? { stop: stops[next], arrivalTime: now } : null;
+  for (const stop of next === -1 ? [] : stops.slice(next + 1)) {
+    if (delayMs <= 0) {
+      break;
+    }
+    if (stop.fixedTime === null || done.has(stop.location.key)) {
+      continue;
+    }
+    const arrivalTime = stop.arrivalTime + delayMs;
+    if (missedAt === null && !stop.isLateForAt && arrivalTime > stop.fixedTime - marginMs) {
+      missedAt = { stop, arrivalTime };
+    }
+    delayMs = Math.max(arrivalTime, stop.fixedTime) - Math.max(stop.arrivalTime, stop.fixedTime);
+  }
 
   // A plan can already end inside the safety margin when even the walk to
   // the finish doesn't fit. That counts as short of time once the route has
@@ -312,7 +365,7 @@ export function timeWarning(plan, visitedKeys, now) {
   // result has already warned about, so that doesn't count until the time
   // left is down to the margin, or the team falls behind.
   const isShortOfTime = leftMs <= marginMs || (plan.spareSeconds < 0 && !plan.isMustVisitLate && now >= plan.startTime);
-  const isRunningLate = minutesBehind >= 1 && plan.endEta + behindMs > plan.deadline - marginMs;
+  const isRunningLate = minutesBehind >= 1 && (missedAt !== null || plan.endEta + delayMs > plan.deadline - marginMs);
   // With every location ticked off and no finish to reach, there's nothing
   // to hurry for. An empty route isn't enough, because it can also mean
   // nothing fits before the deadline.
@@ -332,10 +385,28 @@ export function timeWarning(plan, visitedKeys, now) {
   }
   return {
     kind: 'late',
-    message: `Running ${plural(minutesBehind, 'minute')} behind plan, so the route may not fit. Re-plan from here to see what still fits.`,
+    message: `Running ${plural(minutesBehind, 'minute')} behind plan, so ${missedAt ? atRisk(missedAt, stops[next], marginMs, formatTime) : 'the route may not fit'}. Re-plan from here to see what still fits.`,
     minutesLeft,
     minutesBehind,
   };
+}
+
+/**
+ * Says how being late puts a stop's At at risk, for the running-late warning.
+ *
+ * @param {{ stop: RouteStop, arrivalTime: number }} missedAt The stop, and when the team would reach it.
+ * @param {RouteStop} next The first stop that isn't done yet.
+ * @param {number} marginMs The safety margin, in milliseconds.
+ * @param {(time: number) => string} formatTime Formats a time.
+ * @returns {string} What's at risk, like `you'd reach Temple Meads after its 12:40 At`.
+ */
+function atRisk({ stop, arrivalTime }, next, marginMs, formatTime) {
+  const { label } = stop.location;
+  const at = formatTime(stop.fixedTime);
+  if (stop === next) {
+    return `you're late for the ${at} At at ${label}`;
+  }
+  return arrivalTime > stop.fixedTime ? `you'd reach ${label} after its ${at} At` : `you'd reach ${label} less than ${plural(marginMs / 60000, 'minute')} before its ${at} At`;
 }
 
 /**

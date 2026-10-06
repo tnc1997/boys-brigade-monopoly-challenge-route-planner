@@ -143,6 +143,19 @@ describe('evaluateRoute', () => {
     }
   });
 
+  test('waits at a stop with a fixed time until that time, and counts the wait in later arrival times', () => {
+    // The first stop is reached after 1000 s, but its fixed time is 3000 s.
+    const { arrivalTimes, endEta } = evaluateRoute({ ...base, stops: [kmNorth(1), kmNorth(2)], fixedTimes: [startTime + 3000_000, null] });
+    assertTimesClose(arrivalTimes, [startTime + 1000_000, startTime + 4100_000]);
+    assertTimeClose(endEta, startTime + 4200_000);
+  });
+
+  test("doesn't wait at a stop reached after its fixed time", () => {
+    const { arrivalTimes, endEta } = evaluateRoute({ ...base, stops: [kmNorth(1)], fixedTimes: [startTime + 500_000] });
+    assertTimesClose(arrivalTimes, [startTime + 1000_000]);
+    assertTimeClose(endEta, startTime + 1100_000);
+  });
+
   test('uses the default speed, detour factor, selfie time and safety margin', () => {
     const { arrivalTimes, endEta, spareSeconds } = evaluateRoute({ start: castlePark, stops: [kmNorth(1)], startTime, deadline });
     // 1 km × 1.3 at 4.5 km/h = 1040 s, then 180 s for the selfie.
@@ -827,5 +840,199 @@ describe('plan with points', () => {
     const elapsed = performance.now() - started;
     assert.ok(elapsed < 600, `took ${elapsed.toFixed(0)} ms`);
     assert.ok(planned.spareSeconds >= 0);
+  });
+});
+
+describe('plan with fixed times', () => {
+  // Locations walked at 3.6 km/h (1 m/s) with no detour, so each kilometre takes
+  // exactly 1000 s.
+  const kmFrom = (northKm, eastKm = 0) => ({
+    lat: castlePark.lat + (northKm * 1000) / 111195,
+    lng: castlePark.lng + (eastKm * 1000) / (111195 * Math.cos((castlePark.lat * Math.PI) / 180)),
+  });
+  const startTime = Date.parse('2026-10-03T11:00:00+01:00');
+  const at = (seconds) => startTime + seconds * 1000;
+  const options = (budgetSeconds, overrides) => ({
+    start: castlePark,
+    startTime,
+    deadline: startTime + (budgetSeconds + 600) * 1000,
+    speedKmh: 3.6,
+    detourFactor: 1,
+    dwellSeconds: 100,
+    safetyMarginSeconds: 600,
+    ...overrides,
+  });
+  const random = (seed) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const assertTimeClose = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 1000, `${message}: ${(actual - startTime) / 1000} s after the start`);
+
+  test('arrives early for a fixed time and waits until it', () => {
+    const planned = plan(options(10000, { locations: [kmFrom(1)], fixedTimes: [at(3000)] }));
+    assert.deepEqual(planned.order, [0]);
+    assertTimeClose(planned.arrivalTimes[0], at(1000), 'arrives');
+    // The selfie is taken at the fixed time, then the route ends.
+    assertTimeClose(planned.endEta, at(3100), 'ends');
+  });
+
+  test('fills a wait with a nearby stop', () => {
+    // On its own, the location 1 km north ends at 3100 s, after waiting from
+    // 1000 s until its 3000 s fixed time. The location 0.5 km south only fits
+    // in the 3300 s budget during that wait, reaching the fixed-time location
+    // at 2100 s, still the 600 s safety margin before its fixed time.
+    const planned = plan(options(3300, { locations: [kmFrom(1), kmFrom(-0.5)], fixedTimes: [at(3000), null] }));
+    assert.deepEqual(planned.order, [1, 0]);
+    assertTimeClose(planned.arrivalTimes[1], at(2100), 'arrives at the fixed-time location');
+    assertTimeClose(planned.endEta, at(3100), 'ends');
+  });
+
+  test('uncrosses the stops before a wait, although the wait takes up the time saved', () => {
+    // Three corners of a 1 km square, then back to the start for a fixed time
+    // long after any order could get there. Crossing the square walks
+    // 4.83 km rather than 4 km, but takes as long, since the team waits.
+    const locations = [kmFrom(1), kmFrom(1, 1), kmFrom(0, 1), castlePark];
+    const order = improveWithTwoOpt(options(20000, { locations, fixedTimes: [null, null, null, at(10000)] }), [0, 2, 1, 3]);
+    assert.equal(order.at(-1), 3);
+    assert.equal(order[1], 1);
+  });
+
+  test('counts waiting in the time budget', () => {
+    // The location fits in 3000 s without its fixed time, but the wait for it
+    // takes the route to 3100 s.
+    assert.deepEqual(plan(options(3000, { locations: [kmFrom(1)] })).order, [0]);
+    const planned = plan(options(3000, { locations: [kmFrom(1)], fixedTimes: [at(3000)] }));
+    assert.deepEqual(planned.order, []);
+    assert.deepEqual(planned.skipped, [0]);
+  });
+
+  test("skips a location whose fixed time can't be kept", () => {
+    // The location 3 km north is reached at 3000 s at the earliest, after the
+    // 1400 s cut-off for its 2000 s fixed time.
+    const planned = plan(options(10000, { locations: [kmFrom(3), kmFrom(-0.5)], fixedTimes: [at(2000), null] }));
+    assert.deepEqual(planned.order, [1]);
+    assert.deepEqual(planned.skipped, [0]);
+  });
+
+  test('skips a location whose fixed time has passed', () => {
+    const planned = plan(options(10000, { locations: [kmFrom(1)], fixedTimes: [at(-60)] }));
+    assert.deepEqual(planned.order, []);
+  });
+
+  test("plans a must-visit location whose fixed time can't be kept, late", () => {
+    const planned = plan(options(10000, { locations: [kmFrom(3), kmFrom(-0.5)], fixedTimes: [at(2000), null], mustVisit: [0] }));
+    // Visiting the other location first would make it even later, so that's
+    // only visited afterwards.
+    assert.deepEqual(planned.order, [0, 1]);
+    assertTimeClose(planned.arrivalTimes[0], at(3000), 'arrives');
+    assert.equal(planned.isMustVisitLate, false);
+  });
+
+  test('keeps two fixed times in order', () => {
+    // The location 1 km south has the earlier fixed time, so it's visited
+    // first, although it's listed second.
+    const locations = [kmFrom(1), kmFrom(-1)];
+    assert.deepEqual(plan(options(10000, { locations, fixedTimes: [at(6000), at(2000)] })).order, [1, 0]);
+    assert.deepEqual(plan(options(10000, { locations, fixedTimes: [at(2000), at(6000)] })).order, [0, 1]);
+  });
+
+  test('keeps every fixed time, stays within the time budget and matches the timings from evaluateRoute, on random routes', () => {
+    const next = random(48);
+    for (let run = 0; run < 150; run += 1) {
+      const randomLocations = Array.from({ length: 5 + Math.floor(next() * 25) }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+      const budgetSeconds = 3000 + next() * 15000;
+      const fixedTimes = randomLocations.map(() => (next() < 0.2 ? at(next() * budgetSeconds) : null));
+      const mustVisit = randomLocations.map((_, index) => index).filter(() => next() < 0.1);
+      const finish = next() < 0.5 ? null : kmFrom(next() * 6 - 3, next() * 6 - 3);
+      const planOptions = options(budgetSeconds, { locations: randomLocations, fixedTimes, mustVisit, finish, timeLimitMs: 20 });
+      const planned = plan(planOptions);
+      for (const index of mustVisit) {
+        assert.ok(planned.order.includes(index), `run ${run} leaves out must-visit location ${index}`);
+      }
+      for (const [position, index] of planned.order.entries()) {
+        if (fixedTimes[index] !== null && !mustVisit.includes(index)) {
+          assert.ok(planned.arrivalTimes[position] <= fixedTimes[index] - 600_000 + 1, `run ${run} reaches location ${index} too late`);
+        }
+      }
+      if (!planned.isMustVisitLate) {
+        assert.ok(planned.spareSeconds >= 0, `run ${run} is over budget`);
+      }
+      const evaluated = evaluateRoute({
+        ...planOptions,
+        stops: planned.order.map((index) => randomLocations[index]),
+        fixedTimes: planned.order.map((index) => fixedTimes[index]),
+      });
+      assert.deepEqual(planned.arrivalTimes, evaluated.arrivalTimes);
+      assert.equal(planned.endEta, evaluated.endEta);
+    }
+  });
+
+  test('stays within budget and the time limit for 30 locations with fixed times', () => {
+    const next = random(30);
+    const randomLocations = Array.from({ length: 30 }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+    const fixedTimes = randomLocations.map((_, index) => (index % 5 === 0 ? at(next() * 5 * 3600) : null));
+    const planOptions = options(5 * 3600, { locations: randomLocations, fixedTimes, finish: castlePark, dwellSeconds: 180 });
+    const started = performance.now();
+    const planned = plan(planOptions);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 600, `took ${elapsed.toFixed(0)} ms`);
+    assert.ok(planned.spareSeconds >= 0);
+  });
+
+  /**
+   * Whether a route fits the time budget and keeps every fixed time.
+   */
+  const fits = (options, order) => {
+    const { isWithinBudget, arrivalTimes } = evaluateRoute({
+      ...options,
+      stops: order.map((index) => options.locations[index]),
+      fixedTimes: order.map((index) => options.fixedTimes[index]),
+    });
+    return isWithinBudget && order.every((index, position) => options.fixedTimes[index] === null || arrivalTimes[position] <= options.fixedTimes[index] - 600_000);
+  };
+
+  /**
+   * Finds the most locations any route can visit, by trying every order.
+   * Adding a stop never makes a route quicker or reach earlier stops any
+   * later, so an order that doesn't fit can't be extended into one that
+   * does, and is skipped.
+   */
+  const mostPossible = (options) => {
+    let most = 0;
+    const extend = (order, used) => {
+      most = Math.max(most, order.length);
+      for (let index = 0; index < options.locations.length; index += 1) {
+        if (!used.has(index) && fits(options, [...order, index])) {
+          used.add(index);
+          extend([...order, index], used);
+          used.delete(index);
+        }
+      }
+    };
+    extend([], new Set());
+    return most;
+  };
+
+  test('visits the most locations possible on at least 98% of small random cases, and is never more than 1 short', () => {
+    const next = random(47);
+    const runs = 300;
+    let matches = 0;
+    for (let run = 0; run < runs; run += 1) {
+      const count = 3 + Math.floor(next() * 6);
+      const budgetSeconds = 1000 + next() * 8000;
+      const locations = Array.from({ length: count }, () => kmFrom(next() * 4 - 2, next() * 4 - 2));
+      const fixedTimes = locations.map(() => (next() < 0.4 ? at(next() * budgetSeconds) : null));
+      const finish = next() < 0.5 ? null : kmFrom(next() * 4 - 2, next() * 4 - 2);
+      const planOptions = options(budgetSeconds, { locations, fixedTimes, finish });
+      const most = mostPossible(planOptions);
+      const { order } = plan(planOptions);
+      // An empty route can be over budget, when even the walk to the finish doesn't fit.
+      assert.ok(order.length === 0 || fits(planOptions, order), `run ${run} doesn't fit`);
+      assert.ok(order.length >= most - 1, `run ${run} visits ${order.length} of a possible ${most}`);
+      matches += order.length === most ? 1 : 0;
+    }
+    assert.ok(matches >= runs * 0.98, `matched the best route on ${matches} of ${runs} cases`);
   });
 });

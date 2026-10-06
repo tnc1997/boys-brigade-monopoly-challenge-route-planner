@@ -78,7 +78,9 @@ export function timeToday(time, now) {
  * doesn't say. Locations whose selfie is done are kept in the plan's `routeLocations`
  * but left out of the route. Must-visit locations still to visit are always
  * in the route, and the plan's `isMustVisitLate` says when they don't all fit
- * before the deadline minus the safety margin.
+ * before the deadline minus the safety margin. A location with an At time
+ * is only visited at that time, on the day of `now`, except a must-visit
+ * one, which is visited late if it has to be.
  *
  * To re-plan during the challenge, pass the team's position as `from`: the
  * route then starts there and now, instead of at the Start field and start
@@ -152,6 +154,7 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
     locations: remaining.map(({ routeLocation }) => routeLocation),
     points: remaining.map(({ routeLocation }) => pointsByKey.get(routeLocation.key)),
     mustVisit: remaining.flatMap(({ routeLocation }, index) => (mustVisitKeys.has(routeLocation.key) ? [index] : [])),
+    fixedTimes: remaining.map(({ routeLocation }) => (routeLocation.at === undefined ? null : timeToday(routeLocation.at, now))),
     finish: finish?.routeLocation ?? null,
     startTime,
     deadline,

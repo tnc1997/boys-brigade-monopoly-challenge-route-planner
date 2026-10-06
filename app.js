@@ -217,7 +217,9 @@ function saveField(field) {
   if (key === 'deadline') {
     showCountdown();
   }
-  // Each row's At is checked against the start time and deadline.
+  // Each row's At is checked against the start time and deadline. The
+  // settings it's also checked against are only saved from the settings
+  // panel, which shows the rows again.
   if (key === 'startTime' || key === 'deadline') {
     showAtErrors();
   }
@@ -458,7 +460,7 @@ function showRow(item, number) {
  */
 function showAtError(item, setupLocation) {
   // Like Must visit, At no longer applies once the location's been visited.
-  const error = setupLocation?.at === undefined || setupLocation.isVisited ? null : atError(setupLocation.at, state.event);
+  const error = setupLocation?.at === undefined || setupLocation.isVisited ? null : atError(setupLocation.at, state.event, state.settings);
   const errorLine = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-at-error]'));
   /** @type {HTMLInputElement} */ (item.querySelector('[data-field="at"]')).setAttribute('aria-invalid', String(error !== null));
   errorLine.textContent = error ?? '';
@@ -686,9 +688,9 @@ function savePoints({ item, setupLocation }, field) {
     pointsTimer = setTimeout(() => {
       showPlan({ isMapUnchanged: true });
       if (isReplanForPointsNeeded && state.plan) {
-        // Keep the warning that the must-visit locations don't fit in front.
-        const late = state.plan.isMustVisitLate ? `${mustVisitLateText(state.plan)} ` : '';
-        showPlanStatus(`${late}Press Re-plan from here to update the route with your new points.`, state.plan.isMustVisitLate);
+        // Keep any warnings about the must-visit locations in front.
+        const warnings = planWarnings(state.plan);
+        showPlanStatus([...warnings, 'Press Re-plan from here to update the route with your new points.'].join(' '), warnings.length > 0);
       }
     }, 250);
   }
@@ -719,6 +721,13 @@ function saveAt({ item, setupLocation }, field) {
   }
   saveState(state);
   showRow(item, state.setupLocations.indexOf(setupLocation) + 1);
+  // The route only changes when it's planned again, which only matters for
+  // a location in the plan still to visit. Keep any warnings about the
+  // must-visit locations in front.
+  if (state.plan && !setupLocation.isVisited && state.plan.routeLocations.some(({ key }) => key === setupLocation.id)) {
+    const warnings = planWarnings(state.plan);
+    showPlanStatus([...warnings, 'Press Re-plan from here to update the route with your new At times.'].join(' '), warnings.length > 0);
+  }
 }
 
 locationRows.addEventListener('input', (event) => {
@@ -998,6 +1007,18 @@ function stopItem(stop, isFinish, points) {
     'text-sm text-muted',
     `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk${stopPoints === undefined ? '' : ` · ${plural(stopPoints, 'point')}`}`,
   );
+  details.append(title, timing);
+  // At a stop with an At, the selfie waits until then, so the team mustn't
+  // take it on arrival.
+  if (stop.fixedTime !== null && !isDone) {
+    const at = timeFormat.format(stop.fixedTime);
+    // Compare the times as shown, to the minute, as the plan's warnings do.
+    const isLate = Math.floor(stop.arrivalTime / 60000) > Math.floor(stop.fixedTime / 60000);
+    const lateSeconds = (stop.arrivalTime - stop.fixedTime) / 1000;
+    const when = isLate ? `but you'd be ${formatDuration(lateSeconds)} late` : stop.waitSeconds > 0 ? `so wait ${formatDuration(stop.waitSeconds)}` : 'as soon as you arrive';
+    const text = `Selfie at ${at}, ${when}`;
+    details.append(element('p', `text-sm font-medium ${stop.isLateForAt ? 'text-danger' : 'text-accent-ink'}`, text));
+  }
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
     links.append(...(state.event.checkInFormUrl ? [checkInLink(stop.location, isDone)] : []), doneToggle(stop.location, isDone));
@@ -1005,7 +1026,7 @@ function stopItem(stop, isFinish, points) {
   // Apple Maps on the web may not work on other devices, such as Android.
   const directions = [['Google Maps', stop.googleMapsDirectionsUrl], ...(isAppleDevice(navigator.userAgent) ? [['Apple Maps', stop.appleMapsDirectionsUrl]] : [])];
   links.append(...directions.map(([app, url]) => externalLink(url, app, `Walking directions to ${stop.location.label} in ${app}`)));
-  details.append(title, timing, links);
+  details.append(links);
   item.append(badge, details);
   return item;
 }
@@ -1035,7 +1056,7 @@ function showTime() {
  * its numbers, and cleared once read so it can't disagree with the banner.
  */
 function showTimeWarning() {
-  const warning = state.plan ? timeWarning(state.plan, visitedKeys(state.setupLocations), Date.now()) : null;
+  const warning = state.plan ? timeWarning(state.plan, visitedKeys(state.setupLocations), Date.now(), timeFormat.format) : null;
   timeWarningText.textContent = warning?.message ?? '';
   timeWarningBanner.classList.toggle('hidden', warning === null);
   const wording = warning ? warning.message.replace(/\d+/g, '#') : null;
@@ -1107,11 +1128,16 @@ function showPlan({ isMapUnchanged = false } = {}) {
   }
   sections.push(stops);
 
-  if (route.skipped.length > 0) {
-    const heading = element('h3', 'mt-4 text-sm font-semibold', `Skipped (${route.skipped.length}): not enough time`);
-    const skipped = element('ul', 'mt-2 flex flex-col gap-1 text-sm text-muted');
-    skipped.append(...route.skipped.map((location) => element('li', '', location.label)));
-    sections.push(heading, skipped);
+  for (const [locations, reason] of [
+    [route.skipped, 'not enough time'],
+    [route.skippedForAt, "At time can't be met"],
+  ]) {
+    if (locations.length > 0) {
+      const heading = element('h3', 'mt-4 text-sm font-semibold', `Skipped (${locations.length}): ${reason}`);
+      const skipped = element('ul', 'mt-2 flex flex-col gap-1 text-sm text-muted');
+      skipped.append(...locations.map((location) => element('li', '', location.label)));
+      sections.push(heading, skipped);
+    }
   }
 
   // Done locations that aren't stops on this route (because it was planned
@@ -1236,8 +1262,40 @@ function mustVisitLateText(plan) {
 }
 
 /**
+ * Warns about each must-visit location still to visit that the route
+ * reaches after its At time, or less than the safety margin before it.
+ *
+ * @param {import('./setup.js').SavedPlan} plan The plan.
+ * @returns {string[]} The warnings, like "You'd reach Queen's Square at 13:12, after its 13:00 time."
+ */
+function lateForAtTexts(plan) {
+  const done = new Set(visitedKeys(state.setupLocations));
+  return describeRoute(plan)
+    .stops.filter(({ isLateForAt, location }) => isLateForAt && !done.has(location.key))
+    .map(({ location, arrivalTime, fixedTime }) => {
+      // Compare the times as shown, to the minute, so the wording matches them.
+      const arrivalMinute = Math.floor(arrivalTime / 60000);
+      const fixedMinute = Math.floor(fixedTime / 60000);
+      const when = arrivalMinute > fixedMinute ? 'after' : arrivalMinute === fixedMinute ? 'right at' : `less than ${plural(plan.settings.safetyMarginSeconds / 60, 'minute')} before`;
+      return `You'd reach ${location.label} at ${timeFormat.format(arrivalTime)}, ${when} its ${timeFormat.format(fixedTime)} time.`;
+    });
+}
+
+/**
+ * Warns about any must-visit locations the route can't fit in, or reaches
+ * late for their At times.
+ *
+ * @param {import('./setup.js').SavedPlan} plan The plan.
+ * @returns {string[]} The warnings, if any.
+ */
+function planWarnings(plan) {
+  return [...(plan.isMustVisitLate ? [mustVisitLateText(plan)] : []), ...lateForAtTexts(plan)];
+}
+
+/**
  * Describes how planning went, including any rows that were left out
- * because they couldn't be found, and whether the must-visit rows fit.
+ * because they couldn't be found, and whether the must-visit rows fit and
+ * keep their At times.
  *
  * @param {import('./setup.js').SetupResult} setupResult The result of planning.
  * @returns {string} The message, like "Planned 22 stops."
@@ -1251,9 +1309,7 @@ function planResultText(setupResult) {
     const labels = setupResult.leftOut.map((routeLocationResult) => routeLocationResult.label);
     parts.push(`Left out because ${setupResult.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`);
   }
-  if (setupResult.plan.isMustVisitLate) {
-    parts.push(mustVisitLateText(setupResult.plan));
-  }
+  parts.push(...planWarnings(setupResult.plan));
   return parts.join(' ');
 }
 
@@ -1296,7 +1352,7 @@ async function planRoute(from) {
       searchResults: state.searchResults,
     });
     showSetupError(setupResult.error);
-    showPlanStatus(setupResult.plan ? planResultText(setupResult) : null, Boolean(setupResult.plan?.isMustVisitLate));
+    showPlanStatus(setupResult.plan ? planResultText(setupResult) : null, setupResult.plan !== null && planWarnings(setupResult.plan).length > 0);
     if (setupResult.plan) {
       // The route now uses the rows' points, so it no longer needs the
       // pending message to re-plan for them.
@@ -1364,7 +1420,8 @@ async function replanAndReport(position, successMessage) {
     if (error !== null) {
       showReplanStatus(error, true);
     } else {
-      showReplanStatus(`${successMessage()}${plan.isMustVisitLate ? ` ${mustVisitLateText(plan)}` : ''}`, plan.isMustVisitLate);
+      const warnings = planWarnings(plan);
+      showReplanStatus([successMessage(), ...warnings].join(' '), warnings.length > 0);
     }
   } catch {
     showReplanStatus("Re-planning didn't work. Try again.", true);
