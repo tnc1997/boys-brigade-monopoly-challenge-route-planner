@@ -1253,7 +1253,10 @@ function lateForFixedTimeTexts(plan) {
   return plan.lateForFixedTime.map((index) => {
     const fixedTime = plan.fixedTimes[index];
     const arrival = plan.arrivalTimes[plan.order.indexOf(index)];
-    const when = arrival > fixedTime ? 'after' : `less than ${plural(plan.settings.safetyMarginSeconds / 60, 'minute')} before`;
+    // Compare the times as shown, to the minute, so the wording matches them.
+    const arrivalMinute = Math.floor(arrival / 60000);
+    const fixedMinute = Math.floor(fixedTime / 60000);
+    const when = arrivalMinute > fixedMinute ? 'after' : arrivalMinute === fixedMinute ? 'right at' : `less than ${plural(plan.settings.safetyMarginSeconds / 60, 'minute')} before`;
     return `You'd reach ${plan.routeLocations[index].label} at ${timeFormat.format(arrival)}, ${when} its ${timeFormat.format(fixedTime)} time.`;
   });
 }
