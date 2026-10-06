@@ -4,12 +4,18 @@ import { searchKey } from './search.js';
  * A location the route can use, with coordinates: a setup location that's
  * been pinned, has coordinates or was found, or the route's start or finish.
  *
+ * A saved plan keeps the route locations it was made from, so as well as
+ * where each one is, a route location carries what the plan's times depend
+ * on, such as its At. What doesn't change the times, such as points and
+ * Must visit, is read from the location list instead.
+ *
  * @typedef {object} RouteLocation
  * @property {number} lat Latitude, from -90 to 90.
  * @property {number} lng Longitude, from -180 to 180.
  * @property {string} label What to call the location: the row's text, or "Location N" for a pinned row without any.
  * @property {string} key A stable key for the location, a v4 UUID. For a setup location, it's its id, so moving the location doesn't change which location it is. For the start and finish, it's {@link START_KEY} or {@link FINISH_KEY}.
  * @property {string} [matchedName] For a location found by searching, the name of the place that was found, so the team can check it.
+ * @property {string} [at] For a setup location with a fixed time, its At, as `HH:MM` local time on the day of the challenge.
  */
 
 /**
@@ -129,6 +135,7 @@ export function routeLocationOfText(text, key, searchResults, { coordinatesLabel
  * Gets the route location for a setup location. A pinned setup location is
  * where it was pinned, whatever its text, and is called "Location N" if it
  * has no text. Otherwise, its text is used as in {@link routeLocationOfText}.
+ * Either way, the route location has the setup location's At, if it has one.
  *
  * @param {SetupLocation} setupLocation The setup location.
  * @param {number} number Its position in the location list, starting at 1.
@@ -136,11 +143,18 @@ export function routeLocationOfText(text, key, searchResults, { coordinatesLabel
  * @returns {RouteLocationResult} The route location, or why there isn't one yet.
  */
 export function routeLocationOf(setupLocation, number, searchResults) {
+  /** @type {RouteLocationResult} */
+  let routeLocationResult;
   if (setupLocation.pin) {
     const label = setupLocation.text.trim() || `Location ${number}`;
-    return { status: 'pinned', routeLocation: { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng, label, key: setupLocation.id } };
+    routeLocationResult = { status: 'pinned', routeLocation: { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng, label, key: setupLocation.id } };
+  } else {
+    routeLocationResult = routeLocationOfText(setupLocation.text, setupLocation.id, searchResults);
   }
-  return routeLocationOfText(setupLocation.text, setupLocation.id, searchResults);
+  if (setupLocation.at === undefined || !('routeLocation' in routeLocationResult)) {
+    return routeLocationResult;
+  }
+  return { ...routeLocationResult, routeLocation: { ...routeLocationResult.routeLocation, at: setupLocation.at } };
 }
 
 /**

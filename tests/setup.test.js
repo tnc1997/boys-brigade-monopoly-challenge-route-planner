@@ -136,7 +136,7 @@ describe('planFromSetup', () => {
     // The selfie is taken at 13:00, so the route can't end before 13:00 plus the selfie time.
     assert.ok(plan.endEta >= new Date(2026, 9, 3, 13, 0).getTime() + plan.settings.dwellSeconds * 1000);
     assert.deepEqual(plan.lateForFixedTime, []);
-    assert.deepEqual(plan.fixedTimes, [null, new Date(2026, 9, 3, 13, 0).getTime()]);
+    assert.deepEqual(plan.routeLocations.map(({ at }) => at), [undefined, '13:00']);
   });
 
   test('skips a location whose At time has passed', () => {

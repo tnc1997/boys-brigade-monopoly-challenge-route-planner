@@ -131,8 +131,8 @@ export function describeRoute(plan) {
     stops,
     finish: plan.finish ? stop(0, plan.finish, last, plan.endEta) : null,
     endEta: plan.endEta,
-    skipped: plan.skipped.filter((index) => plan.fixedTimes[index] === null).map((index) => plan.routeLocations[index]),
-    skippedForAt: plan.skipped.filter((index) => plan.fixedTimes[index] !== null).map((index) => plan.routeLocations[index]),
+    skipped: plan.skipped.map((index) => plan.routeLocations[index]).filter(({ at }) => at === undefined),
+    skippedForAt: plan.skipped.map((index) => plan.routeLocations[index]).filter(({ at }) => at !== undefined),
   };
 }
 

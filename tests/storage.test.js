@@ -24,7 +24,6 @@ const savedPlan = () => ({
   endEta: 2,
   spareSeconds: 3,
   routeLocations: [{ lat: 51.4545, lng: -2.5879, label: 'Old Kent Road', key: 'a' }],
-  fixedTimes: [null],
   start: { lat: 51.4556, lng: -2.5894, label: 'Start', key: 'start' },
   finish: null,
   startTime: 0,
@@ -87,7 +86,7 @@ describe('storage', () => {
   });
 
   test('drops a saved plan from before fixed times were planned', () => {
-    const { fixedTimes, lateForFixedTime, ...rest } = savedPlan();
+    const { lateForFixedTime, ...rest } = savedPlan();
     const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ ...defaultState(), plan: rest }) });
     assert.equal(loadState(storage).plan, null);
   });

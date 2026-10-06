@@ -1258,7 +1258,7 @@ function mustVisitLateText(plan) {
  */
 function lateForFixedTimeTexts(plan) {
   return plan.lateForFixedTime.map((index) => {
-    const fixedTime = plan.fixedTimes[index];
+    const fixedTime = timeToday(plan.routeLocations[index].at, plan.startTime);
     const arrival = plan.arrivalTimes[plan.order.indexOf(index)];
     // Compare the times as shown, to the minute, so the wording matches them.
     const arrivalMinute = Math.floor(arrival / 60000);

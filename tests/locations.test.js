@@ -115,6 +115,21 @@ describe('routeLocationOf', () => {
   test("uses the row's id as the location's key", () => {
     assert.equal(routeLocationOf({ id: 'xyz', text: '51.45,-2.59' }, 1, {}).routeLocation.key, 'xyz');
   });
+
+  test("carries the row's At, since a plan's times depend on it", () => {
+    const searchResults = { [searchKey('Queen Square, Bristol')]: queenSquare };
+    for (const setupLocation of [
+      { id: 'a', text: 'Queen Square, Bristol', pin: { lat: 51.45, lng: -2.59 }, at: '13:00' },
+      { id: 'a', text: '51.45,-2.59', at: '13:00' },
+      { id: 'a', text: 'Queen Square, Bristol', at: '13:00' },
+    ]) {
+      assert.equal(routeLocationOf(setupLocation, 1, searchResults).routeLocation.at, '13:00', setupLocation.text);
+    }
+  });
+
+  test("doesn't give a route location an At when its row has none", () => {
+    assert.ok(!('at' in routeLocationOf({ id: 'a', text: '51.45,-2.59' }, 1, {}).routeLocation));
+  });
 });
 
 describe('isPoints', () => {
