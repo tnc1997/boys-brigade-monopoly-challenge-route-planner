@@ -295,8 +295,10 @@ export function isPlanForToday(plan, now) {
  * Works out whether to warn the team that time is running out. It warns when
  * the time left before the deadline is down to the safety margin (or the plan
  * already ends inside it), when the team is at least a minute late for the
- * next stop and that pushes the end of the route into the safety margin, or
- * once the deadline has passed. It doesn't warn about a plan from an earlier
+ * next stop and that pushes the end of the route into the safety margin or
+ * means reaching a stop less than the safety margin before its At, or once
+ * the deadline has passed. A wait for an At ahead takes up being late, so
+ * only what's left of it carries on to later stops and the end. It doesn't warn about a plan from an earlier
  * day, whose times no longer apply.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
@@ -321,6 +323,25 @@ export function timeWarning(plan, visitedKeys, now) {
   const behindMs = next === -1 ? 0 : Math.max(0, now - plan.arrivalTimes[next]);
   const minutesBehind = Math.floor(behindMs / 60000);
 
+  // Step through the stops still to visit, to see whether the team would
+  // reach one too late for its At, and how late they'd be at the end. A
+  // stop already planned late for its At has been warned about.
+  let delayMs = behindMs;
+  let missedAt = null;
+  for (const stop of next === -1 ? [] : describeRoute(plan).stops.slice(next)) {
+    if (delayMs <= 0) {
+      break;
+    }
+    if (stop.fixedTime === null || done.has(stop.location.key)) {
+      continue;
+    }
+    const arrivalTime = stop.arrivalTime + delayMs;
+    if (missedAt === null && !stop.isLateForAt && arrivalTime > stop.fixedTime - marginMs) {
+      missedAt = stop;
+    }
+    delayMs = Math.max(arrivalTime, stop.fixedTime) - Math.max(stop.arrivalTime, stop.fixedTime);
+  }
+
   // A plan can already end inside the safety margin when even the walk to
   // the finish doesn't fit. That counts as short of time once the route has
   // started, but not before, such as when planning ahead. A plan can also
@@ -328,7 +349,7 @@ export function timeWarning(plan, visitedKeys, now) {
   // result has already warned about, so that doesn't count until the time
   // left is down to the margin, or the team falls behind.
   const isShortOfTime = leftMs <= marginMs || (plan.spareSeconds < 0 && !plan.isMustVisitLate && now >= plan.startTime);
-  const isRunningLate = minutesBehind >= 1 && plan.endEta + behindMs > plan.deadline - marginMs;
+  const isRunningLate = minutesBehind >= 1 && (missedAt !== null || plan.endEta + delayMs > plan.deadline - marginMs);
   // With every location ticked off and no finish to reach, there's nothing
   // to hurry for. An empty route isn't enough, because it can also mean
   // nothing fits before the deadline.
@@ -346,9 +367,10 @@ export function timeWarning(plan, visitedKeys, now) {
     const message = plan.finish ? `Head to the finish now: ${time}.` : `Last few selfies, time's nearly up: ${time}.`;
     return { kind: 'short', message, minutesLeft, minutesBehind };
   }
+  const risk = missedAt ? `you may not reach ${missedAt.location.label} in time for its ${missedAt.location.at} At` : 'the route may not fit';
   return {
     kind: 'late',
-    message: `Running ${plural(minutesBehind, 'minute')} behind plan, so the route may not fit. Re-plan from here to see what still fits.`,
+    message: `Running ${plural(minutesBehind, 'minute')} behind plan, so ${risk}. Re-plan from here to see what still fits.`,
     minutesLeft,
     minutesBehind,
   };
