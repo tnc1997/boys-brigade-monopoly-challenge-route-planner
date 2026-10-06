@@ -123,30 +123,28 @@ describe('describeRoute', () => {
     assert.deepEqual(skipped.map(({ label }) => label), ['Old Kent Road', 'Temple Meads']);
   });
 
-  test("gives each stop its At, and whether it's reached the safety margin before it", () => {
+  test('gives each stop its At', () => {
     const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '13:00' } : setupLocation));
     const { stops } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));
     const byLabel = new Map(stops.map((stop) => [stop.location.label, stop]));
     assert.equal(byLabel.get('Old Kent Road').fixedTime, null);
-    assert.equal(byLabel.get('Old Kent Road').isLateForAt, false);
     assert.equal(byLabel.get('Temple Meads').fixedTime, new Date(2026, 9, 3, 13, 0).getTime());
-    assert.equal(byLabel.get('Temple Meads').isLateForAt, false);
   });
 
-  test('says a must-visit stop is late when it would be reached less than the safety margin before its At', () => {
-    // Temple Meads is a few minutes' walk away, so it's reached after 10:50,
-    // the 15-minute safety margin before 11:05.
-    const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '11:05', isMustVisit: true } : setupLocation));
-    const { stops } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));
-    assert.equal(stops.find(({ location }) => location.label === 'Temple Meads').isLateForAt, true);
-  });
-
-  test('compares a stop with its At to the minute, as times are shown', () => {
-    const plan = savedPlan({ startTime: '11:00' }, {}, pinnedRows().map((setupLocation) => ({ ...setupLocation, at: '13:00' })));
-    const atStops = (arrivalTimes) => describeRoute({ ...plan, order: [0], arrivalTimes }).stops[0].isLateForAt;
-    // The cut-off is 12:45, the 15-minute safety margin before 13:00.
-    assert.equal(atStops([new Date(2026, 9, 3, 12, 45, 30).getTime()]), false);
-    assert.equal(atStops([new Date(2026, 9, 3, 12, 46).getTime()]), true);
+  test('lists a skipped must-visit location as skipped for its At, even if its At could be met on its own', () => {
+    // Temple Meads is a few minutes' walk from the start, so 13:00 could be
+    // met on its own, but the planner skipped it, such as for a clash.
+    const plan = savedPlan({ startTime: '11:00' });
+    const view = describeRoute({
+      ...plan,
+      order: [0],
+      skipped: [1],
+      skippedMustVisit: [1],
+      routeLocations: plan.routeLocations.map((routeLocation, index) => (index === 1 ? { ...routeLocation, at: '13:00' } : routeLocation)),
+    });
+    assert.deepEqual(view.skipped, []);
+    assert.deepEqual(view.skippedForAt.map(({ label }) => label), ['Temple Meads']);
+    assert.deepEqual(view.skippedMustVisit.map(({ label }) => label), ['Temple Meads']);
   });
 
   test('lists a skipped location whose At could be met as skipped for lack of time', () => {
@@ -354,16 +352,13 @@ describe('timeWarning', () => {
     assert.match(timeWarning(planWithAt(), ['a'], at(12, 42), formatTime).message, /^Running 2 minutes behind plan, so you're late for the 12:40 At at Temple Meads\./);
   });
 
-  test("carries on what a wait for an At doesn't take up to the end of the route", () => {
-    // Planned to reach Temple Meads at 12:30, already inside the safety
-    // margin before its 12:40 At, so that's been warned about when planning.
+  test('takes being behind up in a wait for an At, rather than carrying it on to the end of the route', () => {
+    // Planned to reach Temple Meads at 12:10 for its 12:40 At. The plan ends
+    // a minute before the cut-off, so 4 minutes behind would push it into the
+    // safety margin, but it's taken up by the wait, still reaching Temple
+    // Meads the safety margin before its At.
     const plan = planWithAt();
-    plan.arrivalTimes = [at(12, 20), at(12, 30)];
-    // 8 minutes behind is taken up by the 10-minute wait.
-    assert.equal(timeWarning(plan, [], at(12, 28), formatTime), null);
-    // 15 minutes behind starts the selfie 5 minutes late, which pushes the end
-    // into the margin.
-    assert.match(timeWarning(plan, [], at(12, 35), formatTime).message, /^Running 15 minutes behind plan, so the route may not fit/);
+    assert.equal(timeWarning(plan, [], at(12, 4), formatTime), null);
   });
 
   test('measures lateness against the next stop that is not done', () => {

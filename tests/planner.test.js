@@ -921,13 +921,47 @@ describe('plan with fixed times', () => {
     assert.deepEqual(planned.order, []);
   });
 
-  test("plans a must-visit location whose fixed time can't be kept, late", () => {
+  test("skips a must-visit location whose fixed time can't be kept", () => {
+    // As above, the location 3 km north can't be reached by its 1400 s cut-off.
     const planned = plan(options(10000, { locations: [kmFrom(3), kmFrom(-0.5)], fixedTimes: [at(2000), null], mustVisit: [0] }));
-    // Visiting the other location first would make it even later, so that's
-    // only visited afterwards.
-    assert.deepEqual(planned.order, [0, 1]);
-    assertTimeClose(planned.arrivalTimes[0], at(3000), 'arrives');
+    assert.deepEqual(planned.order, [1]);
+    assert.deepEqual(planned.skipped, [0]);
+    assert.deepEqual(planned.skippedMustVisit, [0]);
     assert.equal(planned.isMustVisitLate, false);
+  });
+
+  test('skips a must-visit location whose fixed time has passed', () => {
+    const planned = plan(options(10000, { locations: [kmFrom(1)], fixedTimes: [at(-60)], mustVisit: [0] }));
+    assert.deepEqual(planned.order, []);
+    assert.deepEqual(planned.skippedMustVisit, [0]);
+  });
+
+  test('keeps the must-visit location worth more when two fixed times clash', () => {
+    // Each is reached at 1000 s, in time for its cut-off on its own, but
+    // they're 2 km apart, so after one selfie at 2000 s or 2100 s, the other
+    // can't be reached by its cut-off.
+    const locations = [kmFrom(1), kmFrom(-1)];
+    const clash = (points) => plan(options(10000, { locations, points, fixedTimes: [at(2000), at(2100)], mustVisit: [0, 1] }));
+    assert.deepEqual(clash([1, 2]).order, [1]);
+    assert.deepEqual(clash([1, 2]).skippedMustVisit, [0]);
+    assert.deepEqual(clash([2, 1]).order, [0]);
+    assert.deepEqual(clash([2, 1]).skippedMustVisit, [1]);
+  });
+
+  test('keeps a must-visit location over one that is not when their fixed times clash', () => {
+    const locations = [kmFrom(1), kmFrom(-1)];
+    const planned = plan(options(10000, { locations, points: [1, 5], fixedTimes: [at(2000), at(2100)], mustVisit: [0] }));
+    assert.deepEqual(planned.order, [0]);
+    assert.deepEqual(planned.skippedMustVisit, []);
+  });
+
+  test('still plans must-visit locations without fixed times past the deadline, after skipping one whose fixed time can\'t be kept', () => {
+    // The locations 3 km south and east take until 9100 s on their own, past
+    // the 3000 s budget.
+    const planned = plan(options(3000, { locations: [kmFrom(3), kmFrom(-3), kmFrom(0, 3)], fixedTimes: [at(2000), null, null], mustVisit: [0, 1, 2] }));
+    assert.deepEqual([...planned.order].sort(), [1, 2]);
+    assert.deepEqual(planned.skippedMustVisit, [0]);
+    assert.equal(planned.isMustVisitLate, true);
   });
 
   test('keeps two fixed times in order', () => {
@@ -949,10 +983,13 @@ describe('plan with fixed times', () => {
       const planOptions = options(budgetSeconds, { locations: randomLocations, fixedTimes, mustVisit, finish, timeLimitMs: 20 });
       const planned = plan(planOptions);
       for (const index of mustVisit) {
-        assert.ok(planned.order.includes(index), `run ${run} leaves out must-visit location ${index}`);
+        assert.ok(planned.order.includes(index) !== planned.skippedMustVisit.includes(index), `run ${run} leaves out must-visit location ${index} without saying so`);
+      }
+      for (const index of planned.skippedMustVisit) {
+        assert.ok(mustVisit.includes(index) && fixedTimes[index] !== null, `run ${run} skips location ${index} as a must-visit location with a fixed time`);
       }
       for (const [position, index] of planned.order.entries()) {
-        if (fixedTimes[index] !== null && !mustVisit.includes(index)) {
+        if (fixedTimes[index] !== null) {
           assert.ok(planned.arrivalTimes[position] <= fixedTimes[index] - 600_000 + 1, `run ${run} reaches location ${index} too late`);
         }
       }

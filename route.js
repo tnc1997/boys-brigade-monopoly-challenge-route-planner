@@ -10,7 +10,6 @@ import { timeToday } from './setup.js';
  * @property {number} arrivalTime When the team arrives, in milliseconds since the Unix epoch.
  * @property {number} walkSeconds How long the walk from the previous stop (or the start) takes, in seconds.
  * @property {number | null} fixedTime The location's At, on the day of the plan, in milliseconds since the Unix epoch, or `null` if it doesn't have one.
- * @property {boolean} isLateForAt Whether the team arrives less than the safety margin before the location's At, or after it, to the minute, as times are shown. Only a must-visit location can be, since planning skips any other location it can't reach in time.
  * @property {string} googleMapsDirectionsUrl A Google Maps URL with walking directions to the location.
  * @property {string} appleMapsDirectionsUrl An Apple Maps URL with walking directions to the location.
  */
@@ -23,7 +22,8 @@ import { timeToday } from './setup.js';
  * @property {RouteStop | null} finish The walk to the finish, or `null` if there's no finish. Its `number` is 0.
  * @property {number} endEta When the route ends, in milliseconds since the Unix epoch.
  * @property {import('./locations.js').RouteLocation[]} skipped The locations that don't fit, in list order, other than those in `skippedForAt`.
- * @property {import('./locations.js').RouteLocation[]} skippedForAt The locations whose At can't be met at all, in list order: even walking straight there from the start doesn't reach one the safety margin before its At, or its selfie can't be done by the safety margin before the deadline.
+ * @property {import('./locations.js').RouteLocation[]} skippedForAt The locations whose At can't be met, in list order: even walking straight there from the start doesn't reach one the safety margin before its At, or its selfie can't be done by the safety margin before the deadline, or it's a must-visit location, which is only ever skipped for its At.
+ * @property {import('./locations.js').RouteLocation[]} skippedMustVisit The must-visit locations in `skippedForAt`, in list order.
  */
 
 /**
@@ -125,7 +125,6 @@ export function describeRoute(plan) {
       arrivalTime,
       walkSeconds: walkSeconds(previous, location, walkOptions),
       fixedTime,
-      isLateForAt: fixedTime !== null && Math.floor(arrivalTime / 60000) > Math.floor((fixedTime - marginMs) / 60000),
       googleMapsDirectionsUrl: googleMapsDirectionsUrl(location),
       appleMapsDirectionsUrl: appleMapsDirectionsUrl(location),
     };
@@ -136,10 +135,16 @@ export function describeRoute(plan) {
   );
   const last = stops.length === 0 ? plan.start : stops[stops.length - 1].location;
   // A location skipped for lack of time may still have an At that could
-  // be met, so only those whose At can't be met at all are told apart.
-  const isAtUnmeetable = (location) => {
+  // be met, so only those whose At can't be met at all are told apart,
+  // along with must-visit locations, which are only skipped for their At,
+  // such as when it clashes with another.
+  const skippedMustVisit = new Set(plan.skippedMustVisit);
+  const isAtUnmeetable = (location, index) => {
     if (location.at === undefined) {
       return false;
+    }
+    if (skippedMustVisit.has(index)) {
+      return true;
     }
     const fixedTime = timeToday(location.at, plan.startTime);
     const earliestArrival = plan.startTime + walkSeconds(plan.start, location, walkOptions) * 1000;
@@ -150,8 +155,9 @@ export function describeRoute(plan) {
     stops,
     finish: plan.finish ? stop(0, plan.finish, last, plan.endEta) : null,
     endEta: plan.endEta,
-    skipped: plan.skipped.map((index) => plan.routeLocations[index]).filter((location) => !isAtUnmeetable(location)),
-    skippedForAt: plan.skipped.map((index) => plan.routeLocations[index]).filter(isAtUnmeetable),
+    skipped: plan.skipped.filter((index) => !isAtUnmeetable(plan.routeLocations[index], index)).map((index) => plan.routeLocations[index]),
+    skippedForAt: plan.skipped.filter((index) => isAtUnmeetable(plan.routeLocations[index], index)).map((index) => plan.routeLocations[index]),
+    skippedMustVisit: plan.skippedMustVisit.map((index) => plan.routeLocations[index]),
   };
 }
 
@@ -339,9 +345,8 @@ export function timeWarning(plan, visitedKeys, now, formatTime) {
 
   // Step through the stops after it still to visit, to see whether the team
   // would reach one too late for its At, and how late they'd be at the end.
-  // A stop already planned late for its At has been warned about.
   let delayMs = behindMs;
-  let missedAt = next !== -1 && stops[next].fixedTime !== null && !stops[next].isLateForAt && behindMs > 0 ? { stop: stops[next], arrivalTime: now } : null;
+  let missedAt = next !== -1 && stops[next].fixedTime !== null && behindMs > 0 ? { stop: stops[next], arrivalTime: now } : null;
   for (const stop of next === -1 ? [] : stops.slice(next + 1)) {
     if (delayMs <= 0) {
       break;
@@ -350,7 +355,7 @@ export function timeWarning(plan, visitedKeys, now, formatTime) {
       continue;
     }
     const arrivalTime = stop.arrivalTime + delayMs;
-    if (missedAt === null && !stop.isLateForAt && arrivalTime > stop.fixedTime - marginMs) {
+    if (missedAt === null && arrivalTime > stop.fixedTime - marginMs) {
       missedAt = { stop, arrivalTime };
     }
     delayMs = Math.max(arrivalTime, stop.fixedTime) - Math.max(stop.arrivalTime, stop.fixedTime);

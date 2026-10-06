@@ -145,10 +145,19 @@ describe('planFromSetup', () => {
     assert.deepEqual(plan.skipped, [1]);
   });
 
-  test("visits a must-visit location that can't be reached in time for its At time", () => {
+  test("skips a must-visit location that can't be reached in time for its At time", () => {
     const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '11:05', isMustVisit: true } : setupLocation));
     const { plan } = planFromSetup(setupWith({ startTime: '11:00', setupLocations }));
-    assert.ok(plan.order.includes(1));
+    assert.deepEqual(plan.order, [0]);
+    assert.deepEqual(plan.skippedMustVisit, [1]);
+  });
+
+  test('skips a must-visit location when re-planning after its At time has passed', () => {
+    const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '13:00', isMustVisit: true } : setupLocation));
+    const from = { lat: 51.4492, lng: -2.5813 };
+    const { plan } = planFromSetup({ ...setupWith({ startTime: '11:00', setupLocations }), now: new Date(2026, 9, 3, 13, 15).getTime(), from });
+    assert.ok(!plan.order.includes(1));
+    assert.deepEqual(plan.skippedMustVisit, [1]);
   });
 
   test('maps skipped locations back to their place in the list', () => {
