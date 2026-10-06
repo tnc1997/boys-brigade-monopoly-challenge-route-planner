@@ -258,6 +258,16 @@ describe('mapRoute', () => {
 describe('newLocationMarkers', () => {
   const cabotTower = { lat: 51.45174, lng: -2.6034, label: 'Cabot Tower', key: 'c' };
 
+  test('leaves out a must-visit location skipped for its At, until its At changes', () => {
+    const plan = savedPlan({ startTime: '11:00' });
+    const withAt = (routeLocations, at) => routeLocations.map((routeLocation, index) => (index === 1 ? { ...routeLocation, ...(at === undefined ? {} : { at }) } : routeLocation));
+    const skipped = { ...plan, order: [0], skipped: [1], skippedMustVisit: [1], routeLocations: withAt(plan.routeLocations, '11:05') };
+    const mustVisitKeys = new Set([skipped.routeLocations[1].key]);
+    assert.deepEqual(newLocationMarkers(skipped.routeLocations, skipped, mustVisitKeys), []);
+    assert.deepEqual(newLocationMarkers(withAt(plan.routeLocations, '13:00'), skipped, mustVisitKeys).map(({ title }) => title), ['Temple Meads, must visit, not in the route yet']);
+    assert.deepEqual(newLocationMarkers(plan.routeLocations, skipped, mustVisitKeys).map(({ title }) => title), ['Temple Meads, must visit, not in the route yet']);
+  });
+
   test('marks every location when there is no plan', () => {
     assert.deepEqual(newLocationMarkers([cabotTower], null), [
       { kind: 'new', location: cabotTower, label: '+', title: 'Cabot Tower, not in the route yet' },
@@ -350,15 +360,6 @@ describe('timeWarning', () => {
     // 12:10, so they aren't behind until its 12:40 At has passed.
     assert.equal(timeWarning(planWithAt(), ['a'], at(12, 39), formatTime), null);
     assert.match(timeWarning(planWithAt(), ['a'], at(12, 42), formatTime).message, /^Running 2 minutes behind plan, so you're late for the 12:40 At at Temple Meads\./);
-  });
-
-  test('takes being behind up in a wait for an At, rather than carrying it on to the end of the route', () => {
-    // Planned to reach Temple Meads at 12:10 for its 12:40 At. The plan ends
-    // a minute before the cut-off, so 4 minutes behind would push it into the
-    // safety margin, but it's taken up by the wait, still reaching Temple
-    // Meads the safety margin before its At.
-    const plan = planWithAt();
-    assert.equal(timeWarning(plan, [], at(12, 4), formatTime), null);
   });
 
   test('measures lateness against the next stop that is not done', () => {

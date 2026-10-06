@@ -243,8 +243,9 @@ export function mapRoute(plan, visitedKeys, formatTime) {
  * plan yet, or have moved since it was made, such as a row just added or
  * pinned on the map, so the team can see them before planning again. A
  * must-visit location that the plan doesn't visit, such as one just marked
- * Must visit, is marked too. To remove one, remove its row from the
- * location list.
+ * Must visit, is marked too, unless the plan skipped it for its At and its
+ * At hasn't changed, since planning again would skip it again. To remove
+ * one, remove its row from the location list.
  *
  * @param {import('./locations.js').RouteLocation[]} routeLocations The route locations of the location list, those that can be planned.
  * @param {import('./setup.js').SavedPlan | null} plan The plan, or `null` if there isn't one.
@@ -258,7 +259,9 @@ export function newLocationMarkers(routeLocations, plan, mustVisitKeys = new Set
   const planned = new Map(plan?.routeLocations.map((routeLocation) => [routeLocation.key, routeLocation]));
   const routeKeys = new Set(plan?.order.map((index) => plan.routeLocations[index].key));
   const isMoved = ({ key, lat, lng }) => planned.get(key)?.lat !== lat || planned.get(key)?.lng !== lng;
-  const isMissingMustVisit = ({ key }) => plan !== null && mustVisitKeys.has(key) && !routeKeys.has(key);
+  const skippedForAt = new Map(plan?.skippedMustVisit.map((index) => [plan.routeLocations[index].key, plan.routeLocations[index].at]));
+  const isSkippedForAt = ({ key, at }) => skippedForAt.has(key) && skippedForAt.get(key) === at;
+  const isMissingMustVisit = (routeLocation) => plan !== null && mustVisitKeys.has(routeLocation.key) && !routeKeys.has(routeLocation.key) && !isSkippedForAt(routeLocation);
   return routeLocations
     .filter((routeLocation) => isMoved(routeLocation) || isMissingMustVisit(routeLocation))
     .map((routeLocation) => ({
@@ -311,8 +314,8 @@ export function isPlanForToday(plan, now) {
  * already ends inside it), when the team is at least a minute late for the
  * next stop and that pushes the end of the route into the safety margin or
  * means reaching a stop less than the safety margin before its At, or once
- * the deadline has passed. A wait for an At ahead takes up being late, so
- * only what's left of it carries on to later stops and the end. The selfie
+ * the deadline has passed. A wait for an At ahead takes up being late,
+ * unless the team would then reach it late for its At. The selfie
  * at a stop with an At can't be taken before its At, so the team is only
  * late for it once its At has passed, since until then they may be there,
  * waiting. It doesn't warn about a plan from an earlier day, whose times no
@@ -343,22 +346,19 @@ export function timeWarning(plan, visitedKeys, now, formatTime) {
   const behindMs = next === -1 ? 0 : Math.max(0, now - Math.max(stops[next].arrivalTime, stops[next].fixedTime ?? -Infinity));
   const minutesBehind = Math.floor(behindMs / 60000);
 
-  // Step through the stops after it still to visit, to see whether the team
-  // would reach one too late for its At, and how late they'd be at the end.
+  // The next stop with an At still to visit takes up being late in its wait,
+  // since every stop is planned to be reached the safety margin before its
+  // At, unless the team would then reach it too late, which is what they're
+  // warned about. Otherwise, they'd be as late at the end.
   let delayMs = behindMs;
   let missedAt = next !== -1 && stops[next].fixedTime !== null && behindMs > 0 ? { stop: stops[next], arrivalTime: now } : null;
-  for (const stop of next === -1 ? [] : stops.slice(next + 1)) {
-    if (delayMs <= 0) {
-      break;
+  const nextAt = next === -1 ? undefined : stops.slice(next + 1).find((stop) => stop.fixedTime !== null && !done.has(stop.location.key));
+  if (missedAt === null && nextAt && delayMs > 0) {
+    const arrivalTime = nextAt.arrivalTime + delayMs;
+    if (arrivalTime > nextAt.fixedTime - marginMs) {
+      missedAt = { stop: nextAt, arrivalTime };
     }
-    if (stop.fixedTime === null || done.has(stop.location.key)) {
-      continue;
-    }
-    const arrivalTime = stop.arrivalTime + delayMs;
-    if (missedAt === null && arrivalTime > stop.fixedTime - marginMs) {
-      missedAt = { stop, arrivalTime };
-    }
-    delayMs = Math.max(arrivalTime, stop.fixedTime) - Math.max(stop.arrivalTime, stop.fixedTime);
+    delayMs = 0;
   }
 
   // A plan can already end inside the safety margin when even the walk to
