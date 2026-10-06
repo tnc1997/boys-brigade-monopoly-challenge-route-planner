@@ -652,25 +652,77 @@ function improveRoute(route, context, stopAt) {
 }
 
 /**
+ * Chooses which must-visit locations with fixed times to keep, when they
+ * can't all be met: those that earn the most points, then the most of them,
+ * then those with the least walking between them. Only those whose selfie
+ * can be done by the end of the time budget are considered. A location
+ * with a fixed time is always left at that time plus the selfie time, since
+ * it's reached before its fixed time, so stops with fixed times must be in
+ * time order, and whether one can follow another doesn't depend on the
+ * stops before it. That makes it a longest path through them in time order,
+ * found exactly by stepping through them once for each.
+ *
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {number[]} The must-visit location nodes with fixed times to keep, in time order.
+ */
+function fixedMustVisitNodes(context) {
+  const { walk, startNode, points, mustVisitNodes, fixedSeconds, latestSeconds, dwellSeconds, budgetSeconds } = context;
+  const nodes = [...mustVisitNodes]
+    .filter((node) => fixedSeconds[node] !== null && fixedSeconds[node] + dwellSeconds <= budgetSeconds + LATE_SECONDS)
+    .sort((a, b) => fixedSeconds[a] - fixedSeconds[b] || a - b);
+  // The best chain of stops ending at each node: its points, how many stops,
+  // its walking, and the node before it, as an index into `nodes`.
+  const isBetter = (candidate, current) =>
+    current === null ||
+    candidate.points > current.points ||
+    (candidate.points === current.points &&
+      (candidate.count > current.count || (candidate.count === current.count && candidate.walkSeconds < current.walkSeconds - IMPROVEMENT_SECONDS)));
+  const chains = [];
+  for (const [i, node] of nodes.entries()) {
+    let best = walk[startNode][node] <= latestSeconds[node] + LATE_SECONDS ? { points: points[node], count: 1, walkSeconds: walk[startNode][node], previous: -1 } : null;
+    for (let j = 0; j < i; j += 1) {
+      const before = nodes[j];
+      if (chains[j] === null || fixedSeconds[before] + dwellSeconds + walk[before][node] > latestSeconds[node] + LATE_SECONDS) {
+        continue;
+      }
+      const candidate = { points: chains[j].points + points[node], count: chains[j].count + 1, walkSeconds: chains[j].walkSeconds + walk[before][node], previous: j };
+      if (isBetter(candidate, best)) {
+        best = candidate;
+      }
+    }
+    chains.push(best);
+  }
+  let last = -1;
+  for (const [i, chain] of chains.entries()) {
+    if (chain !== null && (last === -1 || isBetter(chain, chains[last]))) {
+      last = i;
+    }
+  }
+  const kept = [];
+  for (let i = last; i !== -1; i = chains[i].previous) {
+    kept.unshift(nodes[i]);
+  }
+  return kept;
+}
+
+/**
  * Builds the route that every route the planner considers starts from: the
- * must-visit locations, each added where it adds the least time, then
- * shortened with 2-opt. It may not fit the time budget, but it keeps every
- * fixed time, so a must-visit location whose fixed time can't be met is left
- * out. Those with fixed times are added first, by greedy insertion, so
- * where fixed times clash, the location that earns the most points for
- * each second it adds is kept. The rest can always be added on time, at
- * the end if nowhere else, and are added whatever they're worth, so points
- * don't change where they go.
+ * must-visit locations, then shortened with 2-opt. It may not fit the time
+ * budget, but it keeps every fixed time, so a must-visit location whose
+ * fixed time can't be met is left out, and where fixed times clash, those
+ * chosen by {@link fixedMustVisitNodes} are kept. The rest can always be
+ * added on time, at the end if nowhere else, and are each added where they
+ * add the least time, whatever they're worth, so points don't change where
+ * they go.
  *
  * @param {RouteContext} context The walking times and limits.
  * @returns {number[]} The must-visit location nodes, in visiting order.
  */
 function mustVisitRoute(context) {
-  const candidates = locationNodes(context).filter((node) => context.mustVisitNodes.has(node));
-  const withFixedTimes = insertGreedily([], context, { candidates: candidates.filter((node) => context.fixedSeconds[node] !== null), budgetSeconds: Infinity });
+  const candidates = locationNodes(context).filter((node) => context.mustVisitNodes.has(node) && context.fixedSeconds[node] === null);
   // With every location worth the same, greedy insertion adds the location that adds the least time.
   const unweighted = { ...context, points: context.points.map(() => 1) };
-  return twoOpt(insertGreedily(withFixedTimes, unweighted, { candidates, budgetSeconds: Infinity }), context);
+  return twoOpt(insertGreedily(fixedMustVisitNodes(context), unweighted, { candidates, budgetSeconds: Infinity }), context);
 }
 
 /**

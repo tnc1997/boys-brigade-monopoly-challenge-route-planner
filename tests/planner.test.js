@@ -948,6 +948,33 @@ describe('plan with fixed times', () => {
     assert.deepEqual(clash([2, 1]).skippedMustVisit, [1]);
   });
 
+  test('keeps a later fixed time worth more over an earlier one when they clash', () => {
+    // The location 1 km south is 2 km from the one north, so after the
+    // selfie at 2100 s, it's reached at 4100 s, after its 3400 s cut-off.
+    // Waiting for the later fixed time doesn't count against it.
+    const planned = plan(options(10000, { locations: [kmFrom(1), kmFrom(-1)], points: [10, 15], fixedTimes: [at(2000), at(4000)], mustVisit: [0, 1] }));
+    assert.deepEqual(planned.order, [1]);
+    assert.deepEqual(planned.skippedMustVisit, [0]);
+  });
+
+  test('keeps two must-visit locations with fixed times over one worth more that clashes with both', () => {
+    // The two north are 50 m apart and can both be met, but the one south,
+    // worth more than either, clashes with both.
+    const locations = [kmFrom(1), kmFrom(1.05), kmFrom(-1)];
+    const planned = plan(options(10000, { locations, points: [20, 20, 30], fixedTimes: [at(2000), at(3000), at(2500)], mustVisit: [0, 1, 2] }));
+    assert.deepEqual(planned.order, [0, 1]);
+    assert.deepEqual(planned.skippedMustVisit, [2]);
+  });
+
+  test('skips a must-visit location whose selfie at its fixed time would end past the cut-off', () => {
+    // The selfie at 9950 s ends at 10050 s, past the 10000 s budget, so
+    // other locations are still planned.
+    const planned = plan(options(10000, { locations: [kmFrom(0.5), kmFrom(-0.5)], fixedTimes: [at(9950), null], mustVisit: [0] }));
+    assert.deepEqual(planned.order, [1]);
+    assert.deepEqual(planned.skippedMustVisit, [0]);
+    assert.equal(planned.isMustVisitLate, false);
+  });
+
   test('keeps a must-visit location over one that is not when their fixed times clash', () => {
     const locations = [kmFrom(1), kmFrom(-1)];
     const planned = plan(options(10000, { locations, points: [1, 5], fixedTimes: [at(2000), at(2100)], mustVisit: [0] }));
