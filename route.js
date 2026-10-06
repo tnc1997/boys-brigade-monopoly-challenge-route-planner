@@ -10,6 +10,7 @@ import { timeToday } from './setup.js';
  * @property {number} arrivalTime When the team arrives, in milliseconds since the Unix epoch.
  * @property {number} walkSeconds How long the walk from the previous stop (or the start) takes, in seconds.
  * @property {number | null} fixedTime The location's At, on the day of the plan, in milliseconds since the Unix epoch, or `null` if it doesn't have one.
+ * @property {number} waitSeconds How long the team waits at the location for its At before taking the selfie, in seconds, or 0 if they don't.
  * @property {boolean} isLateForAt Whether the team arrives less than the safety margin before the location's At, or after it, to the minute, as times are shown. Only a must-visit location can be, since planning skips any other location it can't reach in time.
  * @property {string} googleMapsDirectionsUrl A Google Maps URL with walking directions to the location.
  * @property {string} appleMapsDirectionsUrl An Apple Maps URL with walking directions to the location.
@@ -125,6 +126,7 @@ export function describeRoute(plan) {
       arrivalTime,
       walkSeconds: walkSeconds(previous, location, walkOptions),
       fixedTime,
+      waitSeconds: fixedTime === null ? 0 : Math.max(0, (fixedTime - arrivalTime) / 1000),
       isLateForAt: fixedTime !== null && Math.floor(arrivalTime / 60000) > Math.floor((fixedTime - marginMs) / 60000),
       googleMapsDirectionsUrl: googleMapsDirectionsUrl(location),
       appleMapsDirectionsUrl: appleMapsDirectionsUrl(location),
@@ -189,13 +191,13 @@ export function mapRoute(plan, visitedKeys, formatTime) {
 
   /** @type {import('./map.js').MapMarker[]} */
   const markers = [{ kind: 'start', location: plan.start, label: 'S', title: named('Start', plan.start.label) }];
-  for (const { number, location, arrivalTime } of route.stops) {
+  for (const { number, location, arrivalTime, fixedTime } of route.stops) {
     const isDone = done.has(location.key);
     markers.push({
       kind: isDone ? 'done' : 'stop',
       location,
       label: String(number),
-      title: `${number}. ${location.label}, ETA ${formatTime(arrivalTime)}${isDone ? ', selfie done' : ''}`,
+      title: `${number}. ${location.label}, ETA ${formatTime(arrivalTime)}${fixedTime === null ? '' : `, selfie at ${formatTime(fixedTime)}`}${isDone ? ', selfie done' : ''}`,
     });
   }
   for (const location of plan.routeLocations) {

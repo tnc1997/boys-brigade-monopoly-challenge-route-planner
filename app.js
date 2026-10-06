@@ -1007,6 +1007,15 @@ function stopItem(stop, isFinish, points) {
     'text-sm text-muted',
     `${isFinish ? 'Finish · arrive' : 'ETA'} ${timeFormat.format(stop.arrivalTime)} · ${formatDuration(stop.walkSeconds)} walk${stopPoints === undefined ? '' : ` · ${plural(stopPoints, 'point')}`}`,
   );
+  details.append(title, timing);
+  // At a stop with an At, the selfie waits until then, so the team mustn't
+  // take it on arrival.
+  if (stop.fixedTime !== null && !isDone) {
+    const at = timeFormat.format(stop.fixedTime);
+    const lateSeconds = (stop.arrivalTime - stop.fixedTime) / 1000;
+    const text = stop.waitSeconds > 0 ? `Selfie at ${at}, so wait ${formatDuration(stop.waitSeconds)}` : `Selfie at ${at}, but you'd be ${formatDuration(lateSeconds)} late`;
+    details.append(element('p', `text-sm font-medium ${stop.isLateForAt ? 'text-danger' : 'text-accent-ink'}`, text));
+  }
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
     links.append(...(state.event.checkInFormUrl ? [checkInLink(stop.location, isDone)] : []), doneToggle(stop.location, isDone));
@@ -1014,7 +1023,7 @@ function stopItem(stop, isFinish, points) {
   // Apple Maps on the web may not work on other devices, such as Android.
   const directions = [['Google Maps', stop.googleMapsDirectionsUrl], ...(isAppleDevice(navigator.userAgent) ? [['Apple Maps', stop.appleMapsDirectionsUrl]] : [])];
   links.append(...directions.map(([app, url]) => externalLink(url, app, `Walking directions to ${stop.location.label} in ${app}`)));
-  details.append(title, timing, links);
+  details.append(links);
   item.append(badge, details);
   return item;
 }

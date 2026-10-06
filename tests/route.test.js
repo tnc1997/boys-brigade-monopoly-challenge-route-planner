@@ -130,6 +130,15 @@ describe('describeRoute', () => {
     assert.equal(byLabel.get('Temple Meads').isLateForAt, false);
   });
 
+  test('says how long the team waits at a stop for its At', () => {
+    const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '13:00' } : setupLocation));
+    const { stops } = describeRoute(savedPlan({ startTime: '11:00' }, {}, locations));
+    const atStop = stops.find(({ location }) => location.label === 'Temple Meads');
+    assert.ok(Math.abs(atStop.waitSeconds - (atStop.fixedTime - atStop.arrivalTime) / 1000) < 1e-6);
+    assert.ok(atStop.waitSeconds > 0);
+    assert.equal(stops.find(({ location }) => location.label === 'Old Kent Road').waitSeconds, 0);
+  });
+
   test('says a must-visit stop is late when it would be reached less than the safety margin before its At', () => {
     // Temple Meads is a few minutes' walk away, so it's reached after 10:50,
     // the 15-minute safety margin before 11:05.
@@ -220,6 +229,13 @@ describe('mapRoute', () => {
     const { markers, path } = mapRoute(plan, [], formatTime);
     assert.deepEqual(markers.filter(({ kind }) => kind === 'skipped').map(({ location }) => location.label), ['Old Kent Road', 'Temple Meads']);
     assert.deepEqual(path, [plan.start]);
+  });
+
+  test('gives a stop with an At its selfie time', () => {
+    const locations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, at: '13:00' } : setupLocation));
+    const { markers } = mapRoute(savedPlan({ startTime: '11:00' }, {}, locations), [], formatTime);
+    const title = markers.find(({ location }) => location.label === 'Temple Meads').title;
+    assert.ok(title.endsWith(`, selfie at ${formatTime(new Date(2026, 9, 3, 13, 0).getTime())}`), title);
   });
 
   test('says why a location with an At time is skipped', () => {
