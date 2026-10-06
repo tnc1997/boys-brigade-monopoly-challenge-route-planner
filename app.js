@@ -1004,8 +1004,18 @@ function stopItem(stop, isFinish, points) {
   const title = element('p', 'font-medium break-words', stop.location.label);
   // At a stop with an At, the team must be there then rather than take the
   // selfie on arrival and leave early, so its At shows in place of the ETA.
-  const when = isFinish ? `Finish · arrive ${timeFormat.format(stop.arrivalTime)}` : stop.fixedTime !== null && !isDone ? `At ${timeFormat.format(stop.fixedTime)}` : `ETA ${timeFormat.format(stop.arrivalTime)}`;
-  const timing = element('p', 'text-sm text-muted', `${when} · ${formatDuration(stop.walkSeconds)} walk${stopPoints === undefined ? '' : ` · ${plural(stopPoints, 'point')}`}`);
+  const isAt = !isFinish && stop.fixedTime !== null && !isDone;
+  let when = `ETA ${timeFormat.format(stop.arrivalTime)}`;
+  if (isFinish) {
+    when = `Finish · arrive ${timeFormat.format(stop.arrivalTime)}`;
+  } else if (isAt) {
+    when = `At ${timeFormat.format(stop.fixedTime)}`;
+  }
+  const timing = element(
+    'p',
+    `text-sm ${isAt ? 'font-medium text-accent-ink' : 'text-muted'}`,
+    `${when} · ${formatDuration(stop.walkSeconds)} walk${stopPoints === undefined ? '' : ` · ${plural(stopPoints, 'point')}`}`,
+  );
   details.append(title, timing);
   const links = element('div', 'mt-1 flex flex-wrap gap-2');
   if (!isFinish) {
