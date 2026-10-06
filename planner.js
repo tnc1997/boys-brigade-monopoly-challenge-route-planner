@@ -280,6 +280,7 @@ const LATE_SECONDS = 1e-6;
  * @property {number[]} departures When the team leaves each stop, after any wait for its fixed time and the selfie.
  * @property {number[]} fixedPositions Indexes into the route of the stops with fixed times, in ascending order.
  * @property {number} seconds How long the route takes, from the start to the finish (or the last selfie if there's no finish), including waits.
+ * @property {number} walkSeconds How much of that is spent walking.
  * @property {number} lateSeconds How much later than allowed the route reaches its stops with fixed times, in total. 0 when it keeps them all.
  */
 
@@ -296,10 +297,12 @@ function routeTiming(route, { walk, startNode, finishNode, dwellSeconds, fixedSe
   const departures = [];
   const fixedPositions = [];
   let lateSeconds = 0;
+  let walkSeconds = 0;
   let time = 0;
   let previous = startNode;
   for (const [position, node] of route.entries()) {
     time += walk[previous][node];
+    walkSeconds += walk[previous][node];
     arrivals.push(time);
     if (fixedSeconds[node] !== null) {
       fixedPositions.push(position);
@@ -310,8 +313,8 @@ function routeTiming(route, { walk, startNode, finishNode, dwellSeconds, fixedSe
     departures.push(time);
     previous = node;
   }
-  const seconds = finishNode === null ? time : time + walk[previous][finishNode];
-  return { arrivals, departures, fixedPositions, seconds, lateSeconds };
+  const finishWalkSeconds = finishNode === null ? 0 : walk[previous][finishNode];
+  return { arrivals, departures, fixedPositions, seconds: time + finishWalkSeconds, walkSeconds: walkSeconds + finishWalkSeconds, lateSeconds };
 }
 
 /**
@@ -338,15 +341,20 @@ function fits(route, context) {
 
 /**
  * Whether one way to time a route is better than another: it's less late
- * for its fixed times, or no later and quicker.
+ * for its fixed times, or no later and quicker, or no later or slower with
+ * less walking. Walking less matters when a wait for a fixed time takes up
+ * the difference, since it leaves more of the wait for other locations.
  *
- * @param {{ seconds: number, lateSeconds: number }} candidate The time taken and lateness of one.
- * @param {{ seconds: number, lateSeconds: number }} current The time taken and lateness of the other.
+ * @typedef {{ seconds: number, walkSeconds: number, lateSeconds: number }} Timing
+ * @param {Timing} candidate The time taken, walking and lateness of one.
+ * @param {Timing} current The time taken, walking and lateness of the other.
  * @returns {boolean} Whether `candidate` is better than `current`.
  */
 const isQuicker = (candidate, current) =>
   candidate.lateSeconds < current.lateSeconds - LATE_SECONDS ||
-  (candidate.lateSeconds <= current.lateSeconds && candidate.seconds < current.seconds - IMPROVEMENT_SECONDS);
+  (candidate.lateSeconds <= current.lateSeconds &&
+    (candidate.seconds < current.seconds - IMPROVEMENT_SECONDS ||
+      (candidate.seconds <= current.seconds && candidate.walkSeconds < current.walkSeconds - IMPROVEMENT_SECONDS)));
 
 /**
  * Works out how many points a route earns.
@@ -367,21 +375,24 @@ const locationNodes = ({ locationCount }) => Array.from({ length: locationCount 
 
 /**
  * Finds where adding a location to a route adds the least time, of the
- * places where it makes the route least late for its fixed times. Adding a
- * location delays every stop after it, until a wait for a fixed time takes
- * up the delay, so waiting is time a nearby location can be added in.
+ * places where it makes the route least late for its fixed times, then
+ * where it adds the least walking. Adding a location delays every stop
+ * after it, until a wait for a fixed time takes up the delay, so waiting is
+ * time a nearby location can be added in.
  *
  * @param {number[]} route Location nodes in visiting order.
  * @param {number} node The location node to add.
  * @param {RouteContext} context The walking times and limits.
  * @param {RouteTiming} [timing] The route's timings, if already worked out.
- * @returns {{ position: number, addedSeconds: number, lateSeconds: number }} Where to add it, as an index into `route`, the time it adds, and how much later than allowed it makes the route for its fixed times.
+ * @returns {{ position: number, addedSeconds: number, walkSeconds: number, lateSeconds: number }} Where to add it, as an index into `route`, the time and walking it adds, and how much later than allowed it makes the route for its fixed times.
  */
 function cheapestInsertion(route, node, context, timing = routeTiming(route, context)) {
   const { walk, startNode, finishNode, dwellSeconds, fixedSeconds, latestSeconds } = context;
   let best = null;
   for (let position = 0; position <= route.length; position += 1) {
     const previous = position === 0 ? startNode : route[position - 1];
+    const next = position === route.length ? finishNode : route[position];
+    const walkSeconds = walk[previous][node] + (next === null ? 0 : walk[node][next] - walk[previous][next]);
     const arrival = (position === 0 ? 0 : timing.departures[position - 1]) + walk[previous][node];
     let lateSeconds = 0;
     let departure = arrival + dwellSeconds;
@@ -395,7 +406,7 @@ function cheapestInsertion(route, node, context, timing = routeTiming(route, con
     } else {
       // How much later the team reaches each later stop, until a wait for a
       // fixed time takes it up.
-      let delay = departure + walk[node][route[position]] - timing.arrivals[position];
+      let delay = departure + walk[node][next] - timing.arrivals[position];
       for (const later of timing.fixedPositions) {
         if (delay <= 0) {
           break;
@@ -409,8 +420,8 @@ function cheapestInsertion(route, node, context, timing = routeTiming(route, con
       }
       addedSeconds = delay;
     }
-    if (best === null || isQuicker({ seconds: addedSeconds, lateSeconds }, { seconds: best.addedSeconds, lateSeconds: best.lateSeconds })) {
-      best = { position, addedSeconds, lateSeconds };
+    if (best === null || isQuicker({ seconds: addedSeconds, walkSeconds, lateSeconds }, { seconds: best.addedSeconds, walkSeconds: best.walkSeconds, lateSeconds: best.lateSeconds })) {
+      best = { position, addedSeconds, walkSeconds, lateSeconds };
     }
   }
   return best;
@@ -425,7 +436,8 @@ const MIN_ADDED_SECONDS = 1e-9;
  * that fit where they add the least time, the one that earns the most points
  * for each second it adds. Ties go to the location that adds the least time,
  * so with every location worth the same, that's the location that adds the
- * least time.
+ * least time, then to the one that adds the least walking, such as the
+ * nearest of those that fit in a wait for a fixed time.
  *
  * @param {number[]} route Location nodes already in the route, in visiting order. This isn't changed.
  * @param {RouteContext} context The walking times and limits.
@@ -452,7 +464,7 @@ function insertGreedily(route, context, { candidates = locationNodes(context), b
         best === null ||
         insertion.lateSeconds < best.lateSeconds - LATE_SECONDS ||
         (insertion.lateSeconds <= best.lateSeconds + LATE_SECONDS &&
-          (pointsPerSecond > best.pointsPerSecond || (pointsPerSecond === best.pointsPerSecond && insertion.addedSeconds < best.addedSeconds)))
+          (pointsPerSecond > best.pointsPerSecond || (pointsPerSecond === best.pointsPerSecond && isQuicker({ ...insertion, seconds: insertion.addedSeconds, lateSeconds: 0 }, { ...best, seconds: best.addedSeconds, lateSeconds: 0 }))))
       ) {
         best = { node, pointsPerSecond, ...insertion };
       }

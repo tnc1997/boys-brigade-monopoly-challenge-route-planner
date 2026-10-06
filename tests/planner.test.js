@@ -890,6 +890,16 @@ describe('plan with fixed times', () => {
     assertTimeClose(planned.endEta, at(3100), 'ends');
   });
 
+  test('uncrosses the stops before a wait, although the wait takes up the time saved', () => {
+    // Three corners of a 1 km square, then back to the start for a fixed time
+    // long after any order could get there. Crossing the square walks
+    // 4.83 km rather than 4 km, but takes as long, since the team waits.
+    const locations = [kmFrom(1), kmFrom(1, 1), kmFrom(0, 1), castlePark];
+    const order = improveWithTwoOpt(options(20000, { locations, fixedTimes: [null, null, null, at(10000)] }), [0, 2, 1, 3]);
+    assert.equal(order.at(-1), 3);
+    assert.equal(order[1], 1);
+  });
+
   test('counts waiting in the time budget', () => {
     // The location fits in 3000 s without its fixed time, but the wait for it
     // takes the route to 3100 s.
