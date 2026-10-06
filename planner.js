@@ -722,7 +722,6 @@ export function plan({ timeLimitMs = 200, ...options }) {
   });
   const visited = new Set(order);
   const skipped = options.locations.map((_, index) => index).filter((index) => !visited.has(index));
-  const routeArrivals = routeTiming(route, strictContext).arrivals;
-  const lateForFixedTime = order.filter((_, position) => routeArrivals[position] > strictContext.latestSeconds[route[position]] + LATE_SECONDS);
+  const lateForFixedTime = order.filter((_, position) => (arrivalTimes[position] - options.startTime) / 1000 > strictContext.latestSeconds[route[position]] + LATE_SECONDS);
   return { order, arrivalTimes, endEta, spareSeconds, skipped, isMustVisitLate, lateForFixedTime };
 }
