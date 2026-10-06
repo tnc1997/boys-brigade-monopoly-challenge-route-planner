@@ -306,41 +306,50 @@ describe('timeWarning', () => {
   });
 
   /**
-   * A plan with one stop, reached at 12:00 for its 12:30 At, ending a
-   * minute before the 15:45 cut-off.
+   * A plan reaching Old Kent Road at 12:00, then Temple Meads at 12:10 for
+   * its 12:40 At, ending a minute before the 15:45 cut-off.
    */
   const planWithAt = () => {
     const plan = savedPlan({ startTime: '11:00' });
     return {
       ...plan,
-      order: [0],
-      skipped: [1],
-      arrivalTimes: [new Date(2026, 9, 3, 12, 0).getTime()],
-      routeLocations: plan.routeLocations.map((routeLocation, index) => (index === 0 ? { ...routeLocation, at: '12:30' } : routeLocation)),
+      order: [0, 1],
+      skipped: [],
+      arrivalTimes: [new Date(2026, 9, 3, 12, 0).getTime(), new Date(2026, 9, 3, 12, 10).getTime()],
+      routeLocations: plan.routeLocations.map((routeLocation, index) => (index === 1 ? { ...routeLocation, at: '12:40' } : routeLocation)),
       endEta: new Date(2026, 9, 3, 15, 44).getTime(),
       spareSeconds: 60,
     };
   };
+  const at = (hours, minutes) => new Date(2026, 9, 3, hours, minutes).getTime();
 
   test("doesn't warn when a wait for an At ahead takes up being late", () => {
     // Without the wait, 10 minutes behind would push the end into the margin.
-    assert.equal(timeWarning(planWithAt(), [], new Date(2026, 9, 3, 12, 10).getTime()), null);
+    assert.equal(timeWarning(planWithAt(), [], at(12, 10)), null);
   });
 
   test('warns when being late means reaching a stop less than the safety margin before its At', () => {
-    const warning = timeWarning(planWithAt(), [], new Date(2026, 9, 3, 12, 20).getTime());
-    assert.equal(warning.message, 'Running 20 minutes behind plan, so you may not reach Old Kent Road in time for its 12:30 At. Re-plan from here to see what still fits.');
+    const warning = timeWarning(planWithAt(), [], at(12, 20));
+    assert.equal(warning.message, 'Running 20 minutes behind plan, so you may not reach Temple Meads in time for its 12:40 At. Re-plan from here to see what still fits.');
+  });
+
+  test("doesn't warn a team waiting at a stop for its At", () => {
+    // Old Kent Road is done, and the team may have reached Temple Meads at
+    // 12:10, so they aren't behind until its 12:40 At has passed.
+    assert.equal(timeWarning(planWithAt(), ['a'], at(12, 39)), null);
+    assert.match(timeWarning(planWithAt(), ['a'], at(12, 42)).message, /^Running 2 minutes behind plan, so you may not reach Temple Meads in time/);
   });
 
   test("carries on what a wait for an At doesn't take up to the end of the route", () => {
-    // Planned to reach the stop at 12:20, already inside the safety margin
-    // before its 12:30 At, so that's been warned about when planning.
-    const plan = { ...planWithAt(), arrivalTimes: [new Date(2026, 9, 3, 12, 20).getTime()] };
+    // Planned to reach Temple Meads at 12:30, already inside the safety
+    // margin before its 12:40 At, so that's been warned about when planning.
+    const plan = planWithAt();
+    plan.arrivalTimes = [at(12, 20), at(12, 30)];
     // 8 minutes behind is taken up by the 10-minute wait.
-    assert.equal(timeWarning(plan, [], new Date(2026, 9, 3, 12, 28).getTime()), null);
+    assert.equal(timeWarning(plan, [], at(12, 28)), null);
     // 15 minutes behind starts the selfie 5 minutes late, which pushes the end
     // into the margin.
-    assert.match(timeWarning(plan, [], new Date(2026, 9, 3, 12, 35).getTime()).message, /^Running 15 minutes behind plan, so the route may not fit/);
+    assert.match(timeWarning(plan, [], at(12, 35)).message, /^Running 15 minutes behind plan, so the route may not fit/);
   });
 
   test('measures lateness against the next stop that is not done', () => {

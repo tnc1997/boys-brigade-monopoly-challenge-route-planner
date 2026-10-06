@@ -298,8 +298,11 @@ export function isPlanForToday(plan, now) {
  * next stop and that pushes the end of the route into the safety margin or
  * means reaching a stop less than the safety margin before its At, or once
  * the deadline has passed. A wait for an At ahead takes up being late, so
- * only what's left of it carries on to later stops and the end. It doesn't warn about a plan from an earlier
- * day, whose times no longer apply.
+ * only what's left of it carries on to later stops and the end. The selfie
+ * at a stop with an At can't be taken before its At, so the team is only
+ * late for it once its At has passed, since until then they may be there,
+ * waiting. It doesn't warn about a plan from an earlier day, whose times no
+ * longer apply.
  *
  * @param {import('./setup.js').SavedPlan} plan The plan.
  * @param {string[]} visitedKeys Keys of the locations that have been visited, whose selfie has been taken.
@@ -317,18 +320,20 @@ export function timeWarning(plan, visitedKeys, now) {
   const leftMs = plan.deadline - now;
   const minutesLeft = Math.max(0, Math.ceil(leftMs / 60000));
 
-  // How late the team is for the first stop that isn't done yet.
+  // How late the team is for the selfie at the first stop that isn't done
+  // yet: when they arrive, or at its At if they'd have to wait for it.
   const done = new Set(visitedKeys);
-  const next = plan.order.findIndex((index) => !done.has(plan.routeLocations[index].key));
-  const behindMs = next === -1 ? 0 : Math.max(0, now - plan.arrivalTimes[next]);
+  const { stops } = describeRoute(plan);
+  const next = stops.findIndex(({ location }) => !done.has(location.key));
+  const behindMs = next === -1 ? 0 : Math.max(0, now - Math.max(stops[next].arrivalTime, stops[next].fixedTime ?? -Infinity));
   const minutesBehind = Math.floor(behindMs / 60000);
 
-  // Step through the stops still to visit, to see whether the team would
-  // reach one too late for its At, and how late they'd be at the end. A
-  // stop already planned late for its At has been warned about.
+  // Step through the stops after it still to visit, to see whether the team
+  // would reach one too late for its At, and how late they'd be at the end.
+  // A stop already planned late for its At has been warned about.
   let delayMs = behindMs;
-  let missedAt = null;
-  for (const stop of next === -1 ? [] : describeRoute(plan).stops.slice(next)) {
+  let missedAt = next !== -1 && stops[next].fixedTime !== null && !stops[next].isLateForAt && behindMs > 0 ? stops[next] : null;
+  for (const stop of next === -1 ? [] : stops.slice(next + 1)) {
     if (delayMs <= 0) {
       break;
     }
