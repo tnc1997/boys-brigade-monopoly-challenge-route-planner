@@ -85,7 +85,8 @@ describe('shareFragment and readShareFragment', () => {
   test('recreate the list, the event and the search results, with new ids and no ticks', async () => {
     const state = sampleState();
     const opened = await roundTrip(state);
-    assert.deepEqual(opened.event, state.event);
+    // Event fields added since sampleState was written get their defaults.
+    assert.deepEqual(opened.event, { ...defaultState().event, ...state.event });
     assert.deepEqual(
       opened.setupLocations.map(({ id, ...row }) => row),
       [
