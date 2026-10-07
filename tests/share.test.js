@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { describe, test } from 'node:test';
 
+import { OPTIONAL_SETUP_LOCATION_FIELDS } from '../locations.js';
 import { searchKey } from '../search.js';
 import { SHARE_PREFIX, canCompress, preparedShareFragment, readShareFragment, shareFragment, sharedListOf } from '../share.js';
-import { SCHEMA_VERSION, defaultState } from '../storage.js';
+import { SCHEMA_VERSION, cleanState, defaultState } from '../storage.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -142,32 +143,105 @@ describe('shareFragment and readShareFragment', () => {
   for (const [name, change] of [
     ['a row field', (sharedList) => (sharedList.setupLocations[0].colourOfTheDay = 'red')],
     ['an event field', (sharedList) => (sharedList.event.bonusPerHour = 5)],
-    ['a pin field', (sharedList) => (sharedList.setupLocations[1].pin.accuracy = 5)],
   ]) {
-    test(`say a list with ${name} this version doesn't know can't be read, rather than dropping it`, async () => {
+    test(`say a list with ${name} this version doesn't know is from a newer version, rather than dropping it`, async () => {
       const sharedList = sampleSharedList();
       change(sharedList);
       assert.deepEqual(await readShareFragment(fragmentOf(sharedList)), { status: 'newer' });
     });
   }
 
-  for (const [name, change] of [
-    ['points', (sharedList) => (sharedList.setupLocations[0].points = 99999)],
-    ['an At', (sharedList) => (sharedList.setupLocations[0].at = '12:00:30')],
-    ['Must visit', (sharedList) => (sharedList.setupLocations[0].isMustVisit = 'yes')],
-    ['a pin', (sharedList) => (sharedList.setupLocations[1].pin = { lat: 100, lng: 0 })],
-    ['Points per location', (sharedList) => (sharedList.event.pointsPerLocation = 2.5)],
-    ['a deadline', (sharedList) => (sharedList.event.deadline = 1600)],
-    ['a check-in form', (sharedList) => (sharedList.event.checkInFormUrl = 'javascript:alert(1)')],
-    ['a row', (sharedList) => sharedList.setupLocations.push('Old Kent Road')],
-    ['a row with no text or pin', (sharedList) => sharedList.setupLocations.push({ text: '  ' })],
+  test('know every row field that loading checks, and every event field with a default', async () => {
+    const sharedList = sampleSharedList();
+    sharedList.setupLocations[0] = { text: 'Old Kent Road', ...Object.fromEntries(Object.keys(OPTIONAL_SETUP_LOCATION_FIELDS).map((field) => [field, null])) };
+    sharedList.event = Object.fromEntries(Object.keys(defaultState().event).map((field) => [field, null]));
+    assert.equal((await readShareFragment(fragmentOf(sharedList))).status, 'read');
+  });
+
+  test('know a row field that loading keeps, even if it was checked outside the table of optional fields', async () => {
+    const clean = (saved) => {
+      const state = cleanState(saved);
+      state.setupLocations = state.setupLocations.map((row, index) => (saved.setupLocations[index].set === 'red' ? { ...row, set: 'red' } : row));
+      return state;
+    };
+    const sharedList = sampleSharedList();
+    sharedList.setupLocations[0].set = 'red';
+    const result = await readShareFragment(fragmentOf(sharedList), { clean });
+    assert.equal(result.status, 'read');
+    assert.equal(result.shared.setupLocations[0].set, 'red');
+  });
+
+  for (const [name, change, check] of [
+    ['points', (sharedList) => (sharedList.setupLocations[0].points = 99999), ({ setupLocations }) => setupLocations[0].points === undefined],
+    ['an At', (sharedList) => (sharedList.setupLocations[0].at = '12:00:30'), ({ setupLocations }) => setupLocations[0].at === undefined],
+    ['Must visit', (sharedList) => (sharedList.setupLocations[0].isMustVisit = 'yes'), ({ setupLocations }) => setupLocations[0].isMustVisit === undefined],
+    ['a pin', (sharedList) => (sharedList.setupLocations[1].pin = { lat: 100, lng: 0 }), ({ setupLocations }) => setupLocations[1].pin === undefined],
+    ["a pin's field", (sharedList) => (sharedList.setupLocations[1].pin.accuracy = 5), ({ setupLocations }) => setupLocations[1].pin.accuracy === undefined],
+    ['Points per location', (sharedList) => (sharedList.event.pointsPerLocation = 2.5), ({ event }) => event.pointsPerLocation === defaultState().event.pointsPerLocation],
+    ['the deadline', (sharedList) => (sharedList.event.deadline = 1600), ({ event }) => event.deadline === defaultState().event.deadline],
+    ['the check-in form', (sharedList) => (sharedList.event.checkInFormUrl = 'javascript:alert(1)'), ({ event }) => event.checkInFormUrl === ''],
   ]) {
-    test(`say a list with a value for ${name} that this version doesn't allow can't be read, rather than dropping it`, async () => {
+    test(`drop a value for ${name} that this version doesn't allow, as loading does, and open the rest`, async () => {
       const sharedList = sampleSharedList();
       change(sharedList);
-      assert.deepEqual(await readShareFragment(fragmentOf(sharedList)), { status: 'newer' });
+      const result = await readShareFragment(fragmentOf(sharedList));
+      assert.equal(result.status, 'read');
+      assert.ok(check(result.shared));
+      assert.deepEqual(
+        result.shared.setupLocations.map(({ text }) => text),
+        ['Old Kent Road', 'Whitechapel', '51.4545,-2.5879', 'Nowhere Lane'],
+      );
+      assert.equal(result.shared.event.startText, 'Castle Park');
     });
   }
+
+  for (const [name, row] of [
+    ['a row that isn\'t an object', 'Old Kent Road'],
+    ['a row without text', { pin: { lat: 51, lng: -2 } }],
+    ['a row with no text or pin', { text: '  ' }],
+  ]) {
+    test(`say a list with ${name} is damaged, since a phone never shares one`, async () => {
+      const sharedList = sampleSharedList();
+      sharedList.setupLocations.push(row);
+      assert.deepEqual(await readShareFragment(fragmentOf(sharedList)), { status: 'damaged' });
+    });
+  }
+
+  test('leave out rows whose text has been cleared, so the list still opens', async () => {
+    const state = { ...sampleState(), setupLocations: [...sampleState().setupLocations, { id: 'e', text: '' }, { id: 'f', text: '   ' }, { id: 'g', text: '', pin: { lat: 51.44, lng: -2.6 } }] };
+    assert.deepEqual(
+      sharedListOf(state).setupLocations.map(({ text }) => text),
+      ['Old Kent Road', 'Whitechapel', '51.4545,-2.5879', 'Nowhere Lane', ''],
+    );
+    const opened = await roundTrip(state);
+    assert.equal(opened.setupLocations.length, 5);
+    assert.deepEqual(opened.setupLocations[4].pin, { lat: 51.44, lng: -2.6 });
+  });
+
+  test("move a list shared with an earlier schema version as saved state is, without checking for unknown fields", async () => {
+    // Pretend the schema is a version ahead, and that moving from the
+    // shared version renames `minutes` on rows to `at`, as a migration might.
+    const clean = (saved) => {
+      assert.equal(saved.version, SCHEMA_VERSION);
+      const setupLocations = saved.setupLocations.map(({ minutes, ...row }) => ({ ...row, ...(minutes === undefined ? {} : { at: `12:${minutes}` }) }));
+      return cleanState({ ...saved, version: SCHEMA_VERSION, setupLocations });
+    };
+    const sharedList = sampleSharedList();
+    sharedList.setupLocations[2] = { text: '51.4545,-2.5879', minutes: '30' };
+    sharedList.event.oldField = true;
+    const result = await readShareFragment(fragmentOf(sharedList), { schemaVersion: SCHEMA_VERSION + 1, clean });
+    assert.equal(result.status, 'read');
+    assert.equal(result.shared.setupLocations[2].at, '12:30');
+    assert.equal(result.shared.event.oldField, undefined);
+  });
+
+  test("don't count rows that moving from an earlier schema version drops as damage", async () => {
+    const clean = (saved) => cleanState({ ...saved, version: SCHEMA_VERSION, setupLocations: saved.setupLocations.slice(1) });
+    const result = await readShareFragment(fragmentOf(sampleSharedList()), { schemaVersion: SCHEMA_VERSION + 1, clean });
+    assert.equal(result.status, 'read');
+    assert.equal(result.shared.setupLocations.length, 3);
+  });
+
 
   test('fill in event fields missing from a list shared by an earlier version with their defaults', async () => {
     const sharedList = sampleSharedList();

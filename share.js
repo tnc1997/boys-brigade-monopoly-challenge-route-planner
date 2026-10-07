@@ -1,6 +1,6 @@
-import { isLatLng, newLocationId } from './locations.js';
+import { OPTIONAL_SETUP_LOCATION_FIELDS, cleanSetupLocations, isLatLng, newLocationId } from './locations.js';
 import { searchKey } from './search.js';
-import { SCHEMA_VERSION, cleanState, isObject } from './storage.js';
+import { SCHEMA_VERSION, cleanState, defaultState, isObject } from './storage.js';
 
 /**
  * A shared list, as it's put in a link: the location list and the event's
@@ -32,9 +32,9 @@ import { SCHEMA_VERSION, cleanState, isObject } from './storage.js';
  *
  * - `none`: the link has no shared list.
  * - `read`: the shared list, checked as saved state is.
- * - `newer`: the list has something this version of the app can't read,
- *   such as a field added by a newer version, so none of it is read.
- * - `damaged`: the link is damaged or cut short.
+ * - `newer`: the list is from a newer version of the app, with a newer
+ *   schema version or a field this version doesn't know, so none of it is read.
+ * - `damaged`: the link is damaged or cut short, or has rows that aren't rows.
  * - `unsupported`: the browser can't decompress the list, so it needs updating.
  *
  * @typedef {{ status: 'none' | 'newer' | 'damaged' | 'unsupported' } | { status: 'read', shared: SharedState }} SharedListResult
@@ -136,14 +136,16 @@ function fromBase64Url(text) {
  * row a new one) or tick, and the saved search results for the Start's,
  * the Finish's and the rows' texts, so the receiving phone needn't look
  * them up. A pinned row's search result isn't shared, since its pin is
- * used instead. The team's own settings, the plan and the chosen tab
- * aren't shared.
+ * used instead. Rows that would be dropped when loaded, such as one whose
+ * text has been cleared, are left out. The team's own settings, the plan
+ * and the chosen tab aren't shared.
  *
  * @param {Pick<import('./storage.js').AppState, 'event' | 'setupLocations' | 'searchResults'>} state The saved state.
  * @returns {SharedList} The shared list.
  */
 export function sharedListOf({ event, setupLocations, searchResults }) {
-  const rows = setupLocations.map(({ id, isVisited, ...row }) => row);
+  // Each row is checked as loading checks it.
+  const rows = setupLocations.filter((row) => cleanSetupLocations([row]).length > 0).map(({ id, isVisited, ...row }) => row);
   /** @type {SharedList['searchResults']} */
   const sharedSearchResults = {};
   for (const text of [event.startText, event.finishText, ...rows.filter((row) => !row.pin).map((row) => row.text)]) {
@@ -194,24 +196,6 @@ export function preparedShareFragment(state) {
 }
 
 /**
- * Whether two values from JSON are the same, comparing objects and arrays
- * by their contents.
- *
- * @param {unknown} a One value.
- * @param {unknown} b The other.
- * @returns {boolean} Whether they're the same.
- */
-function isSame(a, b) {
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
-    return a === b;
-  }
-  if (Array.isArray(a) !== Array.isArray(b) || Object.keys(a).length !== Object.keys(b).length) {
-    return false;
-  }
-  return Object.keys(a).every((key) => Object.hasOwn(b, key) && isSame(a[key], b[key]));
-}
-
-/**
  * Checks a saved search result from a shared list, so one with the wrong
  * shape or out-of-range coordinates isn't added to the phone's own.
  *
@@ -234,37 +218,53 @@ function cleanSearchResult(searchResult) {
 }
 
 /**
- * Checks a shared list as saved state is checked (see {@link cleanState}),
- * giving each row a new id and no tick. If checking would change or drop
- * anything in a row or the event, such as a field this version doesn't
- * know or a value it doesn't allow, the list is from a newer version (or
- * damaged), so none of it is used rather than part of it. Search results
- * are only kept for the shared texts, and any with the wrong shape are left
- * out, so their text is looked up again.
+ * Checks a shared list as saved state is checked, giving each row a new id
+ * and no tick. A value this version doesn't allow falls back to its
+ * default, as it does when loading. Search results are only kept for the
+ * shared texts, and any with the wrong shape are left out, so their text is
+ * looked up again.
+ *
+ * With the same schema version, a row or event field this version doesn't
+ * know means the list is from a newer version, so none of it is read. A
+ * row's known fields are its id, its text, those in
+ * {@link OPTIONAL_SETUP_LOCATION_FIELDS} and any that checking kept, and
+ * the event's are those in its defaults, so a field is known as soon as
+ * it's checked when loading. A row that checking drops entirely means the
+ * list is damaged, since a phone never shares one (see {@link sharedListOf}).
+ *
+ * A list shared with an earlier schema version can't have fields from a
+ * newer one, so it's only moved to the current version, as saved state
+ * is, which can change or drop fields and rows.
  *
  * @param {SharedList} sharedList The shared list.
- * @returns {SharedState | null} What opening it changes, or `null` if it can't all be read.
+ * @param {object} options How to check it.
+ * @param {number} options.schemaVersion The current schema version.
+ * @param {(saved: unknown) => import('./storage.js').AppState} options.clean How to check saved state.
+ * @returns {SharedListResult} What opening it changes, or why it can't be opened.
  */
-function sharedStateOf(sharedList) {
+function sharedStateOf(sharedList, { schemaVersion, clean }) {
   const rows = sharedList.setupLocations.map((row) => {
     if (!isObject(row)) {
-      return { row, id: null };
+      return row;
     }
     const { id, isVisited, ...shared } = row;
-    return { row: shared, id: newLocationId() };
+    return { ...shared, id: newLocationId() };
   });
-  const { event, setupLocations } = cleanState({
-    version: sharedList.version,
-    event: sharedList.event,
-    setupLocations: rows.map(({ row, id }) => (id === null ? row : { ...row, id })),
-  });
-  const cleanedRows = new Map(setupLocations.map((setupLocation) => [setupLocation.id, setupLocation]));
-  const isReadInFull =
-    setupLocations.length === rows.length &&
-    Object.entries(sharedList.event).every(([key, value]) => Object.hasOwn(event, key) && isSame(event[key], value)) &&
-    rows.every(({ row, id }) => cleanedRows.has(id) && isSame({ ...row, id }, cleanedRows.get(id)));
-  if (!isReadInFull) {
-    return null;
+  const { event, setupLocations } = clean({ version: sharedList.version, event: sharedList.event, setupLocations: rows });
+  if (sharedList.version === schemaVersion) {
+    const rowFields = new Set(['id', 'text', ...Object.keys(OPTIONAL_SETUP_LOCATION_FIELDS)]);
+    const eventFields = new Set(Object.keys(defaultState().event));
+    const cleanedRows = new Map(setupLocations.map((setupLocation) => [setupLocation.id, setupLocation]));
+    const isKnownRowField = (row, field) => rowFields.has(field) || Object.hasOwn(cleanedRows.get(row.id) ?? {}, field);
+    const hasUnknownFields =
+      Object.keys(sharedList.event).some((field) => !eventFields.has(field) && !Object.hasOwn(event, field)) ||
+      rows.some((row) => isObject(row) && Object.keys(row).some((field) => !isKnownRowField(row, field)));
+    if (hasUnknownFields) {
+      return { status: 'newer' };
+    }
+    if (setupLocations.length !== rows.length) {
+      return { status: 'damaged' };
+    }
   }
   /** @type {import('./search.js').SearchResults} */
   const searchResults = {};
@@ -275,18 +275,23 @@ function sharedStateOf(sharedList) {
       searchResults[searchKey(query)] = searchResult;
     }
   }
-  return { event, setupLocations, searchResults };
+  return { status: 'read', shared: { event, setupLocations, searchResults } };
 }
 
 /**
- * Reads the shared list from a link's fragment, checked as saved state is.
- * A list with anything this version of the app can't read, such as one
- * shared by a newer version, isn't read at all, rather than read in part.
+ * Reads the shared list from a link's fragment, checked as saved state is
+ * (see {@link sharedStateOf}). A list shared by a newer version of the app
+ * isn't read at all, rather than read in part: one with a newer schema
+ * version, or with the same one but a row or event field this version
+ * doesn't know, such as a field added since.
  *
  * @param {string} fragment The link's fragment, such as `location.hash`, starting with `#` unless it's empty.
+ * @param {object} [options] Options for testing.
+ * @param {number} [options.schemaVersion] The current schema version. Defaults to {@link SCHEMA_VERSION}.
+ * @param {(saved: unknown) => import('./storage.js').AppState} [options.clean] How to check saved state, including moving it from an earlier schema version. Defaults to {@link cleanState}.
  * @returns {Promise<SharedListResult>} What opening the shared list changes, or why it can't be opened.
  */
-export async function readShareFragment(fragment) {
+export async function readShareFragment(fragment, { schemaVersion = SCHEMA_VERSION, clean = cleanState } = {}) {
   if (!fragment.startsWith(SHARE_PREFIX)) {
     return { status: 'none' };
   }
@@ -303,12 +308,11 @@ export async function readShareFragment(fragment) {
   if (!isObject(sharedList) || !Number.isInteger(sharedList.version) || sharedList.version < FIRST_SHARED_VERSION) {
     return { status: 'damaged' };
   }
-  if (sharedList.version > SCHEMA_VERSION) {
+  if (sharedList.version > schemaVersion) {
     return { status: 'newer' };
   }
   if (!isObject(sharedList.event) || !Array.isArray(sharedList.setupLocations) || !isObject(sharedList.searchResults)) {
     return { status: 'damaged' };
   }
-  const shared = sharedStateOf(sharedList);
-  return shared ? { status: 'read', shared } : { status: 'newer' };
+  return sharedStateOf(sharedList, { schemaVersion, clean });
 }
