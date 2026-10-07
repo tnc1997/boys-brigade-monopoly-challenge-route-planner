@@ -362,6 +362,7 @@ export const OPTIONAL_SETUP_LOCATION_FIELDS = Object.freeze({
   isMustVisit: (value) => (value === true ? true : undefined),
   points: (value) => (isPoints(value) ? value : undefined),
   at: (value) => (isTime(value) ? value : undefined),
+  set: (value) => (isSetId(value) ? value : undefined),
 });
 
 /**
@@ -404,9 +405,6 @@ export function cleanSetupLocations(setupLocations) {
       if (value !== undefined) {
         cleaned[field] = value;
       }
-    }
-    if (isSetId(setupLocation.set)) {
-      cleaned.set = setupLocation.set;
     }
     return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
   });

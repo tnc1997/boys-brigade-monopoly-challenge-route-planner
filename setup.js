@@ -1,4 +1,4 @@
-import { FINISH_KEY, START_KEY, isTime, pointsById, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, isTime, pointsById, routeLocationOfText, routeLocationsOf, rowLabel, usableRouteLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
 import { completableSets, mismatchedSets } from './sets.js';
 import { SPEED_RANGE } from './settings.js';
@@ -103,8 +103,7 @@ export function timeToday(time, now) {
  * @returns {SetupResult} The plan, or what stops planning, and the rows left out.
  */
 export function planFromSetup({ event, setupLocations, settings, now, from = null, searchResults = {} }) {
-  const routeLocationResults = routeLocationsOf(setupLocations, searchResults);
-  const leftOut = routeLocationResults.filter(({ status }) => status === 'notFound' || status === 'unknown');
+  const leftOut = routeLocationsOf(setupLocations, searchResults).filter(({ status }) => status === 'notFound' || status === 'unknown');
   const failure = (error) => ({ plan: null, error, leftOut, mismatchedSets: [], unfoundSets: [] });
 
   const usable = usableRouteLocations(setupLocations, searchResults);
@@ -170,8 +169,7 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
   // Name the locations that stop a set being completed, as the route does.
   const labelOf = (id) => {
     const index = setupLocations.findIndex((setupLocation) => setupLocation.id === id);
-    const result = routeLocationResults[index];
-    return 'label' in result ? result.label : `Location ${index + 1}`;
+    return rowLabel(setupLocations[index].text, index + 1);
   };
   const unfoundSets = completable
     .filter(({ ids }) => !ids.every(isPlannable))
