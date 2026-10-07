@@ -51,7 +51,7 @@ Once one phone has entered and checked the list, tap **Share list** under **Loca
 
 Opening the link on another phone loads the same list, exactly as it was entered, with its pins, Must visit, Points and At, and the **Start**, **Finish**, **Start time**, **Deadline**, check-in form and **Points per location**. Each location shows as found straight away, with no lookups, so it works without signal once the planner has been opened before. If that phone already has a list, it asks before replacing it. Replacing it also clears the selfies ticked off and the route. Each phone keeps its own **Walking speed**, **Selfie time** and other settings, though a default selfie time goes up to 5 minutes when the list brings a check-in form, as it does in **⚙ Settings**. No selfies are ticked off on the new phone. Then press **Plan route** on each phone.
 
-The list is in the part of the link after `#`, which browsers never send to a server, so it isn't sent to GitHub Pages or anyone else. A link from a newer version of the planner asks you to reload with signal to update it first.
+The list is in the part of the link after `#`, which browsers never send to a server, so it isn't sent to GitHub Pages or anyone else. A link from a newer version of the planner, with something this one can't read, asks you to reload with signal to update it first, rather than opening part of the list. Sharing needs a browser from 2023 or later (Safari 16.4, Chrome 103 or Firefox 113); an older one says to update it.
 
 ### 4. Follow the route
 

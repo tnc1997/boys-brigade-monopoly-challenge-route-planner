@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { deflateRawSync } from 'node:zlib';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { describe, test } from 'node:test';
 
 import { searchKey } from '../search.js';
-import { SHARE_PREFIX, readShareFragment, shareFragment, sharedListOf, sharedState } from '../share.js';
+import { SHARE_PREFIX, canCompress, preparedShareFragment, readShareFragment, shareFragment, sharedListOf } from '../share.js';
 import { SCHEMA_VERSION, defaultState } from '../storage.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -11,11 +11,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 /** Makes a fragment for any JSON value, as a link from another version or a damaged one might have. */
 const fragmentOf = (value) => `${SHARE_PREFIX}${deflateRawSync(Buffer.from(JSON.stringify(value))).toString('base64url')}`;
 
+/** Reads the JSON in a fragment without checking it. */
+const jsonOf = (fragment) => JSON.parse(inflateRawSync(Buffer.from(fragment.slice(SHARE_PREFIX.length), 'base64url')).toString('utf8'));
+
 /** Shares a state and opens the link, returning what opening it changes. */
 const roundTrip = async (state) => {
   const result = await readShareFragment(await shareFragment(state));
   assert.equal(result.status, 'read');
-  return sharedState(result.sharedList);
+  return result.shared;
 };
 
 /** A saved state with a found row, a pinned row, a coordinates row and a not-found row, ticks, a plan and changed settings. */
@@ -33,6 +36,7 @@ const sampleState = () => ({
     [searchKey('Castle Park')]: { isFound: true, lat: 51.4556, lng: -2.5894, name: 'Castle Park, Bristol' },
     [searchKey('Queen Square')]: { isFound: true, lat: 51.45, lng: -2.595, name: 'Queen Square, Bristol' },
     [searchKey('Old Kent Road')]: { isFound: true, lat: 51.46, lng: -2.58, name: 'Old Kent Road, Bristol' },
+    [searchKey('Whitechapel')]: { isFound: false, error: 'Not found.', isTemporary: false },
     [searchKey('Nowhere Lane')]: { isFound: false, error: 'Not found.', isTemporary: false },
     [searchKey('Somewhere else')]: { isFound: true, lat: 51.4, lng: -2.5, name: 'Somewhere else' },
   },
@@ -40,8 +44,19 @@ const sampleState = () => ({
   view: 'map',
 });
 
+/** The search results shared for {@link sampleState}, by their text. */
+const sampleSharedSearchResults = () => ({
+  'Castle Park': { isFound: true, lat: 51.4556, lng: -2.5894, name: 'Castle Park, Bristol' },
+  'Queen Square': { isFound: true, lat: 51.45, lng: -2.595, name: 'Queen Square, Bristol' },
+  'Old Kent Road': { isFound: true, lat: 51.46, lng: -2.58, name: 'Old Kent Road, Bristol' },
+  'Nowhere Lane': { isFound: false, error: 'Not found.', isTemporary: false },
+});
+
+/** A shared list as {@link sampleState} would make, as JSON for {@link fragmentOf} to change. */
+const sampleSharedList = () => JSON.parse(JSON.stringify(sharedListOf(sampleState())));
+
 describe('sharedListOf', () => {
-  test('shares the rows without their ids or ticks, the event, and only the search results for the shared texts', () => {
+  test('shares the rows without their ids or ticks, the event, and the search results for the shared texts except pinned rows', () => {
     const sharedList = sharedListOf(sampleState());
     assert.deepEqual(sharedList, {
       version: SCHEMA_VERSION,
@@ -52,12 +67,7 @@ describe('sharedListOf', () => {
         { text: '51.4545,-2.5879' },
         { text: 'Nowhere Lane' },
       ],
-      searchResults: {
-        'Castle Park': { isFound: true, lat: 51.4556, lng: -2.5894, name: 'Castle Park, Bristol' },
-        'Queen Square': { isFound: true, lat: 51.45, lng: -2.595, name: 'Queen Square, Bristol' },
-        'Old Kent Road': { isFound: true, lat: 51.46, lng: -2.58, name: 'Old Kent Road, Bristol' },
-        'Nowhere Lane': { isFound: false, error: 'Not found.', isTemporary: false },
-      },
+      searchResults: sampleSharedSearchResults(),
     });
   });
 
@@ -68,6 +78,10 @@ describe('sharedListOf', () => {
 });
 
 describe('shareFragment and readShareFragment', () => {
+  test('can compress in this environment', () => {
+    assert.equal(canCompress(), true);
+  });
+
   test('recreate the list, the event and the search results, with new ids and no ticks', async () => {
     const state = sampleState();
     const opened = await roundTrip(state);
@@ -85,22 +99,21 @@ describe('shareFragment and readShareFragment', () => {
       assert.match(id, UUID);
     }
     assert.equal(new Set(opened.setupLocations.map(({ id }) => id)).size, 4);
-    const { [searchKey('Somewhere else')]: unshared, ...shared } = state.searchResults;
+    const { [searchKey('Somewhere else')]: unshared, [searchKey('Whitechapel')]: pinned, ...shared } = state.searchResults;
     assert.deepEqual(opened.searchResults, shared);
   });
 
   test('carry row and event fields added later, such as a colour set and Points per set, without changing the encoding', async () => {
     const state = { ...defaultState(), event: { ...defaultState().event, pointsPerSet: 50 }, setupLocations: [{ id: 'a', text: 'Old Kent Road', set: 'red', isVisited: true }] };
-    const result = await readShareFragment(await shareFragment(state));
-    assert.equal(result.status, 'read');
-    assert.equal(result.sharedList.event.pointsPerSet, 50);
-    assert.deepEqual(result.sharedList.setupLocations, [{ text: 'Old Kent Road', set: 'red' }]);
+    const sharedList = jsonOf(await shareFragment(state));
+    assert.equal(sharedList.event.pointsPerSet, 50);
+    assert.deepEqual(sharedList.setupLocations, [{ text: 'Old Kent Road', set: 'red' }]);
   });
 
   test('make a fragment that only uses characters safe in a URL', async () => {
-    const fragment = await shareFragment({ ...sampleState(), setupLocations: [{ id: 'a', text: 'Café “Ñ” 🎲 & ?#/+' }] });
-    assert.match(fragment, /^#list=[A-Za-z0-9_-]+$/);
-    const opened = await roundTrip({ ...sampleState(), setupLocations: [{ id: 'a', text: 'Café “Ñ” 🎲 & ?#/+' }] });
+    const state = { ...sampleState(), setupLocations: [{ id: 'a', text: 'Café “Ñ” 🎲 & ?#/+' }] };
+    assert.match(await shareFragment(state), /^#list=[A-Za-z0-9_-]+$/);
+    const opened = await roundTrip(state);
     assert.equal(opened.setupLocations[0].text, 'Café “Ñ” 🎲 & ?#/+');
   });
 
@@ -121,9 +134,79 @@ describe('shareFragment and readShareFragment', () => {
     assert.deepEqual(await readShareFragment('#map'), { status: 'none' });
   });
 
-  test("say a list shared by a newer version can't be read, rather than reading part of it", async () => {
-    const sharedList = { ...sharedListOf(sampleState()), version: SCHEMA_VERSION + 1 };
-    assert.deepEqual(await readShareFragment(fragmentOf(sharedList)), { status: 'newer' });
+  test("say a list shared with a newer schema version can't be read, rather than reading part of it", async () => {
+    assert.deepEqual(await readShareFragment(fragmentOf({ ...sampleSharedList(), version: SCHEMA_VERSION + 1 })), { status: 'newer' });
+  });
+
+  for (const [name, change] of [
+    ['a row field', (sharedList) => (sharedList.setupLocations[0].colourOfTheDay = 'red')],
+    ['an event field', (sharedList) => (sharedList.event.bonusPerHour = 5)],
+    ['a pin field', (sharedList) => (sharedList.setupLocations[1].pin.accuracy = 5)],
+  ]) {
+    test(`say a list with ${name} this version doesn't know can't be read, rather than dropping it`, async () => {
+      const sharedList = sampleSharedList();
+      change(sharedList);
+      assert.deepEqual(await readShareFragment(fragmentOf(sharedList)), { status: 'newer' });
+    });
+  }
+
+  for (const [name, change] of [
+    ['points', (sharedList) => (sharedList.setupLocations[0].points = 99999)],
+    ['an At', (sharedList) => (sharedList.setupLocations[0].at = '12:00:30')],
+    ['Must visit', (sharedList) => (sharedList.setupLocations[0].isMustVisit = 'yes')],
+    ['a pin', (sharedList) => (sharedList.setupLocations[1].pin = { lat: 100, lng: 0 })],
+    ['Points per location', (sharedList) => (sharedList.event.pointsPerLocation = 2.5)],
+    ['a deadline', (sharedList) => (sharedList.event.deadline = 1600)],
+    ['a check-in form', (sharedList) => (sharedList.event.checkInFormUrl = 'javascript:alert(1)')],
+    ['a row', (sharedList) => sharedList.setupLocations.push('Old Kent Road')],
+    ['a row with no text or pin', (sharedList) => sharedList.setupLocations.push({ text: '  ' })],
+  ]) {
+    test(`say a list with a value for ${name} that this version doesn't allow can't be read, rather than dropping it`, async () => {
+      const sharedList = sampleSharedList();
+      change(sharedList);
+      assert.deepEqual(await readShareFragment(fragmentOf(sharedList)), { status: 'newer' });
+    });
+  }
+
+  test('fill in event fields missing from a list shared by an earlier version with their defaults', async () => {
+    const sharedList = sampleSharedList();
+    delete sharedList.event.pointsPerLocation;
+    const result = await readShareFragment(fragmentOf(sharedList));
+    assert.equal(result.status, 'read');
+    assert.equal(result.shared.event.pointsPerLocation, defaultState().event.pointsPerLocation);
+  });
+
+  test("give rows new ids and no ticks, even if the link has them", async () => {
+    const sharedList = sampleSharedList();
+    sharedList.setupLocations[0].id = 'chosen-id';
+    sharedList.setupLocations[0].isVisited = true;
+    const result = await readShareFragment(fragmentOf(sharedList));
+    assert.equal(result.status, 'read');
+    assert.match(result.shared.setupLocations[0].id, UUID);
+    assert.equal(result.shared.setupLocations[0].isVisited, undefined);
+  });
+
+  test('only keep search results for the shared texts, with the right shape', async () => {
+    const sharedList = {
+      version: SCHEMA_VERSION,
+      event: { ...defaultState().event, startText: 'Castle Park', finishText: '' },
+      setupLocations: [{ text: 'Old Kent Road' }, { text: 'Whitechapel' }, { text: 'Bow Street' }, { text: 'Pall Mall' }, { text: '__proto__' }, { text: 'Pinned', pin: { lat: 51, lng: -2 } }],
+      searchResults: {
+        'Castle Park': { isFound: true, lat: 51.4556, lng: -2.5894, name: 'Castle Park', extra: 1 },
+        'Old Kent Road': { isFound: true, lat: 91, lng: 0, name: 'Too far north' },
+        Whitechapel: { isFound: false, error: 'No signal', isTemporary: true },
+        'Bow Street': { isFound: false, error: 'Not found.', isTemporary: false },
+        'Pall Mall': 'found',
+        Pinned: { isFound: false, error: 'Not found.', isTemporary: false },
+        'Not in the list': { isFound: true, lat: 51, lng: -2, name: 'Not in the list' },
+      },
+    };
+    const result = await readShareFragment(fragmentOf(sharedList));
+    assert.equal(result.status, 'read');
+    assert.deepEqual(result.shared.searchResults, {
+      [searchKey('Castle Park')]: { isFound: true, lat: 51.4556, lng: -2.5894, name: 'Castle Park' },
+      [searchKey('Bow Street')]: { isFound: false, error: 'Not found.', isTemporary: false },
+    });
   });
 
   for (const [name, fragment] of [
@@ -156,52 +239,27 @@ describe('shareFragment and readShareFragment', () => {
     });
   }
 
-  test("say a link that decompresses to something huge is damaged, without reading all of it", async () => {
+  test('say a link that decompresses to something huge is damaged, without reading all of it', async () => {
     const fragment = `${SHARE_PREFIX}${deflateRawSync(Buffer.alloc(5_000_000, ' ')).toString('base64url')}`;
     assert.deepEqual(await readShareFragment(fragment), { status: 'damaged' });
   });
+
+  test("say a browser that can't decompress needs updating, rather than that the link is damaged", async (context) => {
+    const { DecompressionStream } = globalThis;
+    context.after(() => (globalThis.DecompressionStream = DecompressionStream));
+    delete globalThis.DecompressionStream;
+    assert.equal(canCompress(), false);
+    assert.deepEqual(await readShareFragment(await shareFragment(sampleState())), { status: 'unsupported' });
+  });
 });
 
-describe('sharedState', () => {
-  test('checks the shared list as saved state is checked', () => {
-    const opened = sharedState({
-      version: SCHEMA_VERSION,
-      event: { startText: 7, finishText: 'Queen Square', deadline: '15:00', checkInFormUrl: 'javascript:alert(1)', pointsPerLocation: -1, unknown: true },
-      setupLocations: [
-        'not a row',
-        { text: 'Old Kent Road', points: 2.5, at: '25:00', isMustVisit: 'yes', pin: { lat: 100, lng: 0 } },
-        { text: '   ' },
-        { text: 'Whitechapel', id: 'chosen-id', isVisited: true },
-      ],
-      searchResults: {},
-    });
-    const defaults = defaultState().event;
-    assert.deepEqual(opened.event, { ...defaults, finishText: 'Queen Square', deadline: '15:00' });
-    assert.deepEqual(
-      opened.setupLocations.map(({ id, ...row }) => row),
-      [{ text: 'Old Kent Road' }, { text: 'Whitechapel' }],
-    );
-    assert.notEqual(opened.setupLocations[1].id, 'chosen-id');
-    assert.match(opened.setupLocations[1].id, UUID);
-  });
-
-  test('only keeps search results for the shared texts, with the right shape', () => {
-    const opened = sharedState({
-      version: SCHEMA_VERSION,
-      event: { ...defaultState().event, startText: 'Castle Park', finishText: '' },
-      setupLocations: [{ text: 'Old Kent Road' }, { text: 'Whitechapel' }, { text: 'Bow Street' }, { text: 'Pall Mall' }, { text: '__proto__' }],
-      searchResults: {
-        'Castle Park': { isFound: true, lat: 51.4556, lng: -2.5894, name: 'Castle Park', extra: 1 },
-        'Old Kent Road': { isFound: true, lat: 91, lng: 0, name: 'Too far north' },
-        Whitechapel: { isFound: false, error: 'No signal', isTemporary: true },
-        'Bow Street': { isFound: false, error: 'Not found.', isTemporary: false },
-        'Pall Mall': 'found',
-        'Not in the list': { isFound: true, lat: 51, lng: -2, name: 'Not in the list' },
-      },
-    });
-    assert.deepEqual(opened.searchResults, {
-      [searchKey('Castle Park')]: { isFound: true, lat: 51.4556, lng: -2.5894, name: 'Castle Park' },
-      [searchKey('Bow Street')]: { isFound: false, error: 'Not found.', isTemporary: false },
-    });
+describe('preparedShareFragment', () => {
+  test('gives the fragment straight away once it has been made, until the list changes', async () => {
+    const state = sampleState();
+    const fragment = await shareFragment(state);
+    assert.equal(preparedShareFragment(state), fragment);
+    // Ticks and settings aren't shared, so they don't change it.
+    assert.equal(preparedShareFragment({ ...state, settings: { ...state.settings, speedKmh: 5 }, setupLocations: state.setupLocations.map((row) => ({ ...row, isVisited: true })) }), fragment);
+    assert.equal(preparedShareFragment({ ...state, setupLocations: [...state.setupLocations, { id: 'e', text: 'Mayfair' }] }), null);
   });
 });
