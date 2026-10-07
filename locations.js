@@ -333,9 +333,9 @@ export function isLatLng(value) {
  * How to check each optional field of a saved setup location: each takes
  * the field as saved and gives what to keep, or `undefined` to leave it
  * out, so it falls back to its default. To add an optional field, add its
- * check here. This is also how a shared list tells a field this version
+ * check here. This is also how a shared setup tells a field this version
  * knows, whose value it can drop if it's invalid, from one added by a newer
- * version, so the list can't be opened in part.
+ * version, so the setup can't be opened in part.
  *
  * @type {Readonly<Record<string, (value: any) => unknown>>}
  */

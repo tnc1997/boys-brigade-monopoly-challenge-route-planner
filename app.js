@@ -1341,7 +1341,7 @@ function nextFrame() {
 
 /**
  * Counts the location lists shown, so planning that started for an earlier
- * list, before a new challenge or opening a shared list, isn't shown.
+ * list, before a new challenge or opening a shared setup, isn't shown.
  */
 let listGeneration = 0;
 
@@ -1720,7 +1720,7 @@ form.addEventListener('submit', (event) => {
 
 /**
  * Shows a new location list, after starting a new challenge or opening a
- * shared list: stops anything still going for the old list, such as
+ * shared setup: stops anything still going for the old list, such as
  * pinning, planning or the message to re-plan for new points, and shows
  * the new list without a plan.
  */
@@ -1756,7 +1756,7 @@ document.getElementById('new-challenge').addEventListener('click', () => {
 });
 
 /**
- * Shows a message by the Share list button, and the link to copy by hand
+ * Shows a message by the Share setup button, and the link to copy by hand
  * if it couldn't be shared or copied.
  *
  * @param {string} message The message, or an empty string to hide it.
@@ -1771,14 +1771,14 @@ function showShareStatus(message, { isError = false, link = null } = {}) {
 }
 
 /**
- * Makes the link for the current list ahead of a tap on Share list, since
+ * Makes the link for the current setup ahead of a tap on Share setup, since
  * sharing and copying have to start straight from the tap, and some
  * browsers (such as Safari) don't allow them after waiting to compress it.
  */
 function prepareShare() {
   if (canCompress() && state.setupLocations.length > 0) {
     shareFragment(state).catch(() => {
-      // Share list says so if it can't be made when tapped.
+      // Share setup says so if it can't be made when tapped.
     });
   }
 }
@@ -1790,14 +1790,14 @@ shareButton.addEventListener('focus', prepareShare);
 
 shareButton.addEventListener('click', async () => {
   if (state.setupLocations.length === 0) {
-    showShareStatus('Add some locations before sharing the list.', { isError: true });
+    showShareStatus('Add some locations before sharing the setup.', { isError: true });
     return;
   }
   if (!canCompress()) {
-    showShareStatus("This browser can't make a link for the list. Update it, or share the list from another phone.", { isError: true });
+    showShareStatus("This browser can't make a link for the setup. Update it, or share the setup from another phone.", { isError: true });
     return;
   }
-  // Use the link made ahead if the list hasn't changed since, so sharing
+  // Use the link made ahead if the setup hasn't changed since, so sharing
   // starts straight from the tap. Otherwise, make it now, which works in
   // most browsers.
   let fragment = preparedShareFragment(state);
@@ -1805,7 +1805,7 @@ shareButton.addEventListener('click', async () => {
     try {
       fragment = await shareFragment(state);
     } catch {
-      showShareStatus("Couldn't make a link for the list. Try again.", { isError: true });
+      showShareStatus("Couldn't make a link for the setup. Try again.", { isError: true });
       return;
     }
   }
@@ -1813,7 +1813,7 @@ shareButton.addEventListener('click', async () => {
   const count = plural(state.setupLocations.length, 'location');
   if (navigator.share) {
     try {
-      await navigator.share({ title: 'Monopoly Challenge locations', text: `${count} for the Monopoly Challenge Route Planner.`, url: link });
+      await navigator.share({ title: 'Monopoly Challenge setup', text: `Our Monopoly Challenge setup, with ${count}, for the route planner.`, url: link });
       showShareStatus('');
       return;
     } catch (error) {
@@ -1835,7 +1835,7 @@ shareButton.addEventListener('click', async () => {
 });
 
 /**
- * Replaces the location list and the event's details with a shared list's.
+ * Replaces the location list and the event's details with a shared setup's.
  * The ticks and the plan go with the old list. Its search results are added
  * to the phone's own, but the phone's own that found a place are kept, and
  * those that didn't are dropped, as for a new challenge, so a place that
@@ -1843,27 +1843,27 @@ shareButton.addEventListener('click', async () => {
  * apart from a default selfie time, which changes to suit a check-in form
  * as it does in the settings panel.
  *
- * @param {import('./share.js').SharedState} shared The shared list, checked.
+ * @param {import('./share.js').SharedState} shared The shared setup, checked.
  */
-function loadSharedList(shared) {
+function loadSharedSetup(shared) {
   state.settings.dwellSeconds = dwellSecondsForCheckInForm(state.settings.dwellSeconds, state.event.checkInFormUrl !== '', shared.event.checkInFormUrl !== '');
   Object.assign(state, { event: shared.event, setupLocations: shared.setupLocations, searchResults: { ...shared.searchResults, ...resetChallenge(state).searchResults }, plan: null });
   showNewList();
 }
 
-/** Removes a shared list from the address bar, so reloading doesn't open it again. */
+/** Removes a shared setup from the address bar, so reloading doesn't open it again. */
 function removeShareFragment() {
   window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
 }
 
 /**
- * Opens the shared list in the address bar's link, if there is one. It
- * replaces the location list straight away if that's empty, and otherwise
+ * Opens the shared setup in the address bar's link, if there is one. It
+ * replaces the setup straight away if the location list is empty, and otherwise
  * only if the team agrees. A link that can't be read yet, because it's from
  * a newer version, the browser needs updating or this copy of the planner
  * can't save, is kept in the address bar, so it opens once they're updated.
  */
-async function openSharedList() {
+async function openSharedSetup() {
   const result = await readShareFragment(window.location.hash);
   if (result.status === 'none') {
     return;
@@ -1874,31 +1874,31 @@ async function openSharedList() {
     return;
   }
   if (result.status === 'unsupported') {
-    showShareStatus("This browser can't open the shared list. Update it, then open the link again.", { isError: true });
+    showShareStatus("This browser can't open the shared setup. Update it, then open the link again.", { isError: true });
     return;
   }
   if (result.status === 'damaged') {
     removeShareFragment();
-    showShareStatus("This link is damaged or incomplete, so the shared list couldn't be opened. Ask for it to be shared again.", { isError: true });
+    showShareStatus("This link is damaged or incomplete, so the shared setup couldn't be opened. Ask for it to be shared again.", { isError: true });
     return;
   }
   if (isOutOfDate()) {
-    showShareStatus("This copy of the planner is out of date, so it can't open the shared list. Reload with signal to update it, then open the link again.", { isError: true });
+    showShareStatus("This copy of the planner is out of date, so it can't open the shared setup. Reload with signal to update it, then open the link again.", { isError: true });
     return;
   }
   const { shared } = result;
-  if (state.setupLocations.length > 0 && !window.confirm('Replace your locations with the shared list? Its Start, Finish and times are used too, and the selfies ticked off and the route are cleared. Your settings are kept.')) {
+  if (state.setupLocations.length > 0 && !window.confirm('Replace your setup with the shared one? This replaces your locations, Start, Finish, times and points, and clears the selfies ticked off and the route. Your walking speed and other settings are kept.')) {
     removeShareFragment();
-    showShareStatus("Kept your locations. The shared list wasn't opened.");
+    showShareStatus("Kept your setup. The shared setup wasn't opened.");
     return;
   }
-  loadSharedList(shared);
+  loadSharedSetup(shared);
   removeShareFragment();
-  showShareStatus(`Opened the shared list, with ${plural(shared.setupLocations.length, 'location')}.`);
+  showShareStatus(`Opened the shared setup, with ${plural(shared.setupLocations.length, 'location')}.`);
 }
 
 // A link opened in a tab that already has the planner open only changes the fragment.
-window.addEventListener('hashchange', openSharedList);
+window.addEventListener('hashchange', openSharedSetup);
 
 
 /**
@@ -2146,4 +2146,4 @@ showSettingsSummary();
 buildRows();
 showView(state.view);
 showPlan();
-openSharedList().then(prepareShare);
+openSharedSetup().then(prepareShare);

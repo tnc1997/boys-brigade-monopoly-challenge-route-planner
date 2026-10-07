@@ -194,7 +194,7 @@ export function loadState(storage = browserStorage()) {
  * missing, of the wrong type or saved with an unknown schema version falls
  * back to the defaults, and state saved with schema version 1 is moved to
  * the current version, keeping everything but the location list, the ticks
- * and the plan. Used for the saved state and for a shared list.
+ * and the plan. Used for the saved state and for a shared setup.
  *
  * @param {unknown} saved The state as saved, parsed from JSON.
  * @returns {AppState} The state, or the default state.

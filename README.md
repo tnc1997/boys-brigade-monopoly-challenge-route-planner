@@ -43,15 +43,15 @@ Rows you add after planning show on the map as a dashed **+** until you press **
 
 **Coordinates** on their own (like `51.4545,-2.5879`, from long-pressing a spot in Google Maps) are used directly, without a lookup. Anything else on the row is looked up, so to give a location a name and an exact spot, type its name and pin it with 📍. In **Start** and **Finish**, coordinates on their own are called "Start" and "Finish". Google Maps links and what3words addresses can't be used: pin those locations on the map instead.
 
-**Only one phone should look up a fresh list of addresses.** OpenStreetMap's free address search allows 1 request per second for everyone using the planner together, and the planner waits 1.5 seconds between lookups. If several phones enter the same new list at once, they can go over that limit. Each phone saves its results, so each location is only looked up once and re-planning works without signal. See the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/). To get the list onto other phones, share it (see below) rather than typing it in again.
+**Only one phone should look up a fresh list of addresses.** OpenStreetMap's free address search allows 1 request per second for everyone using the planner together, and the planner waits 1.5 seconds between lookups. If several phones enter the same new list at once, they can go over that limit. Each phone saves its results, so each location is only looked up once and re-planning works without signal. See the [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/). To get the list onto other phones, share the setup (see below) rather than typing it in again.
 
-### 3. Share the list with other phones
+### 3. Share the setup with other phones
 
-Once one phone has entered and checked the list, tap **Share list** under **Locations**. On a phone, this opens the share sheet, so you can send the link in a message. Otherwise, it copies the link and says **Link copied**.
+Once one phone has entered and checked the setup, tap **Share setup** under **Locations**. On a phone, this opens the share sheet, so you can send the link in a message. Otherwise, it copies the link and says **Link copied**.
 
-Opening the link on another phone loads the same list, exactly as it was entered, with its pins, Must visit, Points and At, and the **Start**, **Finish**, **Start time**, **Deadline**, check-in form and **Points per location**. Each location shows as found straight away, with no lookups, so it works without signal once the planner has been opened before. If that phone already has a list, it asks before replacing it. Replacing it also clears the selfies ticked off and the route. Each phone keeps its own **Walking speed**, **Selfie time** and other settings, though a default selfie time goes up to 5 minutes when the list brings a check-in form, as it does in **⚙ Settings**. No selfies are ticked off on the new phone. Then press **Plan route** on each phone.
+Opening the link on another phone loads the same setup, exactly as it was entered: the locations, with their pins, Must visit, Points and At, and the **Start**, **Finish**, **Start time**, **Deadline**, check-in form and **Points per location**. Each location shows as found straight away, with no lookups, so it works without signal once the planner has been opened before. If that phone already has locations, it asks before replacing its setup. Replacing it also clears the selfies ticked off and the route. Each phone keeps its own **Walking speed**, **Selfie time** and other settings, though a default selfie time goes up to 5 minutes when the shared setup brings a check-in form, as it does in **⚙ Settings**. No selfies are ticked off on the new phone. Then press **Plan route** on each phone.
 
-The list is in the part of the link after `#`, which browsers never send to a server, so it isn't sent to GitHub Pages or anyone else. A link from a newer version of the planner, with something this one can't read, asks you to reload with signal to update it first, rather than opening part of the list. Sharing needs a browser from 2023 or later (Safari 16.4, Chrome 103 or Firefox 113); an older one says to update it.
+The setup is in the part of the link after `#`, which browsers never send to a server, so it isn't sent to GitHub Pages or anyone else. A link from a newer version of the planner, with something this one can't read, asks you to reload with signal to update it first, rather than opening part of the setup. Sharing needs a browser from 2023 or later (Safari 16.4, Chrome 103 or Firefox 113); an older one says to update it.
 
 ### 4. Follow the route
 
@@ -86,7 +86,7 @@ The planner only knows about walking. If you take a bus or train, press **Re-pla
 ## How it works
 
 - **Planning:** the planner estimates walking time from the straight-line distance multiplied by the detour factor, at the walking speed, plus the selfie time at each stop. It builds a route by adding the location that scores the most points for each second of extra time, then improves it by reversing sections (2-opt) and by swapping one stop for others. It repeats this from several starting points, all within 200 ms, and keeps the best route.
-- **Your data stays on the phone:** everything you enter is saved in the browser only. A shared link carries the list in its fragment, after `#`, as JSON compressed with deflate and encoded as base64url, so it's never sent to a server. About 40 locations with their search results make a link of around 3,000 characters.
+- **Your data stays on the phone:** everything you enter is saved in the browser only. A shared link carries the setup in its fragment, after `#`, as JSON compressed with deflate and encoded as base64url, so it's never sent to a server. About 40 locations with their search results make a link of around 3,000 characters.
 - **External services:** address searches go to [OpenStreetMap Nominatim](https://nominatim.openstreetmap.org/), and map tiles come from [OpenStreetMap](https://www.openstreetmap.org/copyright) (© OpenStreetMap contributors). Both are free within their usage policies, which the code follows.
 
 ## Development
@@ -110,7 +110,7 @@ npm run build # build the minified styles.css
 | `route.js` | Describing the plan for the list, the map, the warning banner and the countdown |
 | `map.js` | The Leaflet map |
 | `settings.js` | Walking speed presets, the settings summary and checking the check-in form URL |
-| `share.js` | Sharing the location list and the event's details as a link |
+| `share.js` | Sharing the setup (the location list and the event's details) as a link |
 | `storage.js` | Saving the state in the browser |
 | `sw.js` | The service worker that keeps the app working offline |
 
