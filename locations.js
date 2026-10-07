@@ -132,6 +132,21 @@ export function routeLocationOfText(text, key, searchResults, { coordinatesLabel
 }
 
 /**
+ * Names a row of the location list, as the route, the map and the pinning
+ * banner call it: its text, or "Location N" if it has none.
+ *
+ * @param {string} text The row's text.
+ * @param {number} number Its position in the location list, starting at 1.
+ * @returns {string} Its name.
+ * @example
+ * rowLabel(' Cabot Tower ', 3); // 'Cabot Tower'
+ * rowLabel('', 3); // 'Location 3'
+ */
+export function rowLabel(text, number) {
+  return text.trim() || `Location ${number}`;
+}
+
+/**
  * Gets the route location for a setup location. A pinned setup location is
  * where it was pinned, whatever its text, and is called "Location N" if it
  * has no text. Otherwise, its text is used as in {@link routeLocationOfText}.
@@ -146,7 +161,7 @@ export function routeLocationOf(setupLocation, number, searchResults) {
   /** @type {RouteLocationResult} */
   let routeLocationResult;
   if (setupLocation.pin) {
-    const label = setupLocation.text.trim() || `Location ${number}`;
+    const label = rowLabel(setupLocation.text, number);
     routeLocationResult = { status: 'pinned', routeLocation: { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng, label, key: setupLocation.id } };
   } else {
     routeLocationResult = routeLocationOfText(setupLocation.text, setupLocation.id, searchResults);
@@ -346,6 +361,19 @@ export const OPTIONAL_SETUP_LOCATION_FIELDS = Object.freeze({
   points: (value) => (isPoints(value) ? value : undefined),
   at: (value) => (isTime(value) ? value : undefined),
 });
+
+/**
+ * Finds a row of the location list that can be moved on the map: one that's
+ * still in the list and isn't ticked off, since its selfie is already taken.
+ *
+ * @param {SetupLocation[]} setupLocations The setup locations.
+ * @param {string} id The row's id.
+ * @returns {SetupLocation | null} The row, or `null` if it's been removed or ticked off.
+ */
+export function movableRow(setupLocations, id) {
+  const setupLocation = setupLocations.find((candidate) => candidate.id === id);
+  return setupLocation && !setupLocation.isVisited ? setupLocation : null;
+}
 
 /**
  * Cleans up saved setup locations, dropping anything that isn't one and
