@@ -24,7 +24,7 @@ import { searchKey } from './search.js';
  *
  * Optional fields are left out rather than saved with their default or
  * `null`, so a missing field means its default. Adding one doesn't change
- * the schema version: add it here, and check it in {@link cleanSetupLocations}.
+ * the schema version: add it here, and its check to {@link OPTIONAL_SETUP_LOCATION_FIELDS}.
  *
  * @typedef {object} SetupLocation
  * @property {string} id A stable id for the row, a v4 UUID, which ticked-off selfies and plans refer to.
@@ -333,6 +333,36 @@ export function visitedKeys(setupLocations) {
 }
 
 /**
+ * Whether a value has a latitude and longitude in range, such as a saved
+ * pin or search result.
+ *
+ * @param {unknown} value The value.
+ * @returns {value is import('./planner.js').LatLng} Whether it has.
+ */
+export function isLatLng(value) {
+  const isCoordinate = (coordinate, limit) => typeof coordinate === 'number' && Math.abs(coordinate) <= limit;
+  return isCoordinate(value?.lat, 90) && isCoordinate(value?.lng, 180);
+}
+
+/**
+ * How to check each optional field of a saved setup location: each takes
+ * the field as saved and gives what to keep, or `undefined` to leave it
+ * out, so it falls back to its default. To add an optional field, add its
+ * check here. This is also how a shared setup tells a field this version
+ * knows, whose value it can drop if it's invalid, from one added by a newer
+ * version, so the setup can't be opened in part.
+ *
+ * @type {Readonly<Record<string, (value: any) => unknown>>}
+ */
+export const OPTIONAL_SETUP_LOCATION_FIELDS = Object.freeze({
+  pin: (value) => (isLatLng(value) ? { lat: value.lat, lng: value.lng } : undefined),
+  isVisited: (value) => (value === true ? true : undefined),
+  isMustVisit: (value) => (value === true ? true : undefined),
+  points: (value) => (isPoints(value) ? value : undefined),
+  at: (value) => (isTime(value) ? value : undefined),
+});
+
+/**
  * Finds a row of the location list that can be moved on the map: one that's
  * still in the list and isn't ticked off, since its selfie is already taken.
  *
@@ -348,8 +378,9 @@ export function movableRow(setupLocations, id) {
 /**
  * Cleans up saved setup locations, dropping anything that isn't one and
  * those with no text and no pin, so the app can rely on their shape.
- * Optional fields are only kept when they're valid, so an invalid one
- * falls back to its default, and unknown fields are dropped.
+ * Optional fields are only kept when they're valid (see
+ * {@link OPTIONAL_SETUP_LOCATION_FIELDS}), so an invalid one falls back to
+ * its default, and unknown fields are dropped.
  *
  * @param {unknown} setupLocations The setup locations as saved.
  * @returns {SetupLocation[]} The setup locations.
@@ -358,7 +389,6 @@ export function cleanSetupLocations(setupLocations) {
   if (!Array.isArray(setupLocations)) {
     return [];
   }
-  const isCoordinate = (value, limit) => typeof value === 'number' && Math.abs(value) <= limit;
   const ids = new Set();
   return setupLocations.flatMap((setupLocation) => {
     if (typeof setupLocation?.id !== 'string' || typeof setupLocation.text !== 'string' || ids.has(setupLocation.id)) {
@@ -367,20 +397,11 @@ export function cleanSetupLocations(setupLocations) {
     ids.add(setupLocation.id);
     /** @type {SetupLocation} */
     const cleaned = { id: setupLocation.id, text: setupLocation.text };
-    if (isCoordinate(setupLocation.pin?.lat, 90) && isCoordinate(setupLocation.pin?.lng, 180)) {
-      cleaned.pin = { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng };
-    }
-    if (setupLocation.isVisited === true) {
-      cleaned.isVisited = true;
-    }
-    if (setupLocation.isMustVisit === true) {
-      cleaned.isMustVisit = true;
-    }
-    if (isPoints(setupLocation.points)) {
-      cleaned.points = setupLocation.points;
-    }
-    if (isTime(setupLocation.at)) {
-      cleaned.at = setupLocation.at;
+    for (const [field, clean] of Object.entries(OPTIONAL_SETUP_LOCATION_FIELDS)) {
+      const value = clean(setupLocation[field]);
+      if (value !== undefined) {
+        cleaned[field] = value;
+      }
     }
     return cleaned.text.trim() === '' && !cleaned.pin ? [] : [cleaned];
   });

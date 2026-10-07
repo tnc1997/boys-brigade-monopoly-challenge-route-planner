@@ -4,6 +4,7 @@ import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, movableRow, newLo
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
+import { canCompress, preparedShareFragment, readShareFragment, shareFragment } from './share.js';
 import { defaultState, isOutOfDate, loadState, resetChallenge, saveState } from './storage.js';
 
 /** The app's state, loaded from the previous visit if there was one. */
@@ -26,6 +27,9 @@ const planButton = /** @type {HTMLButtonElement} */ (form.querySelector('button[
 /** What the Plan route button says when it isn't planning. */
 const PLAN_BUTTON_TEXT = planButton.textContent;
 const planStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('plan-status'));
+const shareButton = /** @type {HTMLButtonElement} */ (document.getElementById('share-button'));
+const shareStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('share-status'));
+const shareLink = /** @type {HTMLInputElement} */ (document.getElementById('share-link'));
 const tabs = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll('[role="tab"][data-view]')]);
 const mapContainer = /** @type {HTMLDivElement} */ (document.getElementById('map'));
 const settingsButton = /** @type {HTMLButtonElement} */ (document.getElementById('settings-button'));
@@ -1343,13 +1347,21 @@ function nextFrame() {
 }
 
 /**
+ * Counts the location lists shown, so planning that started for an earlier
+ * list, before a new challenge or opening a shared setup, isn't shown.
+ */
+let listGeneration = 0;
+
+/**
  * Looks up anything that still needs it, waiting for lookups already
- * running, then plans the route from the setup form and shows it.
+ * running, then plans the route from the setup form and shows it. If a new
+ * list is shown meanwhile, it stops without planning.
  *
  * @param {import('./planner.js').LatLng | null} from The team's current position to re-plan from, or `null` to start at the Start field.
- * @returns {Promise<import('./setup.js').SetupResult>} The result of planning.
+ * @returns {Promise<import('./setup.js').SetupResult | null>} The result of planning, or `null` if a new list was shown before it planned.
  */
 async function planRoute(from) {
+  const generation = listGeneration;
   planButton.disabled = true;
   replanButton.disabled = true;
   try {
@@ -1357,12 +1369,15 @@ async function planRoute(from) {
       lookUp(query);
     }
     showRows();
-    while (lookups.size > 0) {
+    while (lookups.size > 0 && generation === listGeneration) {
       planButton.textContent = `Waiting for ${plural(lookups.size, 'search', 'searches')}…`;
       await Promise.race(lookups.values());
     }
     planButton.textContent = 'Planning…';
     await nextFrame();
+    if (generation !== listGeneration) {
+      return null;
+    }
     const setupResult = planFromSetup({
       event: state.event,
       setupLocations: state.setupLocations,
@@ -1436,7 +1451,11 @@ const replannedFromPosition = () => `Re-planned from your position at ${timeForm
  */
 async function replanAndReport(position, successMessage) {
   try {
-    const { error, plan } = await planRoute(position);
+    const setupResult = await planRoute(position);
+    if (setupResult === null) {
+      return;
+    }
+    const { error, plan } = setupResult;
     if (error !== null) {
       showReplanStatus(error, true);
     } else {
@@ -1461,10 +1480,22 @@ function requestReplan() {
   }
   replanButton.disabled = true;
   showReplanStatus('Getting your location…', false);
+  const generation = listGeneration;
   navigator.geolocation.getCurrentPosition(
-    (position) => replanAndReport({ lat: position.coords.latitude, lng: position.coords.longitude }, replannedFromPosition),
+    (position) => {
+      // A new list has been shown while finding the position, so there's nothing to re-plan.
+      if (generation !== listGeneration) {
+        replanButton.disabled = false;
+        return;
+      }
+      replanAndReport({ lat: position.coords.latitude, lng: position.coords.longitude }, replannedFromPosition);
+    },
     (error) => {
       replanButton.disabled = false;
+      // As above, a new list has been shown meanwhile, so the error doesn't apply to it.
+      if (generation !== listGeneration) {
+        return;
+      }
       showReplanStatus(GEOLOCATION_ERRORS[error.code] ?? "Your location couldn't be found. Try again.", true);
     },
     { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 },
@@ -1734,11 +1765,18 @@ form.addEventListener('submit', (event) => {
   planRoute(null);
 });
 
-document.getElementById('new-challenge').addEventListener('click', () => {
-  if (!window.confirm('Start a new challenge? This clears the location list, the selfies ticked off and the route. Your settings are kept.')) {
-    return;
-  }
-  Object.assign(state, resetChallenge(state));
+/**
+ * Shows a new location list, after starting a new challenge or opening a
+ * shared setup: stops anything still going for the old list, such as
+ * pinning, planning or the message to re-plan for new points, and shows
+ * the new list without a plan.
+ */
+function showNewList() {
+  listGeneration++;
+  stopPinning();
+  openRows.clear();
+  clearTimeout(pointsTimer);
+  isReplanForPointsNeeded = false;
   saveState(state);
   fillForm();
   buildRows();
@@ -1749,8 +1787,166 @@ document.getElementById('new-challenge').addEventListener('click', () => {
   shouldFitMap = true;
   showPlan();
   showSettingsSummary();
+  showCountdown();
+  // A message about sharing the old list doesn't apply to the new one.
+  showShareStatus('');
+  prepareShare();
+}
+
+document.getElementById('new-challenge').addEventListener('click', () => {
+  if (!window.confirm('Start a new challenge? This clears the location list, the selfies ticked off and the route. Your settings are kept.')) {
+    return;
+  }
+  Object.assign(state, resetChallenge(state));
+  showNewList();
   locationRows.querySelector('input').focus();
 });
+
+/**
+ * Shows a message by the Share setup button, and the link to copy by hand
+ * if it couldn't be shared or copied.
+ *
+ * @param {string} message The message, or an empty string to hide it.
+ * @param {{ isError?: boolean, link?: string | null }} [options] Whether the message is an error, and the link to show.
+ */
+function showShareStatus(message, { isError = false, link = null } = {}) {
+  shareStatus.textContent = message;
+  shareStatus.classList.toggle('text-danger', isError);
+  shareStatus.classList.toggle('text-muted', !isError);
+  shareLink.hidden = link === null;
+  shareLink.value = link ?? '';
+}
+
+/**
+ * Makes the link for the current setup ahead of a tap on Share setup, since
+ * sharing and copying have to start straight from the tap, and some
+ * browsers (such as Safari) don't allow them after waiting to compress it.
+ */
+function prepareShare() {
+  if (canCompress() && state.setupLocations.length > 0) {
+    shareFragment(state).catch(() => {
+      // Share setup says so if it can't be made when tapped.
+    });
+  }
+}
+
+// Make the link when the button's about to be used: when it's pressed or
+// focused, before the click, and once the page has loaded.
+shareButton.addEventListener('pointerdown', prepareShare);
+shareButton.addEventListener('focus', prepareShare);
+
+shareButton.addEventListener('click', async () => {
+  if (state.setupLocations.length === 0) {
+    showShareStatus('Add some locations before sharing the setup.', { isError: true });
+    return;
+  }
+  if (!canCompress()) {
+    showShareStatus("This browser can't make a link for the setup. Update it, or share the setup from another phone.", { isError: true });
+    return;
+  }
+  // Use the link made ahead if the setup hasn't changed since, so sharing
+  // starts straight from the tap. Otherwise, make it now, which works in
+  // most browsers.
+  let fragment = preparedShareFragment(state);
+  if (fragment === null) {
+    try {
+      fragment = await shareFragment(state);
+    } catch {
+      showShareStatus("Couldn't make a link for the setup. Try again.", { isError: true });
+      return;
+    }
+  }
+  const link = `${window.location.origin}${window.location.pathname}${fragment}`;
+  const count = plural(state.setupLocations.length, 'location');
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Monopoly Challenge setup', text: `Our Monopoly Challenge setup, with ${count}, for the route planner.`, url: link });
+      showShareStatus('');
+      return;
+    } catch (error) {
+      // Closing the share sheet isn't a failure. Anything else falls back to copying.
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        showShareStatus('');
+        return;
+      }
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    showShareStatus(`Link copied, with ${count}. Send it to the other phones.`);
+  } catch {
+    showShareStatus("Couldn't copy the link. Copy it from here instead:", { link });
+    shareLink.focus();
+    shareLink.select();
+  }
+});
+
+/**
+ * Replaces the location list and the event's details with a shared setup's.
+ * The ticks and the plan go with the old list. Its search results are added
+ * to the phone's own, but the phone's own that found a place are kept, and
+ * those that didn't are dropped, as for a new challenge, so a place that
+ * wasn't found can be looked up again. The team's own settings are kept,
+ * apart from a default selfie time, which changes to suit a check-in form
+ * as it does in the settings panel.
+ *
+ * @param {import('./share.js').SharedState} shared The shared setup, checked.
+ */
+function loadSharedSetup(shared) {
+  state.settings.dwellSeconds = dwellSecondsForCheckInForm(state.settings.dwellSeconds, state.event.checkInFormUrl !== '', shared.event.checkInFormUrl !== '');
+  Object.assign(state, { event: shared.event, setupLocations: shared.setupLocations, searchResults: { ...shared.searchResults, ...resetChallenge(state).searchResults }, plan: null });
+  showNewList();
+}
+
+/** Removes a shared setup from the address bar, so reloading doesn't open it again. */
+function removeShareFragment() {
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+}
+
+/**
+ * Opens the shared setup in the address bar's link, if there is one. It
+ * replaces the setup straight away if the location list is empty, and otherwise
+ * only if the team agrees. A link that can't be read yet, because it's from
+ * a newer version, the browser needs updating or this copy of the planner
+ * can't save, is kept in the address bar, so it opens once they're updated.
+ */
+async function openSharedSetup() {
+  const result = await readShareFragment(window.location.hash);
+  if (result.status === 'none') {
+    return;
+  }
+  shareButton.scrollIntoView({ block: 'center' });
+  if (result.status === 'newer') {
+    showShareStatus('This link is from a newer version of the planner. Reload with signal to update it, then open the link again.', { isError: true });
+    return;
+  }
+  if (result.status === 'unsupported') {
+    showShareStatus("This browser can't open the shared setup. Update it, then open the link again.", { isError: true });
+    return;
+  }
+  if (result.status === 'damaged') {
+    removeShareFragment();
+    showShareStatus("This link is damaged or incomplete, so the shared setup couldn't be opened. Ask for it to be shared again.", { isError: true });
+    return;
+  }
+  if (isOutOfDate()) {
+    showShareStatus("This copy of the planner is out of date, so it can't open the shared setup. Reload with signal to update it, then open the link again.", { isError: true });
+    return;
+  }
+  const { shared } = result;
+  if (state.setupLocations.length > 0 && !window.confirm('Replace your setup with the shared one? This replaces your locations, Start, Finish, times and points, and clears the selfies ticked off and the route. Your walking speed and other settings are kept.')) {
+    removeShareFragment();
+    showShareStatus("Kept your setup. The shared setup wasn't opened.");
+    return;
+  }
+  loadSharedSetup(shared);
+  removeShareFragment();
+  showShareStatus(`Opened the shared setup, with ${plural(shared.setupLocations.length, 'location')}.`);
+}
+
+// A link opened in a tab that already has the planner open only changes the fragment.
+window.addEventListener('hashchange', openSharedSetup);
+
 
 /**
  * Shows a walking speed in the settings panel: the slider, its value and
@@ -1997,3 +2193,4 @@ showSettingsSummary();
 buildRows();
 showView(state.view);
 showPlan();
+openSharedSetup().then(prepareShare);

@@ -56,6 +56,15 @@
             </p>
             <ol id="location-rows" aria-label="Locations" class="flex flex-col gap-2"></ol>
             <p id="location-announcement" class="sr-only" aria-live="polite"></p>
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <button id="share-button" type="button" aria-describedby="share-status"
+                class="inline-flex min-h-11 items-center gap-1 rounded-md px-3 text-sm font-semibold text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+                <span aria-hidden="true">🔗</span> Share setup
+              </button>
+              <p id="share-status" class="min-w-0 flex-1 text-sm break-words" role="status"></p>
+            </div>
+            <input id="share-link" type="url" readonly aria-label="Link to the shared setup" hidden
+              class="min-h-11 w-full rounded-md border border-field bg-surface px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30">
           </fieldset>
 
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
