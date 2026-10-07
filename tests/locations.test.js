@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from '../locations.js';
+import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isPoints, isTime, movableRow, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, rowLabel, usableRouteLocations, visitedKeys } from '../locations.js';
 import { searchKey } from '../search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
@@ -232,6 +232,26 @@ describe('atError', () => {
 describe('visitedKeys', () => {
   test("gets the ids of the visited rows", () => {
     assert.deepEqual(visitedKeys([{ id: 'a', text: 'A', isVisited: true }, { id: 'b', text: 'B' }]), ['a']);
+  });
+});
+
+describe('movableRow', () => {
+  const rows = [{ id: 'a', text: 'A', isVisited: true }, { id: 'b', text: 'B' }];
+
+  test('finds a row that is still in the list and not ticked off', () => {
+    assert.equal(movableRow(rows, 'b'), rows[1]);
+  });
+
+  test("doesn't find a row that's ticked off or has been removed, such as while it was being moved", () => {
+    assert.equal(movableRow(rows, 'a'), null);
+    assert.equal(movableRow(rows, 'c'), null);
+  });
+});
+
+describe('rowLabel', () => {
+  test("names a row by its trimmed text, or by its position if it hasn't any", () => {
+    assert.equal(rowLabel(' Cabot Tower ', 3), 'Cabot Tower');
+    assert.equal(rowLabel('  ', 3), 'Location 3');
   });
 });
 

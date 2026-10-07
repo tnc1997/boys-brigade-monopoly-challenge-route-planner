@@ -33,7 +33,9 @@ Each row is looked up with OpenStreetMap when you've finished it: when you press
 
 **Or add a location from the map.** On the **Map** tab, long-press the spot (or right-click it on a computer). Give it a name if you like, or leave it blank to call it "Location 4", say, after its place in the list. It's added to the end of **Locations** as a pinned row.
 
-Rows you add after planning show on the map as a dashed **+** until you press **Plan route** or **Re-plan from here**. To remove a location, tap the row's ✕, and plan again if it's already in the route.
+**Or move a location's marker to its exact spot.** On the **Map** tab, tap the marker, tap **Move** in its popup, then tap where it is. Press **Cancel** to leave it where it was. It's the same as pinning its row with 📍: the row keeps its name and whether its selfie is done, and shows **📍 Pinned on the map**. Markers only move this way, not by dragging, so panning or zooming can't move them by accident. Stops, skipped locations and **+** markers can be moved, but not a location whose selfie is done, nor the start or finish.
+
+Rows you add or move after planning show on the map as a dashed **+** until you press **Plan route** or **Re-plan from here**. To remove a location, tap the row's ✕, and plan again if it's already in the route.
 
 **Must visit.** For a location the route has to include, tap the row's **More** and tick **Must visit**. The route then always includes it, even if leaving it out would score more points, and other stops are planned around it, unless it has an **At** that can't be met (see At). If the must-visit locations alone can't be visited before the deadline (less the safety margin), the route is just them, in the shortest order, and a warning says when they'd finish. Untick some to fit others in. A location that's already ticked off doesn't need visiting again, so Must visit no longer applies to it.
 
