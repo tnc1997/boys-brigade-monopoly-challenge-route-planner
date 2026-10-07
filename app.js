@@ -2,7 +2,7 @@ import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForT
 import { createSearchQueue, searchKey } from './search.js';
 import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
-import { SETS, mismatchedSetText, setBonus, setOf } from './sets.js';
+import { SETS, mismatchedSetText, setBonus, setOf, unfoundSetText } from './sets.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
 import { defaultState, isOutOfDate, loadState, resetChallenge, saveState } from './storage.js';
@@ -1469,8 +1469,19 @@ function planResultText(setupResult) {
     const labels = setupResult.leftOut.map((routeLocationResult) => routeLocationResult.label);
     parts.push(`Left out because ${setupResult.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`);
   }
-  parts.push(...planWarnings(setupResult.plan), ...setupResult.mismatchedSets.map(mismatchedSetText));
+  parts.push(...planWarnings(setupResult.plan), ...setNotes(setupResult));
   return parts.join(' ');
+}
+
+/**
+ * Notes the colour sets that can't earn their bonus: those with the wrong
+ * number of locations, and those with locations that couldn't be found.
+ *
+ * @param {Pick<import('./setup.js').SetupResult, 'mismatchedSets' | 'unfoundSets'>} setupResult The result of planning.
+ * @returns {string[]} The notes, if any.
+ */
+function setNotes({ mismatchedSets, unfoundSets }) {
+  return [...mismatchedSets.map(mismatchedSetText), ...unfoundSets.map(unfoundSetText)];
 }
 
 /**
@@ -1576,12 +1587,13 @@ const replannedFromPosition = () => `Re-planned from your position at ${timeForm
  */
 async function replanAndReport(position, successMessage) {
   try {
-    const { error, plan, mismatchedSets } = await planRoute(position);
+    const setupResult = await planRoute(position);
+    const { error, plan } = setupResult;
     if (error !== null) {
       showReplanStatus(error, true);
     } else {
       const warnings = planWarnings(plan);
-      showReplanStatus([successMessage(), ...warnings, ...mismatchedSets.map(mismatchedSetText)].join(' '), warnings.length > 0);
+      showReplanStatus([successMessage(), ...warnings, ...setNotes(setupResult)].join(' '), warnings.length > 0);
     }
   } catch {
     showReplanStatus("Re-planning didn't work. Try again.", true);

@@ -122,6 +122,35 @@ export function mismatchedSetText({ set, count }) {
 }
 
 /**
+ * A set with as many locations as it has on the board, but with locations
+ * still to visit that couldn't be found, so it can't earn its bonus.
+ *
+ * @typedef {object} UnfoundSet
+ * @property {ColourSet} set The set.
+ * @property {string[]} labels What the locations that couldn't be found are called, in list order.
+ */
+
+/**
+ * Lists names as English does, like "A", "A and B" or "A, B and C".
+ *
+ * @param {string[]} names The names.
+ * @returns {string} The list.
+ */
+const listed = (names) => (names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+
+/**
+ * Says that a set can't be completed because some of its locations
+ * couldn't be found, so it can't earn its bonus.
+ *
+ * @param {UnfoundSet} unfound The set and the locations that couldn't be found.
+ * @returns {string} The note, like "Red set can't be completed, as Bow Street wasn't found. Pin it on the map to count the set bonus."
+ */
+export function unfoundSetText({ set, labels }) {
+  const isOne = labels.length === 1;
+  return `${set.name} set can't be completed, as ${listed(labels)} ${isOne ? "wasn't" : "weren't"} found. Pin ${isOne ? 'it' : 'them'} on the map to count the set bonus.`;
+}
+
+/**
  * Works out the set bonuses that visiting some locations earns: Points per
  * set for each set that's completed once they've been visited, along with
  * those already visited, and that they're part of. A set that's already

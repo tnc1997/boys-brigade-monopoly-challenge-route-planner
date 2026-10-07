@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { SETS, completableSets, isSetId, mismatchedSetText, mismatchedSets, setBonus, setOf } from '../sets.js';
+import { SETS, completableSets, isSetId, mismatchedSetText, mismatchedSets, setBonus, setOf, unfoundSetText } from '../sets.js';
 
 describe('SETS', () => {
   test("has the board's eight colour sets, with two brown and dark blue properties and three of each other colour", () => {
@@ -73,6 +73,18 @@ describe('mismatchedSets', () => {
 
   test('says what to check', () => {
     assert.equal(mismatchedSetText({ set: setOf('brown'), count: 1 }), 'Brown has 1 of 2 properties. Check the colours if you expected a set bonus.');
+  });
+});
+
+describe('unfoundSetText', () => {
+  test('names the locations that were not found', () => {
+    const red = setOf('red');
+    assert.equal(unfoundSetText({ set: red, labels: ['Bow Street'] }), "Red set can't be completed, as Bow Street wasn't found. Pin it on the map to count the set bonus.");
+    assert.equal(unfoundSetText({ set: red, labels: ['Bow Street', 'Strand'] }), "Red set can't be completed, as Bow Street and Strand weren't found. Pin them on the map to count the set bonus.");
+    assert.equal(
+      unfoundSetText({ set: red, labels: ['Bow Street', 'Strand', 'Location 3'] }),
+      "Red set can't be completed, as Bow Street, Strand and Location 3 weren't found. Pin them on the map to count the set bonus.",
+    );
   });
 });
 
