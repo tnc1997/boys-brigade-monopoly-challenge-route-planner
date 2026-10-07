@@ -1,4 +1,4 @@
-import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from './route.js';
+import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, movableSetupLocation, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
 import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
@@ -72,7 +72,7 @@ const pinBannerText = /** @type {HTMLParagraphElement} */ (document.getElementBy
 const pinBannerCancel = /** @type {HTMLButtonElement} */ (document.getElementById('pin-banner-cancel'));
 
 /** What the line under the map says until a pin is dropped. */
-const PIN_HINT = 'Long-press the map to add a location there.';
+const PIN_HINT = 'Long-press the map to add a location, or tap a marker and Move to fix its spot.';
 
 /** Where the pin being named was dropped, or `null` if there isn't one. */
 let droppedPin = null;
@@ -81,11 +81,12 @@ let droppedPin = null;
 let addedPinKey = null;
 
 /**
- * The row being pinned on the map with 📍, or `null` if none is. Its `id` is
- * `null` for the empty row at the end of the list, which becomes a row once
- * it's pinned.
+ * The row being pinned on the map with 📍, or moved with a marker's Move,
+ * or `null` if none is. Its `id` is `null` for the empty row at the end of
+ * the list, which becomes a row once it's pinned. `isMove` says whether
+ * it's being moved, for the message once it's placed.
  *
- * @type {{ id: string | null } | null}
+ * @type {{ id: string | null, isMove: boolean } | null}
  */
 let pinTarget = null;
 
@@ -886,14 +887,15 @@ for (const [field, key] of /** @type {const} */ ([
 }
 
 /**
- * Lists the locations not in the route yet, with their names, to tell
- * whether the map needs redrawing.
+ * Lists the locations not in the route yet, with their names and
+ * positions, to tell whether the map needs redrawing, such as after one is
+ * moved again.
  *
  * @param {import('./map.js').MapMarker[]} markers Their markers, from {@link newLocationMarkers}.
- * @returns {string} Each location's key and marker title, one per line.
+ * @returns {string} Each location's key, position and marker title, one per line.
  */
 function newLocationsText(markers) {
-  return markers.map(({ location, title }) => `${location.key} ${title}`).join('\n');
+  return markers.map(({ location, title }) => `${location.key} ${location.lat},${location.lng} ${title}`).join('\n');
 }
 
 /**
@@ -1573,6 +1575,17 @@ function updateMap() {
   const route = plan ? mapRoute(plan, visitedKeys(state.setupLocations), (time) => timeFormat.format(time)) : { path: [], markers: [] };
   const newMarkers = newLocationMarkers(usableRouteLocations(state.setupLocations, state.searchResults), plan, mustVisitKeys());
   route.markers.push(...newMarkers);
+  // A stop, skipped location or + can be moved from its popup, which pins
+  // its row there, as 📍 does, so it keeps its text and ticked-off state.
+  for (const marker of route.markers) {
+    const setupLocation = movableSetupLocation(marker, state.setupLocations);
+    if (setupLocation) {
+      marker.onMove = () => {
+        const number = state.setupLocations.indexOf(setupLocation) + 1;
+        startPinning(setupLocation.id, setupLocation.text.trim() || `Location ${number}`, { isMove: true });
+      };
+    }
+  }
   drawnNewLocations = newLocationsText(newMarkers);
   showRoute(routeMap, route, shouldFitMap);
   shouldFitMap = false;
@@ -1614,15 +1627,17 @@ function openPinDialog(latLng) {
  *
  * @param {string | null} id The row's id, or `null` for the empty row at the end.
  * @param {string} label What the row is called, for the banner.
+ * @param {object} [options] How it was started.
+ * @param {boolean} [options.isMove=false] Whether it's being moved with a marker's Move, rather than pinned with 📍.
  */
-function startPinning(id, label) {
+function startPinning(id, label, { isMove = false } = {}) {
   showView('map');
   if (!routeMap) {
     // The map couldn't load, and says so under it.
     mapContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
-  pinTarget = { id };
+  pinTarget = { id, isMove };
   pinBannerText.textContent = `Tap where ${label} is.`;
   pinBanner.classList.replace('hidden', 'flex');
   mapContainer.classList.add('is-pinning');
@@ -1643,10 +1658,14 @@ function stopPinning() {
  * @param {import('./planner.js').LatLng} latLng Where the map was tapped.
  */
 function placePin(latLng) {
+  const { isMove } = pinTarget;
   const location = pinRow(pinTarget.id, '', latLng);
   stopPinning();
   const action = state.plan ? 'Re-plan from here' : 'Plan route';
-  showPinStatus(`Pinned ${location.label}. Press ${action} to use the pin in the route.`, location.key);
+  showPinStatus(
+    isMove ? `Moved ${location.label}. Press ${action} to update the route.` : `Pinned ${location.label}. Press ${action} to use the pin in the route.`,
+    location.key,
+  );
 }
 
 pinBannerCancel.addEventListener('click', stopPinning);

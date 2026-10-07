@@ -273,6 +273,27 @@ export function newLocationMarkers(routeLocations, plan, mustVisitKeys = new Set
 }
 
 /**
+ * Finds the row of the location list that a marker's Move moves. Stops,
+ * skipped locations and locations not in the route yet (+) can be moved,
+ * but not a location whose selfie is done, nor the start or finish, nor a
+ * location whose row has been removed.
+ *
+ * @param {import('./map.js').MapMarker} marker The marker.
+ * @param {import('./locations.js').SetupLocation[]} setupLocations The rows of the location list.
+ * @returns {import('./locations.js').SetupLocation | null} The row, or `null` if the marker can't be moved.
+ * @example
+ * movableSetupLocation({ kind: 'stop', location: { key: 'a', … }, … }, [{ id: 'a', text: 'Cabot Tower' }]);
+ * // { id: 'a', text: 'Cabot Tower' }
+ */
+export function movableSetupLocation({ kind, location }, setupLocations) {
+  if (kind !== 'stop' && kind !== 'skipped' && kind !== 'new') {
+    return null;
+  }
+  const setupLocation = setupLocations.find(({ id }) => id === location.key);
+  return setupLocation && !setupLocation.isVisited ? setupLocation : null;
+}
+
+/**
  * A warning that time is running out.
  *
  * @typedef {object} TimeWarning

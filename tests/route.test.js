@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, newLocationMarkers, plural, progress, timeWarning } from '../route.js';
+import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, movableSetupLocation, newLocationMarkers, plural, progress, timeWarning } from '../route.js';
+import { usableRouteLocations, visitedKeys } from '../locations.js';
 import { planFromSetup } from '../setup.js';
 import { defaultState } from '../storage.js';
 
@@ -289,6 +290,48 @@ describe('newLocationMarkers', () => {
     const plan = savedPlan();
     const moved = { ...plan.routeLocations[0], lat: 51.46 };
     assert.deepEqual(newLocationMarkers([moved, plan.routeLocations[1]], plan).map(({ location }) => location), [moved]);
+  });
+});
+
+describe('movableSetupLocation', () => {
+  const plan = savedPlan({ finishText: '51.4556,-2.5894' });
+  const markers = mapRoute(plan, [], formatTime).markers;
+  const marker = (kind) => markers.find((candidate) => candidate.kind === kind);
+
+  test('moves the row of a stop, a skipped location or a location not in the route yet', () => {
+    const locations = pinnedRows();
+    assert.equal(movableSetupLocation(marker('stop'), locations), locations.find(({ id }) => id === marker('stop').location.key));
+    const skipped = { kind: 'skipped', location: plan.routeLocations[1], label: '', title: '' };
+    assert.equal(movableSetupLocation(skipped, locations), locations[1]);
+    const [added] = newLocationMarkers([{ lat: 51.45174, lng: -2.6034, label: 'Cabot Tower', key: 'c' }], plan);
+    const withAdded = [...locations, { id: 'c', text: 'Cabot Tower', pin: { lat: 51.45174, lng: -2.6034 } }];
+    assert.equal(movableSetupLocation(added, withAdded), withAdded[2]);
+  });
+
+  test("doesn't move a ticked-off location, whose selfie is done", () => {
+    const locations = pinnedRows().map((row) => ({ ...row, isVisited: true }));
+    assert.equal(movableSetupLocation(marker('stop'), locations), null);
+    const done = mapRoute(plan, visitedKeys(locations), formatTime).markers.filter(({ kind }) => kind === 'done');
+    assert.ok(done.length > 0);
+    assert.ok(done.every((candidate) => movableSetupLocation(candidate, locations) === null));
+  });
+
+  test("doesn't move the start, the finish or a location whose row has been removed", () => {
+    assert.equal(movableSetupLocation(marker('start'), pinnedRows()), null);
+    assert.equal(movableSetupLocation(marker('finish'), pinnedRows()), null);
+    assert.equal(movableSetupLocation(marker('stop'), []), null);
+  });
+
+  test('moving a row pins it, keeping its text and tick, and re-planning uses the new position', () => {
+    const locations = [{ ...pinnedRows()[0], isVisited: true }, pinnedRows()[1]];
+    const before = savedPlan({}, {}, locations);
+    // Moving pins the row, as 📍 does.
+    locations[1] = { ...locations[1], pin: { lat: 51.4556, lng: -2.5894 } };
+    assert.deepEqual(newLocationMarkers(usableRouteLocations(locations, {}), before).map(({ title }) => title), ['Temple Meads, not in the route yet']);
+    const after = savedPlan({}, {}, locations);
+    const templeMeads = after.routeLocations.find(({ key }) => key === 'b');
+    assert.deepEqual({ lat: templeMeads.lat, lng: templeMeads.lng, label: templeMeads.label }, { lat: 51.4556, lng: -2.5894, label: 'Temple Meads' });
+    assert.deepEqual(visitedKeys(locations), ['a']);
   });
 });
 
