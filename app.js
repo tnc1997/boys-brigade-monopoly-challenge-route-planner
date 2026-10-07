@@ -1954,7 +1954,7 @@ settingsDialog.addEventListener('close', () => {
   // Show or hide the Check in buttons, and show new points if points are
   // shown, now, even if re-planning fails.
   const isSetsChanged = state.event.pointsPerSet !== savedPointsPerSet && state.setupLocations.some(({ set }) => set !== undefined);
-  const isPointsChanged = (state.event.pointsPerLocation !== savedPointsPerLocation && hasOwnPoints(state.setupLocations)) || isSetsChanged;
+  const isPointsChanged = (state.event.pointsPerLocation !== savedPointsPerLocation && (hasOwnPoints(state.setupLocations) || hasSets())) || isSetsChanged;
   if (state.event.checkInFormUrl !== savedCheckInFormUrl || isPointsChanged) {
     showPlan();
   }
