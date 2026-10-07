@@ -62,6 +62,7 @@ const APP_FILES = [
   'sets.js',
   'settings.js',
   'setup.js',
+  'share.js',
   'storage.js',
 ];
 

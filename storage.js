@@ -117,7 +117,13 @@ function browserStorage() {
  */
 const storageFromNewerVersion = new WeakSet();
 
-const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+/**
+ * Whether a value is a plain object, not `null` or an array.
+ *
+ * @param {unknown} value The value.
+ * @returns {value is Record<string, any>} Whether it is.
+ */
+export const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
  * Checks that a saved plan has the shape the app relies on to show it, so
@@ -160,11 +166,10 @@ function withDefaults(defaults, saved) {
 /**
  * Loads the saved state. Anything missing, unreadable or saved with an
  * unknown schema version falls back to the defaults, so the app always gets
- * a complete state. State saved by a newer version is never saved over (see
- * {@link isOutOfDate}). State saved by an earlier version under one of the
- * {@link LEGACY_STORAGE_KEYS} is moved to {@link STORAGE_KEY}, and state
- * saved with schema version 1 keeps everything but the location list, the
- * ticks and the plan.
+ * a complete state (see {@link cleanState}). State saved by a newer version
+ * is never saved over (see {@link isOutOfDate}). State saved by an earlier
+ * version under one of the {@link LEGACY_STORAGE_KEYS} is moved to
+ * {@link STORAGE_KEY}.
  *
  * @param {StateStorage | null} [storage] Where to load from. Defaults to the browser's localStorage.
  * @returns {AppState} The saved state, or the default state.
@@ -173,17 +178,31 @@ function withDefaults(defaults, saved) {
  * state.settings.speedKmh; // 4.5 on first visit
  */
 export function loadState(storage = browserStorage()) {
-  const defaults = defaultState();
   let saved;
   try {
     const text = storage?.getItem(STORAGE_KEY) ?? moveLegacyState(storage);
     saved = text ? JSON.parse(text) : null;
   } catch {
-    return defaults;
+    return defaultState();
   }
   if (isObject(saved) && typeof saved.version === 'number' && saved.version > SCHEMA_VERSION && storage) {
     storageFromNewerVersion.add(storage);
   }
+  return cleanState(saved);
+}
+
+/**
+ * Checks state as saved, so the app can rely on its shape: anything
+ * missing, of the wrong type or saved with an unknown schema version falls
+ * back to the defaults, and state saved with schema version 1 is moved to
+ * the current version, keeping everything but the location list, the ticks
+ * and the plan. Used for the saved state and for a shared setup.
+ *
+ * @param {unknown} saved The state as saved, parsed from JSON.
+ * @returns {AppState} The state, or the default state.
+ */
+export function cleanState(saved) {
+  const defaults = defaultState();
   if (!isObject(saved) || (saved.version !== SCHEMA_VERSION && saved.version !== 1)) {
     return defaults;
   }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from '../locations.js';
+import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isLatLng, isPoints, isTime, movableRow, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, rowLabel, usableRouteLocations, visitedKeys } from '../locations.js';
 import { searchKey } from '../search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
@@ -235,6 +235,26 @@ describe('visitedKeys', () => {
   });
 });
 
+describe('movableRow', () => {
+  const rows = [{ id: 'a', text: 'A', isVisited: true }, { id: 'b', text: 'B' }];
+
+  test('finds a row that is still in the list and not ticked off', () => {
+    assert.equal(movableRow(rows, 'b'), rows[1]);
+  });
+
+  test("doesn't find a row that's ticked off or has been removed, such as while it was being moved", () => {
+    assert.equal(movableRow(rows, 'a'), null);
+    assert.equal(movableRow(rows, 'c'), null);
+  });
+});
+
+describe('rowLabel', () => {
+  test("names a row by its trimmed text, or by its position if it hasn't any", () => {
+    assert.equal(rowLabel(' Cabot Tower ', 3), 'Cabot Tower');
+    assert.equal(rowLabel('  ', 3), 'Location 3');
+  });
+});
+
 describe('routeLocationsOf and usableRouteLocations', () => {
   test('gets each setup location\'s result and the route locations that can be planned, naming a pinned one without text by its position', () => {
     const setupLocations = [
@@ -320,5 +340,18 @@ describe('cleanSetupLocations', () => {
   test('returns no rows for anything but a list', () => {
     assert.deepEqual(cleanSetupLocations(undefined), []);
     assert.deepEqual(cleanSetupLocations({ id: 'a' }), []);
+  });
+});
+
+describe('isLatLng', () => {
+  test('accepts a latitude and longitude in range', () => {
+    assert.equal(isLatLng({ lat: 51.45, lng: -2.59 }), true);
+    assert.equal(isLatLng({ lat: -90, lng: 180, name: 'Extra fields are fine' }), true);
+  });
+
+  test('rejects anything else', () => {
+    for (const value of [null, undefined, 'text', {}, { lat: 91, lng: 0 }, { lat: 0, lng: -181 }, { lat: '51', lng: -2 }, { lat: NaN, lng: 0 }]) {
+      assert.equal(isLatLng(value), false, JSON.stringify(value));
+    }
   });
 });
