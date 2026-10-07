@@ -1100,3 +1100,191 @@ describe('plan with fixed times', () => {
     assert.ok(matches >= runs * 0.98, `matched the best route on ${matches} of ${runs} cases`);
   });
 });
+
+describe('plan with sets', () => {
+  // Locations walked at 3.6 km/h (1 m/s) with no detour, so each kilometre takes
+  // exactly 1000 s.
+  const kmFrom = (northKm, eastKm = 0) => ({
+    lat: castlePark.lat + (northKm * 1000) / 111195,
+    lng: castlePark.lng + (eastKm * 1000) / (111195 * Math.cos((castlePark.lat * Math.PI) / 180)),
+  });
+  const startTime = Date.parse('2026-10-03T11:00:00+01:00');
+  const at = (seconds) => startTime + seconds * 1000;
+  const options = (budgetSeconds, overrides) => ({
+    start: castlePark,
+    startTime,
+    deadline: startTime + (budgetSeconds + 600) * 1000,
+    speedKmh: 3.6,
+    detourFactor: 1,
+    dwellSeconds: 100,
+    safetyMarginSeconds: 600,
+    ...overrides,
+  });
+  const random = (seed) => () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  /** The points a route scores: its locations' points, plus each set's bonus if it visits all of the set. */
+  const score = (order, { points, sets = [] }) =>
+    order.reduce((total, index) => total + points[index], 0) +
+    sets.filter((set) => set.locations.length > 0 && set.locations.every((index) => order.includes(index))).reduce((total, set) => total + set.points, 0);
+  /** Splits random locations into sets of the given sizes, leaving the rest out of any set. */
+  const randomSets = (next, count, sizes, points) => {
+    const indexes = Array.from({ length: count }, (_, index) => index);
+    for (let index = count - 1; index > 0; index -= 1) {
+      const other = Math.floor(next() * (index + 1));
+      [indexes[index], indexes[other]] = [indexes[other], indexes[index]];
+    }
+    return sizes.map((size) => ({ locations: indexes.splice(0, size), points: points() })).filter(({ locations }) => locations.length > 0);
+  };
+
+  // A set of two locations 1.5 km and 1.6 km north, which take 1800 s
+  // together, and two single locations 0.5 km and 1 km south, which take
+  // 1200 s together. Only one pair or the other fits in 1900 s.
+  const locations = [kmFrom(1.5), kmFrom(1.6), kmFrom(-0.5), kmFrom(-1)];
+  const pairOptions = (setPoints, points) => options(1900, { locations, points, sets: [{ locations: [0, 1], points: setPoints }] });
+
+  test('completes a set of two over two nearer single locations when the bonus outweighs them', () => {
+    const planned = plan(pairOptions(15, [10, 10, 15, 15]));
+    assert.deepEqual(planned.order, [0, 1]);
+    assert.deepEqual(planned.skipped, [2, 3]);
+    assert.ok(planned.spareSeconds >= 0);
+  });
+
+  test("visits two nearer single locations over completing a set when the bonus doesn't outweigh them", () => {
+    assert.deepEqual(plan(pairOptions(5, [10, 10, 15, 15])).order, [2, 3]);
+    // Without a bonus, the routes score the same, so the quicker one wins.
+    assert.deepEqual(plan(pairOptions(0, [10, 10, 10, 10])).order, [2, 3]);
+  });
+
+  test('counts the bonus for a set whose other locations have already been visited', () => {
+    // Only the location 1.5 km north is still to visit, so visiting it
+    // completes the set, which outweighs both locations south.
+    assert.deepEqual(plan(options(1700, { locations, points: [10, 10, 10, 10] })).order, [2, 3]);
+    assert.deepEqual(plan(options(1700, { locations, points: [10, 10, 10, 10], sets: [{ locations: [0], points: 15 }] })).order, [0]);
+  });
+
+  test("abandons a set that can't be finished in time for a location worth more", () => {
+    // Two of a set of three are 200 m and 300 m east, but the third is 8 km
+    // away, too far to reach. The single location 1.5 km south is worth more
+    // than the two near ones together, which don't fit alongside it.
+    const setLocations = [kmFrom(0, 0.2), kmFrom(0, 0.3), kmFrom(0, 8), kmFrom(-1.5)];
+    const planned = plan(options(1700, { locations: setLocations, points: [10, 10, 10, 25], sets: [{ locations: [0, 1, 2], points: 100 }] }));
+    assert.deepEqual(planned.order, [3]);
+  });
+
+  test('never removes a must-visit location to complete a set', () => {
+    // The set north is worth far more, but there isn't time for it as well
+    // as the must-visit location south.
+    const planned = plan({ ...pairOptions(100, [10, 10, 10, 10]), mustVisit: [3] });
+    assert.ok(planned.order.includes(3));
+    assert.ok(!planned.order.includes(0) || !planned.order.includes(1));
+    assert.ok(planned.spareSeconds >= 0);
+  });
+
+  test('never removes a must-visit location when abandoning its set', () => {
+    // As above, the set can't be finished and the location south is worth
+    // more, but the set's must-visit location is kept.
+    const setLocations = [kmFrom(0, 0.2), kmFrom(0, 0.3), kmFrom(0, 8), kmFrom(-1.5)];
+    const planned = plan(options(1700, { locations: setLocations, points: [10, 10, 10, 25], sets: [{ locations: [0, 1, 2], points: 100 }], mustVisit: [0] }));
+    assert.ok(planned.order.includes(0));
+    assert.ok(planned.spareSeconds >= 0);
+  });
+
+  test("doesn't complete a set whose fixed time can't be met", () => {
+    // The set's location 1.6 km north can't be reached 600 s before its
+    // 1000 s fixed time, so the set can't be completed.
+    const planned = plan({ ...pairOptions(100, [10, 10, 10, 10]), fixedTimes: [null, at(1000), null, null] });
+    assert.deepEqual(planned.order, [2, 3]);
+  });
+
+  test('keeps every must-visit location and fixed time, and stays within the time budget, on random routes with sets', () => {
+    const next = random(123);
+    for (let run = 0; run < 150; run += 1) {
+      const count = 5 + Math.floor(next() * 25);
+      const randomLocations = Array.from({ length: count }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+      const budgetSeconds = 3000 + next() * 15000;
+      const fixedTimes = randomLocations.map(() => (next() < 0.1 ? at(next() * budgetSeconds) : null));
+      const mustVisit = randomLocations.map((_, index) => index).filter(() => next() < 0.1);
+      const sets = randomSets(next, count, [2, 3, 3, 2], () => Math.floor(next() * 40));
+      const finish = next() < 0.5 ? null : kmFrom(next() * 6 - 3, next() * 6 - 3);
+      const points = randomLocations.map(() => 1 + Math.floor(next() * 20));
+      const planned = plan(options(budgetSeconds, { locations: randomLocations, points, fixedTimes, mustVisit, sets, finish, timeLimitMs: 20 }));
+      for (const index of mustVisit) {
+        assert.ok(planned.order.includes(index) !== planned.skippedMustVisit.includes(index), `run ${run} leaves out must-visit location ${index}`);
+      }
+      for (const [position, index] of planned.order.entries()) {
+        if (fixedTimes[index] !== null) {
+          assert.ok(planned.arrivalTimes[position] <= fixedTimes[index] - 600_000 + 1, `run ${run} reaches location ${index} too late`);
+        }
+      }
+      if (!planned.isMustVisitLate) {
+        assert.ok(planned.spareSeconds >= 0, `run ${run} is over budget`);
+      }
+    }
+  });
+
+  /**
+   * Finds the most any route can score, by trying every order. Adding a
+   * stop never makes a route quicker, so an order that doesn't fit can't be
+   * extended into one that does, and is skipped.
+   */
+  const bestPossible = (options) => {
+    let best = 0;
+    const extend = (order, used) => {
+      best = Math.max(best, score(order, options));
+      for (let index = 0; index < options.locations.length; index += 1) {
+        if (used.has(index)) {
+          continue;
+        }
+        const candidate = [...order, index];
+        if (evaluateRoute({ ...options, stops: candidate.map((stop) => options.locations[stop]) }).isWithinBudget) {
+          used.add(index);
+          extend(candidate, used);
+          used.delete(index);
+        }
+      }
+    };
+    extend([], new Set());
+    return best;
+  };
+
+  // plan() is a heuristic, so it can't always find the best route, but
+  // starting from several routes and completing or abandoning sets keeps it
+  // close.
+  test('scores the most possible on at least 95% of small random cases with sets, and never less than 80% of it', () => {
+    const next = random(124);
+    const runs = 300;
+    let matches = 0;
+    for (let run = 0; run < runs; run += 1) {
+      const count = 4 + Math.floor(next() * 5);
+      const randomLocations = Array.from({ length: count }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+      const planOptions = options(2000 + next() * 10000, {
+        locations: randomLocations,
+        points: randomLocations.map(() => 1 + Math.floor(next() * 20)),
+        sets: randomSets(next, count, [2, 3], () => 5 + Math.floor(next() * 30)),
+        finish: next() < 0.5 ? null : kmFrom(next() * 6 - 3, next() * 6 - 3),
+      });
+      const best = bestPossible(planOptions);
+      const scored = score(plan(planOptions).order, planOptions);
+      assert.ok(scored <= best, `run ${run} scores more than is possible`);
+      assert.ok(scored >= best * 0.8, `run ${run} scores ${scored} of a possible ${best}`);
+      matches += scored === best ? 1 : 0;
+    }
+    assert.ok(matches >= runs * 0.95, `matched the best route on ${matches} of ${runs} cases`);
+  });
+
+  test('stays within budget and the time limit for 30 locations in the eight sets', () => {
+    const next = random(31);
+    const randomLocations = Array.from({ length: 30 }, () => kmFrom(next() * 6 - 3, next() * 6 - 3));
+    const sets = randomSets(next, 30, [2, 3, 3, 3, 3, 3, 3, 2], () => 10);
+    const planOptions = options(5 * 3600, { locations: randomLocations, points: randomLocations.map(() => 10), sets, finish: castlePark, dwellSeconds: 180 });
+    const started = performance.now();
+    const planned = plan(planOptions);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 600, `took ${elapsed.toFixed(0)} ms`);
+    assert.ok(planned.spareSeconds >= 0);
+  });
+});

@@ -1,5 +1,6 @@
 import { FINISH_KEY, START_KEY, isTime, pointsById, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
+import { mismatchedSets, setMembers } from './sets.js';
 import { SPEED_RANGE } from './settings.js';
 
 /**
@@ -27,6 +28,7 @@ import { SPEED_RANGE } from './settings.js';
  * @property {SavedPlan | null} plan The plan, or `null` if the form has a problem that stops planning.
  * @property {string | null} error What stops planning, or `null` if a plan was made.
  * @property {Extract<import('./locations.js').RouteLocationResult, { status: 'notFound' | 'unknown' }>[]} leftOut The results for setup locations with text that couldn't be found or hasn't been looked up, so were left out. They don't stop planning.
+ * @property {import('./sets.js').MismatchedSet[]} mismatchedSets The colour sets with more or fewer locations than they have on the board, which can't earn their bonus, while set bonuses are on. Empty if no plan was made.
  */
 
 /**
@@ -81,7 +83,10 @@ export function timeToday(time, now) {
  * before the deadline minus the safety margin. A location with an At time
  * is only visited at that time, on the day of `now`, so one whose At can't
  * be met is skipped, even a must-visit one, which the plan's
- * `skippedMustVisit` lists.
+ * `skippedMustVisit` lists. While the event's Points per set is above 0,
+ * the route also earns it for each colour set whose locations it visits
+ * every one of, counting those already visited, unless the set has more
+ * or fewer locations than it has on the board.
  *
  * To re-plan during the challenge, pass the team's position as `from`: the
  * route then starts there and now, instead of at the Start field and start
@@ -98,7 +103,7 @@ export function timeToday(time, now) {
  */
 export function planFromSetup({ event, setupLocations, settings, now, from = null, searchResults = {} }) {
   const leftOut = routeLocationsOf(setupLocations, searchResults).filter(({ status }) => status === 'notFound' || status === 'unknown');
-  const failure = (error) => ({ plan: null, error, leftOut });
+  const failure = (error) => ({ plan: null, error, leftOut, mismatchedSets: [] });
 
   const usable = usableRouteLocations(setupLocations, searchResults);
   if (usable.length === 0) {
@@ -150,12 +155,24 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
   // has already been visited.
   const mustVisitKeys = new Set(setupLocations.filter(({ isMustVisit }) => isMustVisit).map(({ id }) => id));
   const pointsByKey = pointsById(setupLocations, event.pointsPerLocation);
+  // A set earns its bonus once every one of its locations is visited,
+  // counting those already visited, so only the rest are planned for. A set
+  // with the wrong number of locations, or one that can't be planned, such
+  // as one that wasn't found, can't be completed, so earns nothing.
+  const remainingIndexes = new Map(remaining.map(({ routeLocation }, index) => [routeLocation.key, index]));
+  const sets =
+    event.pointsPerSet > 0
+      ? setMembers(setupLocations)
+          .filter(({ set, ids }) => ids.length === set.size && ids.every((id) => done.has(id) || remainingIndexes.has(id)))
+          .map(({ ids }) => ({ locations: ids.filter((id) => !done.has(id)).map((id) => remainingIndexes.get(id)), points: event.pointsPerSet }))
+      : [];
   const planned = plan({
     start: start.routeLocation,
     locations: remaining.map(({ routeLocation }) => routeLocation),
     points: remaining.map(({ routeLocation }) => pointsByKey.get(routeLocation.key)),
     mustVisit: remaining.flatMap(({ routeLocation }, index) => (mustVisitKeys.has(routeLocation.key) ? [index] : [])),
     fixedTimes: remaining.map(({ routeLocation }) => (routeLocation.at === undefined ? null : timeToday(routeLocation.at, now))),
+    sets,
     finish: finish?.routeLocation ?? null,
     startTime,
     deadline,
@@ -179,6 +196,7 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
     },
     error: null,
     leftOut,
+    mismatchedSets: event.pointsPerSet > 0 ? mismatchedSets(setupLocations) : [],
   };
 }
 

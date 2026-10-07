@@ -59,6 +59,7 @@ const APP_FILES = [
   'planner.js',
   'route.js',
   'search.js',
+  'sets.js',
   'settings.js',
   'setup.js',
   'storage.js',

@@ -151,10 +151,15 @@ export function evaluateRoute({
  * at least the safety margin before its fixed time, then waits until that
  * time. A location whose fixed time can't be met is skipped, even a
  * must-visit one.
+ * `sets` lists sets of locations that earn a bonus once every one of them
+ * is visited, such as a Monopoly colour set (none by default). Each has
+ * `locations`, the indexes into `locations` of its members still to visit,
+ * and `points`, its bonus. A location is in at most one set.
  * `timeLimitMs` limits how long {@link plan} spends improving the route,
  * in milliseconds (200 by default).
  *
- * @typedef {Omit<RouteOptions, 'stops' | 'fixedTimes'> & { locations: LatLng[], points?: number[], mustVisit?: number[], fixedTimes?: (number | null)[], timeLimitMs?: number }} PlanOptions
+ * @typedef {{ locations: number[], points: number }} PlanSet
+ * @typedef {Omit<RouteOptions, 'stops' | 'fixedTimes'> & { locations: LatLng[], points?: number[], mustVisit?: number[], fixedTimes?: (number | null)[], sets?: PlanSet[], timeLimitMs?: number }} PlanOptions
  */
 
 /**
@@ -212,6 +217,8 @@ export function improveWithTwoOpt(options, order) {
  * @property {number | null} finishNode The node for the finish, or `null` if there's no finish.
  * @property {number} locationCount How many candidate locations there are.
  * @property {number[]} points What each node is worth. Only location nodes are worth anything.
+ * @property {{ nodes: number[], points: number }[]} sets The sets that earn a bonus once all their location nodes are visited, and their bonuses. Only sets with a bonus are kept.
+ * @property {number[]} setOf The index into `sets` of each node's set, or -1 for a node that isn't in one.
  * @property {Set<number>} mustVisitNodes Location nodes that every route must include.
  * @property {(number | null)[]} fixedSeconds When the team must be at each node, in seconds after the start time, or `null` for a node without a fixed time.
  * @property {number[]} latestSeconds The latest the team may reach each node with a fixed time, in seconds after the start time: the safety margin before its fixed time.
@@ -232,6 +239,7 @@ function routeContext({
   points = locations.map(() => 1),
   mustVisit = [],
   fixedTimes = [],
+  sets = [],
   finish = null,
   startTime,
   deadline,
@@ -247,12 +255,21 @@ function routeContext({
     const fixedTime = isLocation(node) ? (fixedTimes[node - 1] ?? null) : null;
     return fixedTime === null ? null : (fixedTime - startTime) / 1000;
   });
+  const setsWithBonus = sets.filter((set) => set.points > 0 && set.locations.length > 0).map((set) => ({ nodes: set.locations.map((index) => index + 1), points: set.points }));
+  const setOf = nodes.map(() => -1);
+  for (const [index, set] of setsWithBonus.entries()) {
+    for (const node of set.nodes) {
+      setOf[node] = index;
+    }
+  }
   return {
     walk: nodes.map((a) => nodes.map((b) => walkSeconds(a, b, { speedKmh, detourFactor }))),
     startNode: 0,
     finishNode: finish ? nodes.length - 1 : null,
     locationCount: locations.length,
     points: nodes.map((_, node) => (isLocation(node) ? points[node - 1] : 0)),
+    sets: setsWithBonus,
+    setOf,
     mustVisitNodes: new Set(mustVisit.map((index) => index + 1)),
     fixedSeconds,
     latestSeconds: fixedSeconds.map((seconds) => (seconds === null ? Infinity : seconds - safetyMarginSeconds)),
@@ -405,13 +422,38 @@ const isQuicker = (candidate, current) =>
       (candidate.seconds <= current.seconds && candidate.walkSeconds < current.walkSeconds - IMPROVEMENT_SECONDS)));
 
 /**
- * Works out how many points a route earns.
+ * Works out how many points a route earns: its locations' points, plus the
+ * bonus for each set it visits every location of.
  *
  * @param {number[]} route Location nodes in visiting order.
  * @param {RouteContext} context The walking times and limits.
- * @returns {number} The total of the locations' points.
+ * @returns {number} The total of the locations' points and the sets' bonuses.
  */
-const routePoints = (route, { points }) => route.reduce((total, node) => total + points[node], 0);
+function routePoints(route, { points, sets, setOf }) {
+  let total = 0;
+  const visitedBySet = sets.map(() => 0);
+  for (const node of route) {
+    total += points[node];
+    if (setOf[node] !== -1) {
+      visitedBySet[setOf[node]] += 1;
+    }
+  }
+  for (const [index, set] of sets.entries()) {
+    if (visitedBySet[index] === set.nodes.length) {
+      total += set.points;
+    }
+  }
+  return total;
+}
+
+/**
+ * Gives every location the same points and no set bonuses, so greedy
+ * insertion adds the location that adds the least time.
+ *
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {RouteContext} The same context, with every location worth 1 point and no sets.
+ */
+const unweighted = (context) => ({ ...context, points: context.points.map(() => 1), sets: [], setOf: context.setOf.map(() => -1) });
 
 /**
  * Lists every location node, in order.
@@ -483,9 +525,11 @@ const MIN_ADDED_SECONDS = 1e-9;
  * Adds locations to a route by greedy insertion, for as long as any still fit
  * the time budget and keep every fixed time: each time, of the locations
  * that fit where they add the least time, the one that earns the most points
- * for each second it adds. Ties go to the location that adds the least time,
- * so with every location worth the same, that's the location that adds the
- * least time, then to the one that adds the least walking, such as the
+ * for each second it adds, counting the bonus for a set when it's the last
+ * of the set's locations still to add. Ties go to the location that adds
+ * the least time, so with every location worth the same, that's the
+ * location that adds the least time, then to the one that adds the least
+ * walking, such as the
  * nearest of those that fit in a wait for a fixed time.
  *
  * @param {number[]} route Location nodes already in the route, in visiting order. This isn't changed.
@@ -498,6 +542,8 @@ const MIN_ADDED_SECONDS = 1e-9;
 function insertGreedily(route, context, { candidates = locationNodes(context), budgetSeconds = context.budgetSeconds } = {}) {
   const extended = [...route];
   const unvisited = new Set(candidates.filter((node) => !extended.includes(node)));
+  // How many of each set's locations aren't in the route yet.
+  const missingBySet = context.sets.map(({ nodes }) => nodes.filter((node) => !extended.includes(node)).length);
 
   while (unvisited.size > 0) {
     const timing = routeTiming(extended, context);
@@ -508,7 +554,9 @@ function insertGreedily(route, context, { candidates = locationNodes(context), b
       if (timing.seconds + added.seconds > budgetSeconds || added.lateSeconds > LATE_SECONDS) {
         continue;
       }
-      const pointsPerSecond = context.points[node] / Math.max(added.seconds, MIN_ADDED_SECONDS);
+      const set = context.setOf[node];
+      const bonus = set !== -1 && missingBySet[set] === 1 ? context.sets[set].points : 0;
+      const pointsPerSecond = (context.points[node] + bonus) / Math.max(added.seconds, MIN_ADDED_SECONDS);
       if (best === null || pointsPerSecond > best.pointsPerSecond || (pointsPerSecond === best.pointsPerSecond && isQuicker(added, best.added))) {
         best = { node, pointsPerSecond, ...insertion };
       }
@@ -518,6 +566,9 @@ function insertGreedily(route, context, { candidates = locationNodes(context), b
     }
     extended.splice(best.position, 0, best.node);
     unvisited.delete(best.node);
+    if (context.setOf[best.node] !== -1) {
+      missingBySet[context.setOf[best.node]] -= 1;
+    }
   }
   return extended;
 }
@@ -625,9 +676,106 @@ function swapOneForMore(route, context, stopAt) {
 }
 
 /**
+ * Completes a set: adds every location of the set that the route doesn't
+ * visit yet, each where it adds the least time, then, while the route
+ * doesn't fit the time budget, drops the stop that loses the fewest points
+ * for each second dropping it saves. Last, it uses any time left for more
+ * locations. Must-visit stops and the set's own locations are never
+ * dropped.
+ *
+ * @param {number[]} route Location nodes in visiting order. This isn't changed.
+ * @param {{ nodes: number[] }} set The set.
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {number[] | null} The route with the set completed, or `null` if it can't be, such as when one of its locations' fixed times can't be met, or dropping every other stop it can still doesn't fit it in.
+ */
+function completeSet(route, set, context) {
+  const missing = set.nodes.filter((node) => !route.includes(node));
+  let completed = insertGreedily(route, unweighted(context), { candidates: missing, budgetSeconds: Infinity });
+  if (completed.length < route.length + missing.length) {
+    return null;
+  }
+  completed = twoOpt(completed, context);
+  const kept = new Set([...set.nodes, ...context.mustVisitNodes]);
+  let seconds = routeSeconds(completed, context);
+  while (seconds > context.budgetSeconds) {
+    const points = routePoints(completed, context);
+    let best = null;
+    for (const [position, node] of completed.entries()) {
+      if (kept.has(node)) {
+        continue;
+      }
+      // Dropping a stop never makes the stops after it any later, so the
+      // route still keeps every fixed time.
+      const without = completed.filter((_, index) => index !== position);
+      const withoutSeconds = routeSeconds(without, context);
+      const savedSeconds = seconds - withoutSeconds;
+      const lostPerSecond = (points - routePoints(without, context)) / Math.max(savedSeconds, MIN_ADDED_SECONDS);
+      if (best === null || lostPerSecond < best.lostPerSecond || (lostPerSecond === best.lostPerSecond && savedSeconds > best.savedSeconds)) {
+        best = { without, withoutSeconds, savedSeconds, lostPerSecond };
+      }
+    }
+    if (best === null) {
+      return null;
+    }
+    completed = best.without;
+    seconds = best.withoutSeconds;
+  }
+  return insertGreedily(twoOpt(completed, context), context);
+}
+
+/**
+ * Abandons a set: removes its locations from the route, other than
+ * must-visit ones, and greedily inserts other locations into the time that
+ * frees up. The removed locations aren't put back in the same attempt.
+ *
+ * @param {number[]} route Location nodes in visiting order. This isn't changed.
+ * @param {{ nodes: number[] }} set The set.
+ * @param {RouteContext} context The walking times and limits.
+ * @returns {number[] | null} The route without the set, or `null` if the route visits none of its locations that can be removed.
+ */
+function abandonSet(route, set, context) {
+  const removed = new Set(set.nodes.filter((node) => route.includes(node) && !context.mustVisitNodes.has(node)));
+  if (removed.size === 0) {
+    return null;
+  }
+  const without = route.filter((node) => !removed.has(node));
+  const candidates = locationNodes(context).filter((node) => !removed.has(node));
+  return insertGreedily(twoOpt(without, context), context, { candidates });
+}
+
+/**
+ * Tries completing each set the route doesn't complete yet, and abandoning
+ * each set the route visits any of. Insertion and swaps add or remove one
+ * location at a time, so they can miss these, since a set's bonus only
+ * comes once every one of its locations is visited. There are only a few
+ * sets, so this is quick.
+ *
+ * @param {number[]} route Location nodes in visiting order. This isn't changed.
+ * @param {RouteContext} context The walking times and limits.
+ * @param {number} stopAt When to give up, from `performance.now()`.
+ * @returns {number[] | null} The first better route found, or `null` if there isn't one.
+ */
+function changeSets(route, context, stopAt) {
+  for (const set of context.sets) {
+    if (performance.now() >= stopAt) {
+      break;
+    }
+    const isComplete = set.nodes.every((node) => route.includes(node));
+    for (const change of [completeSet, abandonSet]) {
+      const candidate = change === completeSet && isComplete ? null : change(route, set, context);
+      if (candidate && isBetterRoute(candidate, route, context)) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Improves a route until nothing helps or the time limit is reached: it
  * shortens the route with 2-opt and uses any time that frees up for more
- * locations, then tries swapping one stop for others.
+ * locations, then tries completing or abandoning sets, then swapping one
+ * stop for others.
  *
  * @param {number[]} route Location nodes in visiting order. This isn't changed.
  * @param {RouteContext} context The walking times and limits.
@@ -642,11 +790,11 @@ function improveRoute(route, context, stopAt) {
       best = improved;
       continue;
     }
-    const swapped = swapOneForMore(best, context, stopAt);
-    if (!swapped) {
+    const changed = changeSets(best, context, stopAt) ?? swapOneForMore(best, context, stopAt);
+    if (!changed) {
       break;
     }
-    best = swapped;
+    best = changed;
   }
   return best;
 }
@@ -720,9 +868,7 @@ function fixedMustVisitNodes(context) {
  */
 function mustVisitRoute(context) {
   const candidates = locationNodes(context).filter((node) => context.mustVisitNodes.has(node) && context.fixedSeconds[node] === null);
-  // With every location worth the same, greedy insertion adds the location that adds the least time.
-  const unweighted = { ...context, points: context.points.map(() => 1) };
-  return twoOpt(insertGreedily(fixedMustVisitNodes(context), unweighted, { candidates, budgetSeconds: Infinity }), context);
+  return twoOpt(insertGreedily(fixedMustVisitNodes(context), unweighted(context), { candidates, budgetSeconds: Infinity }), context);
 }
 
 /**
@@ -753,11 +899,13 @@ function insertCheapest(route, node, context) {
 
 /**
  * Plans the route that earns the most points before the deadline minus the
- * safety margin, ending at the finish if there is one. Of routes that earn
+ * safety margin, ending at the finish if there is one, counting the bonus
+ * for each set whose locations it visits every one of. Of routes that earn
  * as many points, it prefers more stops, then less time, so with every
  * location worth the same, it visits as many locations as possible. It
- * builds a route by greedy insertion, then improves it with 2-opt and by
- * swapping one stop for others. It does this again starting from each
+ * builds a route by greedy insertion, then improves it with 2-opt, by
+ * completing or abandoning sets and by swapping one stop for others. It
+ * never removes a must-visit location. It does this again starting from each
  * location in turn, for up to `timeLimitMs` in total, and keeps the best
  * route.
  *

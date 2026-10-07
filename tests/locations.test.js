@@ -282,6 +282,15 @@ describe('cleanSetupLocations', () => {
     ]);
   });
 
+  test('keeps set only when it is one of the colour sets', () => {
+    assert.deepEqual(cleanSetupLocations([{ id: 'a', text: 'A', set: 'lightBlue' }, { id: 'b', text: 'B', set: 'Red' }, { id: 'c', text: 'C', set: 'stations' }, { id: 'd', text: 'D', set: 1 }]), [
+      { id: 'a', text: 'A', set: 'lightBlue' },
+      { id: 'b', text: 'B' },
+      { id: 'c', text: 'C' },
+      { id: 'd', text: 'D' },
+    ]);
+  });
+
   test('keeps isMustVisit only when it is true', () => {
     assert.deepEqual(cleanSetupLocations([{ id: 'a', text: 'A', isMustVisit: true }, { id: 'b', text: 'B', isMustVisit: 1 }]), [
       { id: 'a', text: 'A', isMustVisit: true },

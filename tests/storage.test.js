@@ -161,6 +161,29 @@ describe('storage', () => {
     }
   });
 
+  test('makes each set worth 10 points by default, and only loads whole numbers of points', () => {
+    assert.equal(defaultState().event.pointsPerSet, 10);
+    for (const [pointsPerSet, expected] of [[20, 20], [0, 0], [9999, 9999], [10000, 10], [2.5, 10], [-5, 10], ['20', 10], [null, 10]]) {
+      const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify({ version: SCHEMA_VERSION, event: { pointsPerSet } }) });
+      assert.equal(loadState(storage).event.pointsPerSet, expected, String(pointsPerSet));
+    }
+  });
+
+  test("saves and loads Points per set and each row's set", () => {
+    const storage = memoryStorage();
+    const state = defaultState();
+    state.event.pointsPerSet = 25;
+    state.setupLocations = [
+      { id: 'a', text: 'Old Kent Road', set: 'brown' },
+      { id: 'b', text: 'Whitechapel Road', set: 'brown', isVisited: true },
+      { id: 'c', text: 'Free Parking' },
+    ];
+    saveState(state, storage);
+    const loaded = loadState(storage);
+    assert.equal(loaded.event.pointsPerSet, 25);
+    assert.deepEqual(loaded.setupLocations, state.setupLocations);
+  });
+
   test('has no check-in form by default', () => {
     assert.equal(defaultState().event.checkInFormUrl, '');
   });
@@ -304,6 +327,7 @@ describe('loading state saved with schema version 1', () => {
       deadline: '15:30',
       checkInFormUrl: 'https://forms.example.com/check-in',
       pointsPerLocation: 10,
+      pointsPerSet: 10,
     });
     assert.deepEqual(state.settings, { speedKmh: 3.5, detourFactor: 1.3, dwellSeconds: 300, safetyMarginSeconds: 900 });
     assert.equal(state.view, 'map');

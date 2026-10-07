@@ -2,6 +2,7 @@ import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForT
 import { createSearchQueue, searchKey } from './search.js';
 import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
+import { SETS, mismatchedSetText, setBonus, setOf } from './sets.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
 import { defaultState, isOutOfDate, loadState, resetChallenge, saveState } from './storage.js';
@@ -70,6 +71,9 @@ const pinCoordinates = /** @type {HTMLParagraphElement} */ (document.getElementB
 const pinBanner = /** @type {HTMLDivElement} */ (document.getElementById('pin-banner'));
 const pinBannerText = /** @type {HTMLParagraphElement} */ (document.getElementById('pin-banner-text'));
 const pinBannerCancel = /** @type {HTMLButtonElement} */ (document.getElementById('pin-banner-cancel'));
+const setDialog = /** @type {HTMLDialogElement} */ (document.getElementById('set-dialog'));
+const setHeading = /** @type {HTMLHeadingElement} */ (document.getElementById('set-heading'));
+const setOptions = /** @type {HTMLDivElement} */ (document.getElementById('set-options'));
 
 /** What the line under the map says until a pin is dropped. */
 const PIN_HINT = 'Long-press the map to add a location there.';
@@ -322,13 +326,18 @@ function rowItem(setupLocation) {
   field.autocomplete = 'off';
   field.spellcheck = false;
   field.enterKeyHint = 'next';
+  // The colour set's swatch, shown while set bonuses are on.
+  const swatch = element('button', ROW_BUTTON_CLASSES);
+  swatch.type = 'button';
+  swatch.dataset.action = 'set';
+  swatch.append(element('span', 'size-6 rounded-full'));
   const pin = element('button', ROW_BUTTON_CLASSES, '📍');
   pin.type = 'button';
   pin.dataset.action = 'pin';
   const remove = element('button', `${ROW_BUTTON_CLASSES} text-lg`, '✕');
   remove.type = 'button';
   remove.dataset.action = 'remove';
-  line.append(field, pin, remove);
+  line.append(field, swatch, pin, remove);
   const id = Math.random().toString(36).slice(2);
   const footer = element('div', 'flex items-start gap-2');
   const status = element('p', 'flex min-w-0 flex-1 flex-wrap items-center gap-x-2 self-center text-xs break-words');
@@ -406,11 +415,12 @@ function rowItem(setupLocation) {
  */
 function showRow(item, number) {
   const setupLocation = state.setupLocations.find(({ id }) => id === item.dataset.id) ?? null;
-  const [field, pin, remove] = item.querySelectorAll('input, button');
+  const field = item.querySelector('[data-field="text"]');
   const status = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-status]'));
   field.setAttribute('aria-label', `Location ${number}`);
-  pin.setAttribute('aria-label', `Pin location ${number} on the map`);
-  remove.setAttribute('aria-label', `Remove location ${number}`);
+  item.querySelector('[data-action="pin"]').setAttribute('aria-label', `Pin location ${number} on the map`);
+  item.querySelector('[data-action="remove"]').setAttribute('aria-label', `Remove location ${number}`);
+  showSwatch(/** @type {HTMLButtonElement} */ (item.querySelector('[data-action="set"]')), setupLocation, number);
   const more = /** @type {HTMLButtonElement} */ (item.querySelector('[data-action="more"]'));
   const options = /** @type {HTMLDivElement} */ (item.lastElementChild);
   const isOpen = setupLocation !== null && openRows.has(setupLocation.id);
@@ -450,6 +460,27 @@ function showRow(item, number) {
     clear.setAttribute('aria-label', `Clear the pin for location ${number} and look it up instead`);
     status.append(clear);
   }
+}
+
+/** Classes for the dot that shows a location's colour set, with a ring so it shows on both themes. */
+const SET_DOT_CLASSES = 'inline-block shrink-0 rounded-full ring-1 ring-ink';
+
+/**
+ * Shows a row's colour set on its swatch button, which is only shown while
+ * set bonuses are on.
+ *
+ * @param {HTMLButtonElement} swatch The row's swatch button.
+ * @param {import('./locations.js').SetupLocation | null} setupLocation The row, or `null` for the empty row at the end.
+ * @param {number} number The row's position in the list, starting at 1.
+ */
+function showSwatch(swatch, setupLocation, number) {
+  const set = setOf(setupLocation?.set);
+  swatch.hidden = state.event.pointsPerSet === 0;
+  // The empty row at the end has no set to choose yet, but keeps the space.
+  swatch.classList.toggle('invisible', setupLocation === null);
+  swatch.firstElementChild.className = set ? `size-6 ${SET_DOT_CLASSES} ${set.className}` : 'size-6 rounded-full border-2 border-dashed border-field';
+  swatch.setAttribute('aria-label', `Colour set for location ${number}: ${set ? set.name : 'none'}`);
+  swatch.title = set ? `${set.name} set` : 'No colour set';
 }
 
 /**
@@ -863,6 +894,8 @@ locationRows.addEventListener('click', (event) => {
     startPinning(setupLocation?.id ?? null, setupLocation?.text.trim() || `Location ${number}`);
   } else if (button.dataset.action === 'remove' && setupLocation) {
     removeRow(item, setupLocation);
+  } else if (button.dataset.action === 'set' && setupLocation) {
+    openSetDialog(setupLocation, number);
   } else if (button.dataset.action === 'more' && setupLocation) {
     if (!openRows.delete(setupLocation.id)) {
       openRows.add(setupLocation.id);
@@ -874,6 +907,72 @@ locationRows.addEventListener('click', (event) => {
     item.querySelector('input').focus();
     showRows();
     lookUpFinished(routeLocationOf(setupLocation, number, state.searchResults));
+  }
+});
+
+/** The row whose colour set is being chosen, or `null` if none is. */
+let setTarget = null;
+
+/**
+ * Opens the picker for a row's colour set, with its current set pressed.
+ *
+ * @param {import('./locations.js').SetupLocation} setupLocation The row.
+ * @param {number} number The row's position in the list, starting at 1.
+ */
+function openSetDialog(setupLocation, number) {
+  setTarget = setupLocation;
+  setHeading.textContent = `Colour set for location ${number}`;
+  for (const option of setOptions.querySelectorAll('button')) {
+    option.setAttribute('aria-pressed', String(option.value === (setupLocation.set ?? 'none')));
+  }
+  setDialog.returnValue = '';
+  setDialog.showModal();
+  /** @type {HTMLButtonElement} */ (setOptions.querySelector('[aria-pressed="true"]'))?.focus();
+}
+
+// One button for each colour set, and None, each with its name.
+setOptions.replaceChildren(
+  ...[null, ...SETS].map((set) => {
+    const option = element(
+      'button',
+      'flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium ring-1 ring-line hover:bg-accent-soft aria-pressed:bg-accent-soft aria-pressed:font-semibold aria-pressed:ring-2 aria-pressed:ring-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+    );
+    option.value = set?.id ?? 'none';
+    const dot = element('span', set ? `size-5 ${SET_DOT_CLASSES} ${set.className}` : 'size-5 shrink-0 rounded-full border-2 border-dashed border-field');
+    dot.setAttribute('aria-hidden', 'true');
+    option.append(dot, set ? set.name : 'None');
+    return option;
+  }),
+);
+
+document.getElementById('set-cancel').addEventListener('click', () => setDialog.close());
+
+setDialog.addEventListener('close', () => {
+  const setupLocation = setTarget;
+  setTarget = null;
+  // Cancel, Escape and the back button close it without choosing.
+  if (!setupLocation || setDialog.returnValue === '') {
+    return;
+  }
+  const chosen = setDialog.returnValue === 'none' ? undefined : setDialog.returnValue;
+  if (chosen === setupLocation.set) {
+    return;
+  }
+  if (chosen === undefined) {
+    delete setupLocation.set;
+  } else {
+    setupLocation.set = /** @type {import('./sets.js').SetId} */ (chosen);
+  }
+  saveState(state);
+  showRows();
+  // Sets show on the stops and the map straight away, but the route only
+  // changes when it's planned again.
+  if (state.plan) {
+    showPlan();
+    const warnings = planWarnings(state.plan);
+    showPlanStatus([...warnings, 'Press Re-plan from here to update the route with your sets.'].join(' '), warnings.length > 0);
+  } else {
+    updateMap();
   }
 });
 
@@ -965,15 +1064,26 @@ function checkInLink(location, isDone) {
 }
 
 /**
+ * Whether set bonuses are on and any location is in a set, so they can
+ * change what a route scores.
+ *
+ * @returns {boolean} Whether sets apply.
+ */
+function hasSets() {
+  return state.event.pointsPerSet > 0 && state.setupLocations.some(({ set }) => set !== undefined);
+}
+
+/**
  * Works out what each location is worth, from the rows now, so changing a
  * row's points shows straight away, without planning again. Points only show
- * once any location has its own points, so the route otherwise looks as it
- * does without them.
+ * once scores vary, when any location has its own points or is in a set
+ * while set bonuses are on, so the route otherwise looks as it does without
+ * them.
  *
- * @returns {Map<string, number> | null} Each row's points by its id, or `null` if no location has its own points. A location whose row has been removed since planning isn't in it, so it no longer counts.
+ * @returns {Map<string, number> | null} Each row's points by its id, or `null` if scores don't vary. A location whose row has been removed since planning isn't in it, so it no longer counts.
  */
 function currentPoints() {
-  if (!hasOwnPoints(state.setupLocations)) {
+  if (!hasOwnPoints(state.setupLocations) && !hasSets()) {
     return null;
   }
   return pointsById(state.setupLocations, state.event.pointsPerLocation);
@@ -981,14 +1091,15 @@ function currentPoints() {
 
 /**
  * Adds up what locations are worth, leaving out those whose rows have been
- * removed.
+ * removed, with the bonus for each set that visiting them completes.
  *
  * @param {string[]} keys The locations' keys.
  * @param {Map<string, number>} points Each row's points by its id, from {@link currentPoints}.
  * @returns {number} Their total points.
  */
 function totalPoints(keys, points) {
-  return keys.reduce((total, key) => total + (points.get(key) ?? 0), 0);
+  const bonus = state.event.pointsPerSet > 0 ? setBonus(keys, state.setupLocations, state.event.pointsPerSet) : 0;
+  return keys.reduce((total, key) => total + (points.get(key) ?? 0), bonus);
 }
 
 /**
@@ -1015,6 +1126,15 @@ function stopItem(stop, isFinish, points) {
 
   const details = element('div', 'flex min-w-0 flex-1 flex-col gap-1');
   const title = element('p', 'font-medium break-words', stop.location.label);
+  // A location in a set shows a dot in the set's colour while set bonuses are on.
+  const set = isFinish || state.event.pointsPerSet === 0 ? null : setOf(state.setupLocations.find(({ id }) => id === stop.location.key)?.set);
+  if (set) {
+    const dot = element('span', `ms-2 size-3 align-middle ${SET_DOT_CLASSES} ${set.className}`);
+    dot.setAttribute('role', 'img');
+    dot.setAttribute('aria-label', `${set.name} set`);
+    dot.title = `${set.name} set`;
+    title.append(dot);
+  }
   // At a stop with an At, the team must be there then rather than take the
   // selfie on arrival and leave early, so its At shows in place of the ETA.
   const isAt = !isFinish && stop.fixedTime !== null && !isDone;
@@ -1322,7 +1442,7 @@ function planResultText(setupResult) {
     const labels = setupResult.leftOut.map((routeLocationResult) => routeLocationResult.label);
     parts.push(`Left out because ${setupResult.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`);
   }
-  parts.push(...planWarnings(setupResult.plan));
+  parts.push(...planWarnings(setupResult.plan), ...setupResult.mismatchedSets.map(mismatchedSetText));
   return parts.join(' ');
 }
 
@@ -1429,12 +1549,12 @@ const replannedFromPosition = () => `Re-planned from your position at ${timeForm
  */
 async function replanAndReport(position, successMessage) {
   try {
-    const { error, plan } = await planRoute(position);
+    const { error, plan, mismatchedSets } = await planRoute(position);
     if (error !== null) {
       showReplanStatus(error, true);
     } else {
       const warnings = planWarnings(plan);
-      showReplanStatus([successMessage(), ...warnings].join(' '), warnings.length > 0);
+      showReplanStatus([successMessage(), ...warnings, ...mismatchedSets.map(mismatchedSetText)].join(' '), warnings.length > 0);
     }
   } catch {
     showReplanStatus("Re-planning didn't work. Try again.", true);
@@ -1573,6 +1693,13 @@ function updateMap() {
   const route = plan ? mapRoute(plan, visitedKeys(state.setupLocations), (time) => timeFormat.format(time)) : { path: [], markers: [] };
   const newMarkers = newLocationMarkers(usableRouteLocations(state.setupLocations, state.searchResults), plan, mustVisitKeys());
   route.markers.push(...newMarkers);
+  // Locations in a set show a dot in its colour while set bonuses are on.
+  if (state.event.pointsPerSet > 0) {
+    const sets = new Map(state.setupLocations.map(({ id, set }) => [id, setOf(set)]));
+    for (const marker of route.markers) {
+      marker.set = sets.get(marker.location.key) ?? undefined;
+    }
+  }
   drawnNewLocations = newLocationsText(newMarkers);
   showRoute(routeMap, route, shouldFitMap);
   shouldFitMap = false;
@@ -1805,6 +1932,7 @@ settingsDialog.addEventListener('close', () => {
   }
   const savedCheckInFormUrl = state.event.checkInFormUrl;
   const savedPointsPerLocation = state.event.pointsPerLocation;
+  const savedPointsPerSet = state.event.pointsPerSet;
   // The fields are range-checked, and the check-in form URL checked by its
   // input listener, so the dialog only closes with "save" when they're valid.
   for (const field of panelFields) {
@@ -1825,7 +1953,8 @@ settingsDialog.addEventListener('close', () => {
   showCountdown();
   // Show or hide the Check in buttons, and show new points if points are
   // shown, now, even if re-planning fails.
-  const isPointsChanged = state.event.pointsPerLocation !== savedPointsPerLocation && hasOwnPoints(state.setupLocations);
+  const isSetsChanged = state.event.pointsPerSet !== savedPointsPerSet && state.setupLocations.some(({ set }) => set !== undefined);
+  const isPointsChanged = (state.event.pointsPerLocation !== savedPointsPerLocation && hasOwnPoints(state.setupLocations)) || isSetsChanged;
   if (state.event.checkInFormUrl !== savedCheckInFormUrl || isPointsChanged) {
     showPlan();
   }
