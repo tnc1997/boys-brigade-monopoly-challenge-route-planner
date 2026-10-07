@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { SETS, isSetId, mismatchedSetText, mismatchedSets, setBonus, setOf } from '../sets.js';
+import { SETS, completableSets, isSetId, mismatchedSetText, mismatchedSets, setBonus, setOf } from '../sets.js';
 
 describe('SETS', () => {
   test("has the board's eight colour sets, with two brown and dark blue properties and three of each other colour", () => {
@@ -35,6 +35,21 @@ describe('isSetId and setOf', () => {
       assert.equal(isSetId(value), false, String(value));
     }
     assert.equal(setOf(undefined), null);
+  });
+});
+
+describe('completableSets', () => {
+  test('lists only sets with as many locations as they have on the board, in board order', () => {
+    const setupLocations = [
+      { id: 'a', set: 'red' },
+      { id: 'b', set: 'darkBlue' },
+      { id: 'c', set: 'brown' },
+      { id: 'd', set: 'darkBlue' },
+    ];
+    assert.deepEqual(
+      completableSets(setupLocations).map(({ set, ids }) => [set.id, ids]),
+      [['darkBlue', ['b', 'd']]],
+    );
   });
 });
 

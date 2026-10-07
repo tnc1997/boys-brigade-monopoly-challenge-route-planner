@@ -1,6 +1,6 @@
 import { FINISH_KEY, START_KEY, isTime, pointsById, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
-import { mismatchedSets, setMembers } from './sets.js';
+import { completableSets, mismatchedSets } from './sets.js';
 import { SPEED_RANGE } from './settings.js';
 
 /**
@@ -162,8 +162,8 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
   const remainingIndexes = new Map(remaining.map(({ routeLocation }, index) => [routeLocation.key, index]));
   const sets =
     event.pointsPerSet > 0
-      ? setMembers(setupLocations)
-          .filter(({ set, ids }) => ids.length === set.size && ids.every((id) => done.has(id) || remainingIndexes.has(id)))
+      ? completableSets(setupLocations)
+          .filter(({ ids }) => ids.every((id) => done.has(id) || remainingIndexes.has(id)))
           .map(({ ids }) => ({ locations: ids.filter((id) => !done.has(id)).map((id) => remainingIndexes.get(id)), points: event.pointsPerSet }))
       : [];
   const planned = plan({

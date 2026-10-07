@@ -465,6 +465,31 @@ function showRow(item, number) {
 /** Classes for the dot that shows a location's colour set, with a ring so it shows on both themes. */
 const SET_DOT_CLASSES = 'inline-block shrink-0 rounded-full ring-1 ring-ink';
 
+/** Classes for the empty dot that shows a location isn't in a colour set. */
+const NO_SET_DOT_CLASSES = 'inline-block shrink-0 rounded-full border-2 border-dashed border-field';
+
+/**
+ * Whether set bonuses are on, which they are while Points per set is above 0.
+ *
+ * @returns {boolean} Whether they're on.
+ */
+function areSetsOn() {
+  return state.event.pointsPerSet > 0;
+}
+
+/**
+ * Gets each row's colour set while set bonuses are on, to show on its stop
+ * and map marker.
+ *
+ * @returns {Map<string, import('./sets.js').ColourSet>} The sets of the rows in one by the rows' ids, or none while set bonuses are off.
+ */
+function activeSets() {
+  if (!areSetsOn()) {
+    return new Map();
+  }
+  return new Map(state.setupLocations.flatMap(({ id, set }) => (set === undefined ? [] : [[id, setOf(set)]])));
+}
+
 /**
  * Shows a row's colour set on its swatch button, which is only shown while
  * set bonuses are on.
@@ -475,10 +500,10 @@ const SET_DOT_CLASSES = 'inline-block shrink-0 rounded-full ring-1 ring-ink';
  */
 function showSwatch(swatch, setupLocation, number) {
   const set = setOf(setupLocation?.set);
-  swatch.hidden = state.event.pointsPerSet === 0;
+  swatch.hidden = !areSetsOn();
   // The empty row at the end has no set to choose yet, but keeps the space.
   swatch.classList.toggle('invisible', setupLocation === null);
-  swatch.firstElementChild.className = set ? `size-6 ${SET_DOT_CLASSES} ${set.className}` : 'size-6 rounded-full border-2 border-dashed border-field';
+  swatch.firstElementChild.className = `size-6 ${set ? `${SET_DOT_CLASSES} ${set.className}` : NO_SET_DOT_CLASSES}`;
   swatch.setAttribute('aria-label', `Colour set for location ${number}: ${set ? set.name : 'none'}`);
   swatch.title = set ? `${set.name} set` : 'No colour set';
 }
@@ -938,7 +963,7 @@ setOptions.replaceChildren(
       'flex min-h-11 items-center gap-2 rounded-md px-3 py-2 text-left text-sm font-medium ring-1 ring-line hover:bg-accent-soft aria-pressed:bg-accent-soft aria-pressed:font-semibold aria-pressed:ring-2 aria-pressed:ring-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
     );
     option.value = set?.id ?? 'none';
-    const dot = element('span', set ? `size-5 ${SET_DOT_CLASSES} ${set.className}` : 'size-5 shrink-0 rounded-full border-2 border-dashed border-field');
+    const dot = element('span', `size-5 ${set ? `${SET_DOT_CLASSES} ${set.className}` : NO_SET_DOT_CLASSES}`);
     dot.setAttribute('aria-hidden', 'true');
     option.append(dot, set ? set.name : 'None');
     return option;
@@ -1070,7 +1095,7 @@ function checkInLink(location, isDone) {
  * @returns {boolean} Whether sets apply.
  */
 function hasSets() {
-  return state.event.pointsPerSet > 0 && state.setupLocations.some(({ set }) => set !== undefined);
+  return areSetsOn() && state.setupLocations.some(({ set }) => set !== undefined);
 }
 
 /**
@@ -1098,7 +1123,7 @@ function currentPoints() {
  * @returns {number} Their total points.
  */
 function totalPoints(keys, points) {
-  const bonus = state.event.pointsPerSet > 0 ? setBonus(keys, state.setupLocations, state.event.pointsPerSet) : 0;
+  const bonus = areSetsOn() ? setBonus(keys, state.setupLocations, state.event.pointsPerSet) : 0;
   return keys.reduce((total, key) => total + (points.get(key) ?? 0), bonus);
 }
 
@@ -1108,9 +1133,10 @@ function totalPoints(keys, points) {
  * @param {import('./route.js').RouteStop} stop The stop.
  * @param {boolean} isFinish Whether this is the walk to the finish.
  * @param {Map<string, number> | null} points Each row's points by its id, from {@link currentPoints}.
+ * @param {Map<string, import('./sets.js').ColourSet>} sets Each row's colour set by its id, from {@link activeSets}.
  * @returns {HTMLLIElement} The list item.
  */
-function stopItem(stop, isFinish, points) {
+function stopItem(stop, isFinish, points, sets) {
   const isDone = !isFinish && visitedKeys(state.setupLocations).includes(stop.location.key);
   // Points show once any location has its own points, and not for the
   // finish or a removed row.
@@ -1127,7 +1153,7 @@ function stopItem(stop, isFinish, points) {
   const details = element('div', 'flex min-w-0 flex-1 flex-col gap-1');
   const title = element('p', 'font-medium break-words', stop.location.label);
   // A location in a set shows a dot in the set's colour while set bonuses are on.
-  const set = isFinish || state.event.pointsPerSet === 0 ? null : setOf(state.setupLocations.find(({ id }) => id === stop.location.key)?.set);
+  const set = isFinish ? undefined : sets.get(stop.location.key);
   if (set) {
     const dot = element('span', `ms-2 size-3 align-middle ${SET_DOT_CLASSES} ${set.className}`);
     dot.setAttribute('role', 'img');
@@ -1247,9 +1273,10 @@ function showPlan({ isMapUnchanged = false } = {}) {
 
   const stops = element('ol', 'mt-3 flex flex-col gap-2');
   stops.setAttribute('aria-label', 'Stops in order');
-  stops.append(...route.stops.map((stop) => stopItem(stop, false, points)));
+  const sets = activeSets();
+  stops.append(...route.stops.map((stop) => stopItem(stop, false, points, sets)));
   if (route.finish) {
-    stops.append(stopItem(route.finish, true, points));
+    stops.append(stopItem(route.finish, true, points, sets));
   }
   const sections = [summary, counter];
   // The planning result says so too, but only until the next message, so a
@@ -1694,11 +1721,9 @@ function updateMap() {
   const newMarkers = newLocationMarkers(usableRouteLocations(state.setupLocations, state.searchResults), plan, mustVisitKeys());
   route.markers.push(...newMarkers);
   // Locations in a set show a dot in its colour while set bonuses are on.
-  if (state.event.pointsPerSet > 0) {
-    const sets = new Map(state.setupLocations.map(({ id, set }) => [id, setOf(set)]));
-    for (const marker of route.markers) {
-      marker.set = sets.get(marker.location.key) ?? undefined;
-    }
+  const sets = activeSets();
+  for (const marker of route.markers) {
+    marker.set = sets.get(marker.location.key);
   }
   drawnNewLocations = newLocationsText(newMarkers);
   showRoute(routeMap, route, shouldFitMap);

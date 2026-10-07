@@ -56,6 +56,26 @@ export function setOf(id) {
 }
 
 /**
+ * Whether a set has as many locations as it has on the board, which it
+ * needs to earn its bonus.
+ *
+ * @param {{ set: ColourSet, ids: string[] }} members The set and its rows' ids, from {@link setMembers}.
+ * @returns {boolean} Whether it can be completed.
+ */
+const isCompletable = ({ set, ids }) => ids.length === set.size;
+
+/**
+ * Lists the sets that can be completed: those with as many locations as
+ * they have on the board.
+ *
+ * @param {Pick<import('./locations.js').SetupLocation, 'id' | 'set'>[]} setupLocations The rows.
+ * @returns {{ set: ColourSet, ids: string[] }[]} Each set that can be completed, and its rows' ids in list order.
+ */
+export function completableSets(setupLocations) {
+  return setMembers(setupLocations).filter(isCompletable);
+}
+
+/**
  * A set with more or fewer locations than it has on the board, which can't
  * earn its bonus.
  *
@@ -86,7 +106,7 @@ export function setMembers(setupLocations) {
  */
 export function mismatchedSets(setupLocations) {
   return setMembers(setupLocations)
-    .filter(({ set, ids }) => ids.length !== set.size)
+    .filter((members) => !isCompletable(members))
     .map(({ set, ids }) => ({ set, count: ids.length }));
 }
 
@@ -119,7 +139,7 @@ export function mismatchedSetText({ set, count }) {
 export function setBonus(keys, setupLocations, pointsPerSet) {
   const visiting = new Set(keys);
   const visited = new Set(setupLocations.filter(({ isVisited }) => isVisited).map(({ id }) => id));
-  return setMembers(setupLocations)
-    .filter(({ set, ids }) => ids.length === set.size && ids.some((id) => visiting.has(id) && !visited.has(id)) && ids.every((id) => visiting.has(id) || visited.has(id)))
+  return completableSets(setupLocations)
+    .filter(({ ids }) => ids.some((id) => visiting.has(id) && !visited.has(id)) && ids.every((id) => visiting.has(id) || visited.has(id)))
     .reduce((total) => total + pointsPerSet, 0);
 }
