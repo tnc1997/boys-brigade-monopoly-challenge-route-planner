@@ -25,6 +25,7 @@ import { checkInFormUrl, defaultDwellSeconds } from './settings.js';
  * @property {string} deadline The time the team must have finished by, at the finish if there is one, as `HH:MM` local time.
  * @property {string} checkInFormUrl The organisers' online check-in form, as an http or https URL, or an empty string if there isn't one.
  * @property {number} pointsPerLocation What each location is worth unless its row says otherwise, a whole number from 0 to 9999.
+ * @property {number} pointsPerSet The bonus for visiting every location in a colour set, a whole number from 0 to 9999. 0 turns set bonuses off.
  */
 
 /**
@@ -78,6 +79,7 @@ export function defaultState() {
       deadline: '16:00',
       checkInFormUrl: '',
       pointsPerLocation: 10,
+      pointsPerSet: 10,
     },
     settings: {
       speedKmh: 4.5,
@@ -210,8 +212,10 @@ export function cleanState(saved) {
   const event = withDefaults(defaults.event, saved.event);
   // The form is opened in a new tab, so only ever load an http or https URL.
   event.checkInFormUrl = checkInFormUrl(event.checkInFormUrl) ?? '';
-  if (!isPoints(event.pointsPerLocation)) {
-    event.pointsPerLocation = defaults.event.pointsPerLocation;
+  for (const key of /** @type {const} */ (['pointsPerLocation', 'pointsPerSet'])) {
+    if (!isPoints(event[key])) {
+      event[key] = defaults.event[key];
+    }
   }
   return {
     version: SCHEMA_VERSION,

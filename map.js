@@ -36,6 +36,7 @@ export const BRISTOL_BOUNDS = [
  * @property {import('./locations.js').RouteLocation} location Where it is, and which location it is.
  * @property {string} label What the marker shows: the stop's number, or a short symbol.
  * @property {string} title A description for its tooltip and screen readers, like "1. Old Kent Road, ETA 11:02".
+ * @property {import('./sets.js').ColourSet} [set] The colour set the place is in, if it's in one, shown as a dot in its colour.
  * @property {() => string | null} [moveTarget] Called when its popup opens, to get the name of the location its Move button would move, or `null` if it can't be moved now. Without it, or with `null`, the popup has no Move button.
  * @property {() => void} [onMove] Called when Move is pressed in its popup, to move the location to where the map is tapped next.
  */
@@ -136,7 +137,9 @@ export function showRoute({ map, routeLayer }, { path, markers }, shouldFit) {
   }
   // Skipped locations go underneath, so they don't hide the route.
   const ordered = [...markers.filter(({ kind }) => kind === 'skipped'), ...markers.filter(({ kind }) => kind !== 'skipped')];
-  for (const { kind, location, label, title, moveTarget, onMove } of ordered) {
+  for (const { kind, location, label, title: markerTitle, set, moveTarget, onMove } of ordered) {
+    // The set is named in the title, for its tooltip, popup and screen readers.
+    const title = set ? `${markerTitle}, ${set.name} set` : markerTitle;
     // Each marker can be tapped anywhere in a 44 px square, larger than the
     // circle that's drawn, so it's easy to hit without crowding the map.
     const target = document.createElement('span');
@@ -145,6 +148,17 @@ export function showRoute({ map, routeLayer }, { path, markers }, shouldFit) {
     icon.className = `flex ${kind === 'skipped' ? 'size-5' : 'size-8'} items-center justify-center rounded-full text-xs font-bold shadow ring-2 ring-surface ${MARKER_CLASSES[kind]}`;
     icon.textContent = label;
     target.append(icon);
+    if (set) {
+      // A dot on the marker's edge in the set's colour, which doesn't change
+      // the marker's own colour. The tiles are light in both themes, so its
+      // dark outline and white ring show against them and every set colour.
+      // The set is named in the marker's title.
+      icon.classList.add('relative');
+      const dot = document.createElement('span');
+      dot.className = `absolute -top-1 -right-1 size-3.5 rounded-full border border-[#2d395a] ring-2 ring-white ${set.className}`;
+      dot.setAttribute('aria-hidden', 'true');
+      icon.append(dot);
+    }
     const marker = L.marker([location.lat, location.lng], {
       icon: L.divIcon({ html: target, className: '', iconSize: [44, 44] }),
       title,

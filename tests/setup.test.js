@@ -120,6 +120,69 @@ describe('planFromSetup', () => {
     assert.deepEqual(planFromSetup(setupWith({ startTime: '15:24', pointsPerLocation: 1, setupLocations })).plan.order, [0]);
   });
 
+  describe('with sets', () => {
+    // With the start time at 15:24, either location fits on its own, but not
+    // both. Old Kent Road is the quicker, and Temple Meads is the last of the
+    // brown set still to visit.
+    const brownRows = () => [
+      ...pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, set: 'brown' } : setupLocation)),
+      { id: 'c', text: 'Whitechapel Road', pin: { lat: 51.4504, lng: -2.5947 }, set: 'brown', isVisited: true },
+    ];
+
+    test('counts locations already visited towards completing a set', () => {
+      const { plan, mismatchedSets } = planFromSetup(setupWith({ startTime: '15:24', setupLocations: brownRows() }));
+      assert.deepEqual(plan.order, [1]);
+      assert.deepEqual(mismatchedSets, []);
+    });
+
+    test('earns no set bonuses when Points per set is 0', () => {
+      const { plan, mismatchedSets } = planFromSetup(setupWith({ startTime: '15:24', pointsPerSet: 0, setupLocations: brownRows() }));
+      assert.deepEqual(plan.order, [0]);
+      assert.deepEqual(mismatchedSets, []);
+    });
+
+    test('earns no bonus for a set with the wrong number of locations, and says so', () => {
+      const setupLocations = [...brownRows(), { id: 'd', text: 'Mayfair', pin: { lat: 51.46, lng: -2.6 }, set: 'brown', isVisited: true }];
+      const { plan, mismatchedSets } = planFromSetup(setupWith({ startTime: '15:24', setupLocations }));
+      assert.deepEqual(plan.order, [0]);
+      assert.deepEqual(mismatchedSets.map(({ set, count }) => [set.id, count]), [['brown', 3]]);
+    });
+
+    test("earns no bonus for a set with a location that can't be planned, and names it", () => {
+      const setupLocations = brownRows().map((setupLocation) => (setupLocation.id === 'c' ? { id: 'c', text: 'Not looked up', set: 'brown' } : setupLocation));
+      const { plan, mismatchedSets, unfoundSets } = planFromSetup(setupWith({ startTime: '15:24', setupLocations }));
+      assert.deepEqual(plan.order, [0]);
+      assert.deepEqual(mismatchedSets, []);
+      assert.deepEqual(unfoundSets.map(({ set, labels }) => [set.id, labels]), [['brown', ['Not looked up']]]);
+    });
+
+    test('names every location of a set that was not found, but not one already visited', () => {
+      const searchResults = { [searchKey('Bow Street')]: { isFound: false, error: 'No match', isTemporary: false } };
+      const setupLocations = [
+        { id: 'r1', text: 'Bow Street', set: 'red' },
+        { id: 'r2', text: 'Strand', set: 'red' },
+        { id: 'r3', text: 'Fleet Street', set: 'red', isVisited: true },
+        ...pinnedRows(),
+      ];
+      const { unfoundSets } = planFromSetup({ ...setupWith({ setupLocations }), searchResults });
+      assert.deepEqual(unfoundSets.map(({ set, labels }) => [set.id, labels]), [['red', ['Bow Street', 'Strand']]]);
+    });
+
+    test("only says a set is the wrong size, not also that its locations weren't found", () => {
+      const setupLocations = [{ id: 'r1', text: 'Bow Street', set: 'red' }, ...pinnedRows()];
+      const { mismatchedSets, unfoundSets } = planFromSetup(setupWith({ setupLocations }));
+      assert.deepEqual(mismatchedSets.map(({ set, count }) => [set.id, count]), [['red', 1]]);
+      assert.deepEqual(unfoundSets, []);
+    });
+
+    test('notes nothing about sets while Points per set is 0', () => {
+      const setupLocations = [{ id: 'r1', text: 'Bow Street', set: 'red' }, { id: 'b1', text: 'Mayfair', set: 'darkBlue' }, { id: 'b2', text: 'Park Lane', set: 'darkBlue' }, ...pinnedRows()];
+      const { mismatchedSets, unfoundSets } = planFromSetup(setupWith({ pointsPerSet: 0, setupLocations }));
+      assert.deepEqual(mismatchedSets, []);
+      assert.deepEqual(unfoundSets, []);
+    });
+  });
+
   test("ignores Must visit on a location that's been visited", () => {
     const setupLocations = pinnedRows().map((setupLocation) => (setupLocation.id === 'b' ? { ...setupLocation, isMustVisit: true, isVisited: true } : setupLocation));
     const { plan } = planFromSetup(setupWith({ startTime: '15:40', setupLocations }));

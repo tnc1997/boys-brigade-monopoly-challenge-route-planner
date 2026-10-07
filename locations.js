@@ -1,4 +1,5 @@
 import { searchKey } from './search.js';
+import { isSetId } from './sets.js';
 
 /**
  * A location the route can use, with coordinates: a setup location that's
@@ -34,6 +35,7 @@ import { searchKey } from './search.js';
  * @property {true} [isMustVisit] Whether the route must include the location, while it's still to visit.
  * @property {number} [points] What the location is worth, a whole number from 0 to 9999, if it isn't worth the event's Points per location.
  * @property {string} [at] The time the team must be at the location, as `HH:MM` local time on the day of the challenge, if it has a fixed time. The selfie time comes after it.
+ * @property {import('./sets.js').SetId} [set] The Monopoly colour set the location is in, if it's in one.
  */
 
 /**
@@ -360,6 +362,7 @@ export const OPTIONAL_SETUP_LOCATION_FIELDS = Object.freeze({
   isMustVisit: (value) => (value === true ? true : undefined),
   points: (value) => (isPoints(value) ? value : undefined),
   at: (value) => (isTime(value) ? value : undefined),
+  set: (value) => (isSetId(value) ? value : undefined),
 });
 
 /**

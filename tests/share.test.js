@@ -112,6 +112,42 @@ describe('shareFragment and readShareFragment', () => {
     assert.deepEqual(sharedSetup.setupLocations, [{ text: 'Old Kent Road', set: 'red' }]);
   });
 
+  test("open a setup with colour sets and Points per set in full", async () => {
+    const state = {
+      ...sampleState(),
+      event: { ...sampleState().event, pointsPerSet: 25 },
+      setupLocations: [
+        { id: 'a', text: 'Old Kent Road', set: 'brown', isVisited: true },
+        { id: 'b', text: 'Whitechapel', pin: { lat: 51.45, lng: -2.6 }, set: 'brown' },
+        { id: 'c', text: '51.4545,-2.5879', set: 'lightBlue', points: 15 },
+        { id: 'd', text: 'Nowhere Lane' },
+      ],
+    };
+    const opened = await roundTrip(state);
+    assert.equal(opened.event.pointsPerSet, 25);
+    assert.deepEqual(
+      opened.setupLocations.map(({ id, ...row }) => row),
+      [
+        { text: 'Old Kent Road', set: 'brown' },
+        { text: 'Whitechapel', pin: { lat: 51.45, lng: -2.6 }, set: 'brown' },
+        { text: '51.4545,-2.5879', points: 15, set: 'lightBlue' },
+        { text: 'Nowhere Lane' },
+      ],
+    );
+  });
+
+  test('know Points per set as an event field and a colour set as a row field', async () => {
+    assert.ok('pointsPerSet' in defaultState().event);
+    assert.ok('set' in OPTIONAL_SETUP_LOCATION_FIELDS);
+    const sharedSetup = sampleSharedSetup();
+    sharedSetup.event.pointsPerSet = 0;
+    sharedSetup.setupLocations[0].set = 'darkBlue';
+    const result = await readShareFragment(fragmentOf(sharedSetup));
+    assert.equal(result.status, 'read');
+    assert.equal(result.shared.event.pointsPerSet, 0);
+    assert.equal(result.shared.setupLocations[0].set, 'darkBlue');
+  });
+
   test('make a fragment that only uses characters safe in a URL', async () => {
     const state = { ...sampleState(), setupLocations: [{ id: 'a', text: 'Café “Ñ” 🎲 & ?#/+' }] };
     assert.match(await shareFragment(state), /^#setup=[A-Za-z0-9_-]+$/);
@@ -178,6 +214,8 @@ describe('shareFragment and readShareFragment', () => {
     ['a pin', (sharedSetup) => (sharedSetup.setupLocations[1].pin = { lat: 100, lng: 0 }), ({ setupLocations }) => setupLocations[1].pin === undefined],
     ["a pin's field", (sharedSetup) => (sharedSetup.setupLocations[1].pin.accuracy = 5), ({ setupLocations }) => setupLocations[1].pin.accuracy === undefined],
     ['Points per location', (sharedSetup) => (sharedSetup.event.pointsPerLocation = 2.5), ({ event }) => event.pointsPerLocation === defaultState().event.pointsPerLocation],
+    ['a colour set', (sharedSetup) => (sharedSetup.setupLocations[0].set = 'stations'), ({ setupLocations }) => setupLocations[0].set === undefined],
+    ['Points per set', (sharedSetup) => (sharedSetup.event.pointsPerSet = -5), ({ event }) => event.pointsPerSet === defaultState().event.pointsPerSet],
     ['the deadline', (sharedSetup) => (sharedSetup.event.deadline = 1600), ({ event }) => event.deadline === defaultState().event.deadline],
     ['the check-in form', (sharedSetup) => (sharedSetup.event.checkInFormUrl = 'javascript:alert(1)'), ({ event }) => event.checkInFormUrl === ''],
   ]) {
