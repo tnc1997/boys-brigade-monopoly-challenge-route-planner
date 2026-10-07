@@ -1485,6 +1485,10 @@ function requestReplan() {
     },
     (error) => {
       replanButton.disabled = false;
+      // As above, a new list has been shown meanwhile, so the error doesn't apply to it.
+      if (generation !== listGeneration) {
+        return;
+      }
       showReplanStatus(GEOLOCATION_ERRORS[error.code] ?? "Your location couldn't be found. Try again.", true);
     },
     { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 },
@@ -1737,6 +1741,8 @@ function showNewList() {
   showPlan();
   showSettingsSummary();
   showCountdown();
+  // A message about sharing the old list doesn't apply to the new one.
+  showShareStatus('');
   prepareShare();
 }
 
