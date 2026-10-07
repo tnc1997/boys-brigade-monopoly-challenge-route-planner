@@ -1,3 +1,4 @@
+import { movableRow } from './locations.js';
 import { walkSeconds } from './planner.js';
 import { timeToday } from './setup.js';
 
@@ -289,8 +290,7 @@ export function movableSetupLocation({ kind, location }, setupLocations) {
   if (kind !== 'stop' && kind !== 'skipped' && kind !== 'new') {
     return null;
   }
-  const setupLocation = setupLocations.find(({ id }) => id === location.key);
-  return setupLocation && !setupLocation.isVisited ? setupLocation : null;
+  return movableRow(setupLocations, location.key);
 }
 
 /**

@@ -36,7 +36,8 @@ export const BRISTOL_BOUNDS = [
  * @property {import('./locations.js').RouteLocation} location Where it is, and which location it is.
  * @property {string} label What the marker shows: the stop's number, or a short symbol.
  * @property {string} title A description for its tooltip and screen readers, like "1. Old Kent Road, ETA 11:02".
- * @property {() => void} [onMove] Called when Move is pressed in its popup, to move the location to where the map is tapped next. Without it, the popup has no Move button.
+ * @property {() => string | null} [moveTarget] Called when its popup opens, to get the name of the location its Move button would move, or `null` if it can't be moved now. Without it, or with `null`, the popup has no Move button.
+ * @property {() => void} [onMove] Called when Move is pressed in its popup, to move the location to where the map is tapped next.
  */
 
 /**
@@ -135,7 +136,7 @@ export function showRoute({ map, routeLayer }, { path, markers }, shouldFit) {
   }
   // Skipped locations go underneath, so they don't hide the route.
   const ordered = [...markers.filter(({ kind }) => kind === 'skipped'), ...markers.filter(({ kind }) => kind !== 'skipped')];
-  for (const { kind, location, label, title, onMove } of ordered) {
+  for (const { kind, location, label, title, moveTarget, onMove } of ordered) {
     // Each marker can be tapped anywhere in a 44 px square, larger than the
     // circle that's drawn, so it's easy to hit without crowding the map.
     const target = document.createElement('span');
@@ -153,26 +154,32 @@ export function showRoute({ map, routeLayer }, { path, markers }, shouldFit) {
       // still be seen and tapped.
       zIndexOffset: { skipped: -1000, new: 1000 }[kind] ?? 0,
     });
-    const popup = document.createElement('div');
-    popup.className = 'flex flex-col items-start gap-2 text-sm';
-    const description = document.createElement('p');
-    description.className = '!m-0';
-    description.textContent = title;
-    popup.append(description);
-    if (onMove) {
-      // Moving takes a button and then a tap, rather than dragging the
-      // marker, so panning or zooming on a phone can't move it by accident.
-      const move = document.createElement('button');
-      move.type = 'button';
-      move.className = 'min-h-11 rounded-md bg-accent px-4 py-2 font-semibold text-white hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-line';
-      move.textContent = 'Move';
-      move.setAttribute('aria-label', `Move ${location.label}`);
-      move.addEventListener('click', () => {
-        map.closePopup();
-        onMove();
-      });
-      popup.append(move);
-    }
+    // The popup is made each time it opens, so Move matches the location
+    // list as it is then, which can change without the map being redrawn.
+    const popup = () => {
+      const content = document.createElement('div');
+      content.className = 'flex flex-col items-start gap-2 text-sm';
+      const description = document.createElement('p');
+      description.className = '!m-0';
+      description.textContent = title;
+      content.append(description);
+      const moveLabel = moveTarget?.();
+      if (moveLabel) {
+        // Moving takes a button and then a tap, rather than dragging the
+        // marker, so panning or zooming on a phone can't move it by accident.
+        const move = document.createElement('button');
+        move.type = 'button';
+        move.className = 'min-h-11 rounded-md bg-accent px-4 py-2 font-semibold text-white hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-line';
+        move.textContent = 'Move';
+        move.setAttribute('aria-label', `Move ${moveLabel}`);
+        move.addEventListener('click', () => {
+          map.closePopup();
+          onMove();
+        });
+        content.append(move);
+      }
+      return content;
+    };
     marker.bindPopup(popup).addTo(routeLayer);
   }
   // Fit the route itself, so far-off skipped locations (or new ones) don't

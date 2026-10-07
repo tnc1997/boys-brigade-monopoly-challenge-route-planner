@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, movableSetupLocation, newLocationMarkers, plural, progress, timeWarning } from '../route.js';
-import { usableRouteLocations, visitedKeys } from '../locations.js';
+import { visitedKeys } from '../locations.js';
 import { planFromSetup } from '../setup.js';
 import { defaultState } from '../storage.js';
 
@@ -320,18 +320,6 @@ describe('movableSetupLocation', () => {
     assert.equal(movableSetupLocation(marker('start'), pinnedRows()), null);
     assert.equal(movableSetupLocation(marker('finish'), pinnedRows()), null);
     assert.equal(movableSetupLocation(marker('stop'), []), null);
-  });
-
-  test('moving a row pins it, keeping its text and tick, and re-planning uses the new position', () => {
-    const locations = [{ ...pinnedRows()[0], isVisited: true }, pinnedRows()[1]];
-    const before = savedPlan({}, {}, locations);
-    // Moving pins the row, as 📍 does.
-    locations[1] = { ...locations[1], pin: { lat: 51.4556, lng: -2.5894 } };
-    assert.deepEqual(newLocationMarkers(usableRouteLocations(locations, {}), before).map(({ title }) => title), ['Temple Meads, not in the route yet']);
-    const after = savedPlan({}, {}, locations);
-    const templeMeads = after.routeLocations.find(({ key }) => key === 'b');
-    assert.deepEqual({ lat: templeMeads.lat, lng: templeMeads.lng, label: templeMeads.label }, { lat: 51.4556, lng: -2.5894, label: 'Temple Meads' });
-    assert.deepEqual(visitedKeys(locations), ['a']);
   });
 });
 

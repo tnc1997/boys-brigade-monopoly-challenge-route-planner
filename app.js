@@ -1,6 +1,6 @@
 import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForToday, mapRoute, movableSetupLocation, newLocationMarkers, plural, progress, timeWarning } from './route.js';
 import { createSearchQueue, searchKey } from './search.js';
-import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, usableRouteLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, movableRow, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, rowLabel, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
@@ -481,11 +481,16 @@ function showFieldStatuses() {
   showDescription(finishStatus, describeRouteLocationResult(routeLocationOfText(state.event.finishText, FINISH_KEY, state.searchResults), { canPin: false }));
 }
 
-/** Shows every row's labels and status, and the Start and Finish fields' statuses, and redraws the map if they've changed it. */
+/**
+ * Shows every row's labels and status, and the Start and Finish fields'
+ * statuses, and redraws the map if they've changed it. A row being moved
+ * that's been removed or ticked off stops being moved.
+ */
 function showRows() {
   [...locationRows.children].forEach((item, index) => showRow(/** @type {HTMLLIElement} */ (item), index + 1));
   showFieldStatuses();
   updateMapIfChanged();
+  stopMovingIfUnmovable();
 }
 
 /** Builds the location list's rows from the state, with an empty row at the end, keeping focus in the same row. */
@@ -861,7 +866,7 @@ locationRows.addEventListener('click', (event) => {
   const { item, setupLocation } = row;
   const number = [...locationRows.children].indexOf(item) + 1;
   if (button.dataset.action === 'pin') {
-    startPinning(setupLocation?.id ?? null, setupLocation?.text.trim() || `Location ${number}`);
+    startPinning(setupLocation?.id ?? null, rowLabel(setupLocation?.text ?? '', number));
   } else if (button.dataset.action === 'remove' && setupLocation) {
     removeRow(item, setupLocation);
   } else if (button.dataset.action === 'more' && setupLocation) {
@@ -1577,14 +1582,21 @@ function updateMap() {
   route.markers.push(...newMarkers);
   // A stop, skipped location or + can be moved from its popup, which pins
   // its row there, as 📍 does, so it keeps its text and ticked-off state.
+  // Its row is looked up when the popup opens and when Move is pressed,
+  // not now, as it can be renamed, removed or ticked off in the list
+  // without the map being redrawn.
   for (const marker of route.markers) {
-    const setupLocation = movableSetupLocation(marker, state.setupLocations);
-    if (setupLocation) {
-      marker.onMove = () => {
-        const number = state.setupLocations.indexOf(setupLocation) + 1;
-        startPinning(setupLocation.id, setupLocation.text.trim() || `Location ${number}`, { isMove: true });
-      };
-    }
+    const target = () => {
+      const setupLocation = movableSetupLocation(marker, state.setupLocations);
+      return setupLocation && { id: setupLocation.id, label: rowLabel(setupLocation.text, state.setupLocations.indexOf(setupLocation) + 1) };
+    };
+    marker.moveTarget = () => target()?.label ?? null;
+    marker.onMove = () => {
+      const current = target();
+      if (current) {
+        startPinning(current.id, current.label, { isMove: true });
+      }
+    };
   }
   drawnNewLocations = newLocationsText(newMarkers);
   showRoute(routeMap, route, shouldFitMap);
@@ -1645,6 +1657,16 @@ function startPinning(id, label, { isMove = false } = {}) {
   pinBannerCancel.focus({ preventScroll: true });
 }
 
+/**
+ * Stops moving a row on the map if it's been removed or ticked off since
+ * Move was pressed, so the banner doesn't ask for a tap that can't move it.
+ */
+function stopMovingIfUnmovable() {
+  if (pinTarget?.isMove && !movableRow(state.setupLocations, pinTarget.id)) {
+    stopPinning();
+  }
+}
+
 /** Stops pinning a row on the map, and hides the banner. */
 function stopPinning() {
   pinTarget = null;
@@ -1658,8 +1680,14 @@ function stopPinning() {
  * @param {import('./planner.js').LatLng} latLng Where the map was tapped.
  */
 function placePin(latLng) {
-  const { isMove } = pinTarget;
-  const location = pinRow(pinTarget.id, '', latLng);
+  const { id, isMove } = pinTarget;
+  if (isMove && !movableRow(state.setupLocations, id)) {
+    // Its row was removed or ticked off while it was being moved, so
+    // there's nothing to move.
+    stopPinning();
+    return;
+  }
+  const location = pinRow(id, '', latLng);
   stopPinning();
   const action = state.plan ? 'Re-plan from here' : 'Plan route';
   showPinStatus(
