@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { searchKey } from '../search.js';
-import { LEGACY_STORAGE_KEYS, SCHEMA_VERSION, STORAGE_KEY, clearState, defaultState, isOutOfDate, loadState, resetChallenge, saveState } from '../storage.js';
+import { LEGACY_STORAGE_KEYS, SCHEMA_VERSION, STORAGE_KEY, cleanState, clearState, defaultState, isOutOfDate, loadState, resetChallenge, saveState } from '../storage.js';
 
 /** An in-memory stand-in for localStorage. */
 const memoryStorage = (initial = {}) => {
@@ -334,5 +334,22 @@ describe('loading state saved with schema version 1', () => {
     assert.deepEqual(state.setupLocations, []);
     assert.equal(state.doneKeys, undefined);
     assert.equal(state.plan, null);
+  });
+});
+
+describe('cleanState', () => {
+  test('checks state as saved without reading storage, as loadState does', () => {
+    const saved = { version: SCHEMA_VERSION, event: { deadline: 1600, finishText: 'Queen Square' }, setupLocations: [{ id: 'a', text: 'Old Kent Road', points: 2.5 }] };
+    const state = cleanState(saved);
+    assert.deepEqual(state, loadState(memoryStorage({ [STORAGE_KEY]: JSON.stringify(saved) })));
+    assert.equal(state.event.deadline, defaultState().event.deadline);
+    assert.equal(state.event.finishText, 'Queen Square');
+    assert.deepEqual(state.setupLocations, [{ id: 'a', text: 'Old Kent Road' }]);
+  });
+
+  test("falls back to the defaults for anything that isn't state", () => {
+    for (const saved of [null, 'text', [], { version: SCHEMA_VERSION + 1 }]) {
+      assert.deepEqual(cleanState(saved), defaultState());
+    }
   });
 });

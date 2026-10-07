@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from '../locations.js';
+import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isLatLng, isPoints, isTime, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from '../locations.js';
 import { searchKey } from '../search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
@@ -311,5 +311,18 @@ describe('cleanSetupLocations', () => {
   test('returns no rows for anything but a list', () => {
     assert.deepEqual(cleanSetupLocations(undefined), []);
     assert.deepEqual(cleanSetupLocations({ id: 'a' }), []);
+  });
+});
+
+describe('isLatLng', () => {
+  test('accepts a latitude and longitude in range', () => {
+    assert.equal(isLatLng({ lat: 51.45, lng: -2.59 }), true);
+    assert.equal(isLatLng({ lat: -90, lng: 180, name: 'Extra fields are fine' }), true);
+  });
+
+  test('rejects anything else', () => {
+    for (const value of [null, undefined, 'text', {}, { lat: 91, lng: 0 }, { lat: 0, lng: -181 }, { lat: '51', lng: -2 }, { lat: NaN, lng: 0 }]) {
+      assert.equal(isLatLng(value), false, JSON.stringify(value));
+    }
   });
 });

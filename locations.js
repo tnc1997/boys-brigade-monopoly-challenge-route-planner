@@ -318,6 +318,18 @@ export function visitedKeys(setupLocations) {
 }
 
 /**
+ * Whether a value has a latitude and longitude in range, such as a saved
+ * pin or search result.
+ *
+ * @param {unknown} value The value.
+ * @returns {value is import('./planner.js').LatLng} Whether it has.
+ */
+export function isLatLng(value) {
+  const isCoordinate = (coordinate, limit) => typeof coordinate === 'number' && Math.abs(coordinate) <= limit;
+  return isCoordinate(value?.lat, 90) && isCoordinate(value?.lng, 180);
+}
+
+/**
  * Cleans up saved setup locations, dropping anything that isn't one and
  * those with no text and no pin, so the app can rely on their shape.
  * Optional fields are only kept when they're valid, so an invalid one
@@ -330,7 +342,6 @@ export function cleanSetupLocations(setupLocations) {
   if (!Array.isArray(setupLocations)) {
     return [];
   }
-  const isCoordinate = (value, limit) => typeof value === 'number' && Math.abs(value) <= limit;
   const ids = new Set();
   return setupLocations.flatMap((setupLocation) => {
     if (typeof setupLocation?.id !== 'string' || typeof setupLocation.text !== 'string' || ids.has(setupLocation.id)) {
@@ -339,7 +350,7 @@ export function cleanSetupLocations(setupLocations) {
     ids.add(setupLocation.id);
     /** @type {SetupLocation} */
     const cleaned = { id: setupLocation.id, text: setupLocation.text };
-    if (isCoordinate(setupLocation.pin?.lat, 90) && isCoordinate(setupLocation.pin?.lng, 180)) {
+    if (isLatLng(setupLocation.pin)) {
       cleaned.pin = { lat: setupLocation.pin.lat, lng: setupLocation.pin.lng };
     }
     if (setupLocation.isVisited === true) {
