@@ -1193,6 +1193,30 @@ describe('plan with sets', () => {
     assert.ok(planned.spareSeconds >= 0);
   });
 
+  test('keeps the must-visit location that completes a set when two fixed times clash', () => {
+    // Each is reached at 1000 s, in time for its cut-off on its own, but
+    // they're 2 km apart, so only one can be kept. They're worth the same,
+    // but the one south is the last of its set still to visit.
+    const clashing = [kmFrom(1), kmFrom(-1)];
+    const clash = (sets) => plan(options(10000, { locations: clashing, points: [10, 10], fixedTimes: [at(2000), at(2100)], mustVisit: [0, 1], sets }));
+    assert.deepEqual(clash([]).order, [0]);
+    const planned = clash([{ locations: [1], points: 10 }]);
+    assert.deepEqual(planned.order, [1]);
+    assert.deepEqual(planned.skippedMustVisit, [0]);
+  });
+
+  test('keeps two must-visit locations that complete a set over one worth more when their fixed times clash', () => {
+    // The two north are 50 m apart and can both be met, and together finish
+    // their set. The one south, worth more than both without the bonus,
+    // clashes with both.
+    const clashing = [kmFrom(1), kmFrom(1.05), kmFrom(-1)];
+    const clash = (setPoints) =>
+      plan(options(10000, { locations: clashing, points: [10, 10, 25], fixedTimes: [at(2000), at(3000), at(2500)], mustVisit: [0, 1, 2], sets: [{ locations: [0, 1], points: setPoints }] }));
+    assert.deepEqual(clash(0).order, [2]);
+    assert.deepEqual(clash(10).order, [0, 1]);
+    assert.deepEqual(clash(10).skippedMustVisit, [2]);
+  });
+
   test("doesn't complete a set whose fixed time can't be met", () => {
     // The set's location 1.6 km north can't be reached 600 s before its
     // 1000 s fixed time, so the set can't be completed.

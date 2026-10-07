@@ -808,13 +808,18 @@ function improveRoute(route, context, stopAt) {
  * it's reached before its fixed time, so stops with fixed times must be in
  * time order, and whether one can follow another doesn't depend on the
  * stops before it. That makes it a longest path through them in time order,
- * found exactly by stepping through them once for each.
+ * found by stepping through them once for each. A set's bonus counts
+ * towards a chain's points once the chain has every one of the set's
+ * locations still to visit, such as when it's the last of its set. That
+ * depends on the stops before it, so with sets, the path found is the best
+ * one ending at each stop for its own points, which may not be the best
+ * possible.
  *
  * @param {RouteContext} context The walking times and limits.
  * @returns {number[]} The must-visit location nodes with fixed times to keep, in time order.
  */
 function fixedMustVisitNodes(context) {
-  const { walk, startNode, points, mustVisitNodes, fixedSeconds, latestSeconds, dwellSeconds, budgetSeconds } = context;
+  const { walk, startNode, points, sets, setOf, mustVisitNodes, fixedSeconds, latestSeconds, dwellSeconds, budgetSeconds } = context;
   const nodes = [...mustVisitNodes]
     .filter((node) => fixedSeconds[node] !== null && fixedSeconds[node] + dwellSeconds <= budgetSeconds + LATE_SECONDS)
     .sort((a, b) => fixedSeconds[a] - fixedSeconds[b] || a - b);
@@ -826,14 +831,29 @@ function fixedMustVisitNodes(context) {
     (candidate.points === current.points &&
       (candidate.count > current.count || (candidate.count === current.count && candidate.walkSeconds < current.walkSeconds - IMPROVEMENT_SECONDS)));
   const chains = [];
+  /** Whether the chain ending at `nodes[j]` (or none, for -1) has a node. */
+  const isInChain = (j, target) => {
+    for (let k = j; k !== -1; k = chains[k].previous) {
+      if (nodes[k] === target) {
+        return true;
+      }
+    }
+    return false;
+  };
+  /** What adding a node to the chain ending at `nodes[j]` (or none, for -1) earns: its points, and its set's bonus if that completes the set. */
+  const pointsAdded = (j, node) => {
+    const set = sets[setOf[node]];
+    const isCompleted = set !== undefined && set.nodes.every((other) => other === node || isInChain(j, other));
+    return points[node] + (isCompleted ? set.points : 0);
+  };
   for (const [i, node] of nodes.entries()) {
-    let best = walk[startNode][node] <= latestSeconds[node] + LATE_SECONDS ? { points: points[node], count: 1, walkSeconds: walk[startNode][node], previous: -1 } : null;
+    let best = walk[startNode][node] <= latestSeconds[node] + LATE_SECONDS ? { points: pointsAdded(-1, node), count: 1, walkSeconds: walk[startNode][node], previous: -1 } : null;
     for (let j = 0; j < i; j += 1) {
       const before = nodes[j];
       if (chains[j] === null || fixedSeconds[before] + dwellSeconds + walk[before][node] > latestSeconds[node] + LATE_SECONDS) {
         continue;
       }
-      const candidate = { points: chains[j].points + points[node], count: chains[j].count + 1, walkSeconds: chains[j].walkSeconds + walk[before][node], previous: j };
+      const candidate = { points: chains[j].points + pointsAdded(j, node), count: chains[j].count + 1, walkSeconds: chains[j].walkSeconds + walk[before][node], previous: j };
       if (isBetter(candidate, best)) {
         best = candidate;
       }
