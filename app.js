@@ -4,6 +4,7 @@ import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, newLocationId, pa
 import { createMap, showPosition, showRoute } from './map.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
+import { readShareFragment, shareFragment, sharedState } from './share.js';
 import { defaultState, isOutOfDate, loadState, resetChallenge, saveState } from './storage.js';
 
 /** The app's state, loaded from the previous visit if there was one. */
@@ -26,6 +27,9 @@ const planButton = /** @type {HTMLButtonElement} */ (form.querySelector('button[
 /** What the Plan route button says when it isn't planning. */
 const PLAN_BUTTON_TEXT = planButton.textContent;
 const planStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('plan-status'));
+const shareButton = /** @type {HTMLButtonElement} */ (document.getElementById('share-button'));
+const shareStatus = /** @type {HTMLParagraphElement} */ (document.getElementById('share-status'));
+const shareLink = /** @type {HTMLInputElement} */ (document.getElementById('share-link'));
 const tabs = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll('[role="tab"][data-view]')]);
 const mapContainer = /** @type {HTMLDivElement} */ (document.getElementById('map'));
 const settingsButton = /** @type {HTMLButtonElement} */ (document.getElementById('settings-button'));
@@ -1706,6 +1710,122 @@ document.getElementById('new-challenge').addEventListener('click', () => {
 });
 
 /**
+ * Shows a message by the Share list button, and the link to copy by hand
+ * if it couldn't be shared or copied.
+ *
+ * @param {string} message The message, or an empty string to hide it.
+ * @param {{ isError?: boolean, link?: string | null }} [options] Whether the message is an error, and the link to show.
+ */
+function showShareStatus(message, { isError = false, link = null } = {}) {
+  shareStatus.textContent = message;
+  shareStatus.classList.toggle('text-danger', isError);
+  shareStatus.classList.toggle('text-muted', !isError);
+  shareLink.hidden = link === null;
+  shareLink.value = link ?? '';
+}
+
+shareButton.addEventListener('click', async () => {
+  if (state.setupLocations.length === 0) {
+    showShareStatus('Add some locations before sharing the list.', { isError: true });
+    return;
+  }
+  const link = `${window.location.origin}${window.location.pathname}${await shareFragment(state)}`;
+  const count = plural(state.setupLocations.length, 'location');
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Monopoly Challenge locations', text: `${count} for the Monopoly Challenge Route Planner.`, url: link });
+      showShareStatus('');
+      return;
+    } catch (error) {
+      // Closing the share sheet isn't a failure. Anything else falls back to copying.
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return;
+      }
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    showShareStatus(`Link copied, with ${count}. Send it to the other phones.`);
+  } catch {
+    showShareStatus("Couldn't copy the link. Copy it from here instead:", { link });
+    shareLink.focus();
+    shareLink.select();
+  }
+});
+
+/**
+ * Replaces the location list and the event's details with a shared list's,
+ * adding its search results to the phone's own. The ticks and the plan go
+ * with the old list, and the team's own settings are kept, apart from a
+ * default selfie time, which changes to suit a check-in form as it does in
+ * the settings panel.
+ *
+ * @param {ReturnType<typeof sharedState>} shared The shared list, checked.
+ */
+function loadSharedList(shared) {
+  stopPinning();
+  openRows.clear();
+  state.settings.dwellSeconds = dwellSecondsForCheckInForm(state.settings.dwellSeconds, state.event.checkInFormUrl !== '', shared.event.checkInFormUrl !== '');
+  Object.assign(state, { event: shared.event, setupLocations: shared.setupLocations, searchResults: { ...state.searchResults, ...shared.searchResults }, plan: null });
+  saveState(state);
+  fillForm();
+  buildRows();
+  showSetupError(null);
+  showPlanStatus(null);
+  showReplanStatus('Uses your current location and time, and the locations still to visit.', false);
+  showPinStatus(PIN_HINT);
+  shouldFitMap = true;
+  showPlan();
+  showSettingsSummary();
+  showCountdown();
+}
+
+/** Removes a shared list from the address bar, so reloading doesn't open it again. */
+function removeShareFragment() {
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+}
+
+/**
+ * Opens the shared list in the address bar's link, if there is one. It
+ * replaces the location list straight away if that's empty, and otherwise
+ * only if the team agrees. A link that can't be read yet, because it's from
+ * a newer version or this copy of the planner can't save, is kept in the
+ * address bar, so it opens once the planner's updated and reloaded.
+ */
+async function openSharedList() {
+  const result = await readShareFragment(window.location.hash);
+  if (result.status === 'none') {
+    return;
+  }
+  shareButton.scrollIntoView({ block: 'center' });
+  if (result.status === 'newer') {
+    showShareStatus('This link is from a newer version of the planner. Reload with signal to update it, then open the link again.', { isError: true });
+    return;
+  }
+  if (result.status === 'damaged') {
+    removeShareFragment();
+    showShareStatus("This link is damaged or incomplete, so the shared list couldn't be opened. Ask for it to be shared again.", { isError: true });
+    return;
+  }
+  if (isOutOfDate()) {
+    showShareStatus("This copy of the planner is out of date, so it can't open the shared list. Reload with signal to update it, then open the link again.", { isError: true });
+    return;
+  }
+  const shared = sharedState(result.sharedList);
+  if (state.setupLocations.length > 0 && !window.confirm('Replace your locations with the shared list? Its Start, Finish and times are used too, and the selfies ticked off and the route are cleared. Your settings are kept.')) {
+    removeShareFragment();
+    showShareStatus('Kept your locations. The shared list wasn\'t opened.');
+    return;
+  }
+  loadSharedList(shared);
+  removeShareFragment();
+  showShareStatus(`Opened the shared list, with ${plural(shared.setupLocations.length, 'location')}.`);
+}
+
+// A link opened in a tab that already has the planner open only changes the fragment.
+window.addEventListener('hashchange', openSharedList);
+
+/**
  * Shows a walking speed in the settings panel: the slider, its value and
  * which preset (if any) it matches.
  *
@@ -1950,3 +2070,4 @@ showSettingsSummary();
 buildRows();
 showView(state.view);
 showPlan();
+openSharedList();
