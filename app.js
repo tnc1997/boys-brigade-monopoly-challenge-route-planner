@@ -2,7 +2,7 @@ import { countdownText, describeRoute, formatDuration, isAppleDevice, isPlanForT
 import { createSearchQueue, searchKey } from './search.js';
 import { FINISH_KEY, START_KEY, atError, hasOwnPoints, isTime, movableRow, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, rowLabel, usableRouteLocations, visitedKeys } from './locations.js';
 import { createMap, showPosition, showRoute } from './map.js';
-import { SETS, mismatchedSetText, setBonus, setOf, unfoundSetText } from './sets.js';
+import { SETS, mismatchedSetText, setBonus, setOf } from './sets.js';
 import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
 import { planFromSetup, replanStartingPoint, searchesNeeded, timeToday } from './setup.js';
 import { canCompress, preparedShareFragment, readShareFragment, shareFragment } from './share.js';
@@ -89,12 +89,9 @@ let droppedPin = null;
 let addedPinKey = null;
 
 /**
- * The row being pinned on the map with 📍, or moved with a marker's Move,
- * or `null` if none is. Its `id` is `null` for the empty row at the end of
- * the list, which becomes a row once it's pinned. `isMove` says whether
- * it's being moved, for the message once it's placed.
+ * The id of the row being moved with a marker's Move, or `null` if none is.
  *
- * @type {{ id: string | null, isMove: boolean } | null}
+ * @type {string | null}
  */
 let pinTarget = null;
 
@@ -112,9 +109,9 @@ const temporaryFailures = new Map();
 
 /**
  * Rows and fields the team has just finished, whose result is announced to
- * screen readers, by search key: their text, and whether they can be pinned.
+ * screen readers: their text, by search key.
  *
- * @type {Map<string, { label: string, canPin: boolean }>}
+ * @type {Map<string, string>}
  */
 const announcedLookups = new Map();
 
@@ -244,7 +241,7 @@ function showSettingsSummary() {
   settingsSummaryText.textContent = `Planning for ${settingsSummary(state.settings)}${isOutOfDate ? ' (re-plan to use these)' : ''}`;
 }
 
-/** Classes for the 📍 and ✕ buttons on each row. */
+/** Classes for the swatch and ✕ buttons on each row. */
 const ROW_BUTTON_CLASSES =
   'flex size-11 shrink-0 items-center justify-center rounded-md text-accent-ink ring-1 ring-accent/30 hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent';
 
@@ -252,16 +249,13 @@ const ROW_BUTTON_CLASSES =
  * Describes where a row, or the Start or Finish field, is, to show under it.
  *
  * @param {import('./locations.js').RouteLocationResult} routeLocationResult Where it is, from the saved search results.
- * @param {object} [options] What can be done about it.
- * @param {boolean} [options.canPin=true] Whether it can be pinned on the map, which rows can but the Start and Finish fields can't.
  * @returns {{ text: string, isError: boolean }} What to show, and whether it's a problem.
  */
-function describeRouteLocationResult(routeLocationResult, { canPin = true } = {}) {
+function describeRouteLocationResult(routeLocationResult) {
   switch (routeLocationResult.status) {
     case 'empty':
-      return { text: '', isError: false };
     case 'pinned':
-      return { text: '📍 Pinned on the map', isError: false };
+      return { text: '', isError: false };
     case 'coordinates':
       return { text: `Using the coordinates ${routeLocationResult.routeLocation.lat}, ${routeLocationResult.routeLocation.lng}`, isError: false };
     case 'found':
@@ -269,7 +263,7 @@ function describeRouteLocationResult(routeLocationResult, { canPin = true } = {}
     case 'notFound':
       // Coordinates out of range say what's wrong with them.
       return state.searchResults[searchKey(routeLocationResult.label)]
-        ? { text: canPin ? 'Not found. Check the spelling or pin it on the map with 📍' : 'Not found. Check the spelling, or enter its coordinates.', isError: true }
+        ? { text: 'Not found. Check the spelling, or enter its coordinates.', isError: true }
         : { text: routeLocationResult.error, isError: true };
     default: {
       const key = searchKey(routeLocationResult.query);
@@ -311,8 +305,8 @@ function rowOf(target) {
 }
 
 /**
- * Creates the list item for a row of the location list: its text field, a
- * 📍 button to pin it on the map, a ✕ button to remove it and its status.
+ * Creates the list item for a row of the location list: its text field, its
+ * colour set's swatch, a ✕ button to remove it, its status and More.
  *
  * @param {import('./locations.js').SetupLocation | null} setupLocation The row, or `null` for the empty row at the end.
  * @returns {HTMLLIElement} The list item. Its labels and status are filled in by {@link showRows}.
@@ -336,13 +330,10 @@ function rowItem(setupLocation) {
   swatch.type = 'button';
   swatch.dataset.action = 'set';
   swatch.append(element('span', 'size-6 rounded-full'));
-  const pin = element('button', ROW_BUTTON_CLASSES, '📍');
-  pin.type = 'button';
-  pin.dataset.action = 'pin';
   const remove = element('button', `${ROW_BUTTON_CLASSES} text-lg`, '✕');
   remove.type = 'button';
   remove.dataset.action = 'remove';
-  line.append(field, swatch, pin, remove);
+  line.append(field, swatch, remove);
   const id = Math.random().toString(36).slice(2);
   const footer = element('div', 'flex items-start gap-2');
   const status = element('p', 'flex min-w-0 flex-1 flex-wrap items-center gap-x-2 self-center text-xs break-words');
@@ -403,17 +394,14 @@ function rowItem(setupLocation) {
   atErrorLine.dataset.atError = '';
   atErrorLine.hidden = true;
   atField.setAttribute('aria-describedby', atErrorLine.id);
-  // The empty row at the end has nothing to remove or set options for. It
-  // keeps the space for ✕ so the fields line up.
-  remove.classList.toggle('invisible', setupLocation === null);
-  more.hidden = setupLocation === null;
   item.append(line, footer, atErrorLine, options);
   return item;
 }
 
 /**
  * Shows a row's labels, which depend on its position in the list, and its
- * status. A pinned row's status has a ✕ to clear the pin.
+ * status. Its swatch and More only show once it's been found, so there's
+ * nothing to set on a row that can't be planned.
  *
  * @param {HTMLLIElement} item The row's list item.
  * @param {number} number The row's position in the list, starting at 1.
@@ -422,13 +410,19 @@ function showRow(item, number) {
   const setupLocation = state.setupLocations.find(({ id }) => id === item.dataset.id) ?? null;
   const field = item.querySelector('[data-field="text"]');
   const status = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-status]'));
+  const routeLocationResult = setupLocation ? routeLocationOf(setupLocation, number, state.searchResults) : { status: 'empty' };
+  const isFound = ['found', 'coordinates', 'pinned'].includes(routeLocationResult.status);
   field.setAttribute('aria-label', `Location ${number}`);
-  item.querySelector('[data-action="pin"]').setAttribute('aria-label', `Pin location ${number} on the map`);
-  item.querySelector('[data-action="remove"]').setAttribute('aria-label', `Remove location ${number}`);
-  showSwatch(/** @type {HTMLButtonElement} */ (item.querySelector('[data-action="set"]')), setupLocation, number);
+  const remove = item.querySelector('[data-action="remove"]');
+  remove.setAttribute('aria-label', `Remove location ${number}`);
+  // The empty row at the end has nothing to remove, but keeps the space for
+  // ✕ so the fields line up.
+  remove.classList.toggle('invisible', setupLocation === null);
+  showSwatch(/** @type {HTMLButtonElement} */ (item.querySelector('[data-action="set"]')), setupLocation, number, isFound);
   const more = /** @type {HTMLButtonElement} */ (item.querySelector('[data-action="more"]'));
+  more.hidden = !isFound;
   const options = /** @type {HTMLDivElement} */ (item.lastElementChild);
-  const isOpen = setupLocation !== null && openRows.has(setupLocation.id);
+  const isOpen = isFound && openRows.has(setupLocation.id);
   // Must visit no longer applies once the location's been visited. The box
   // stays ticked, so it applies again if the tick is undone.
   const isMustVisit = Boolean(setupLocation?.isMustVisit && !setupLocation.isVisited);
@@ -449,22 +443,7 @@ function showRow(item, number) {
   /** @type {HTMLInputElement} */ (options.querySelector('[data-field="isMustVisit"]')).checked = Boolean(setupLocation?.isMustVisit);
   /** @type {HTMLInputElement} */ (options.querySelector('[data-field="at"]')).setAttribute('aria-label', `At, the fixed time for location ${number}`);
   showAtError(item, setupLocation);
-  const routeLocationResult = setupLocation ? routeLocationOf(setupLocation, number, state.searchResults) : { status: 'empty' };
-  const description = describeRouteLocationResult(routeLocationResult);
-  // Only rebuild the status when it changes, so a focused ✕ isn't replaced.
-  const shown = `${number} ${routeLocationResult.status} ${description.text}`;
-  if (status.dataset.shown === shown) {
-    return;
-  }
-  status.dataset.shown = shown;
-  showDescription(status, description);
-  if (routeLocationResult.status === 'pinned') {
-    const clear = element('button', 'inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-base text-accent-ink hover:bg-accent-soft focus:outline-none focus-visible:ring-2 focus-visible:ring-accent', '✕');
-    clear.type = 'button';
-    clear.dataset.action = 'clear-pin';
-    clear.setAttribute('aria-label', `Clear the pin for location ${number} and look it up instead`);
-    status.append(clear);
-  }
+  showDescription(status, describeRouteLocationResult(routeLocationResult));
 }
 
 /** Classes for the dot that shows a location's colour set, with a ring so it shows on both themes. */
@@ -502,12 +481,13 @@ function activeSets() {
  * @param {HTMLButtonElement} swatch The row's swatch button.
  * @param {import('./locations.js').SetupLocation | null} setupLocation The row, or `null` for the empty row at the end.
  * @param {number} number The row's position in the list, starting at 1.
+ * @param {boolean} isFound Whether the row's been found, as a set can't be chosen until it has.
  */
-function showSwatch(swatch, setupLocation, number) {
+function showSwatch(swatch, setupLocation, number, isFound) {
   const set = setOf(setupLocation?.set);
   swatch.hidden = !areSetsOn();
-  // The empty row at the end has no set to choose yet, but keeps the space.
-  swatch.classList.toggle('invisible', setupLocation === null);
+  // A row that hasn't been found has no set to choose yet, but keeps the space.
+  swatch.classList.toggle('invisible', !isFound);
   swatch.firstElementChild.className = `size-6 ${set ? `${SET_DOT_CLASSES} ${set.className}` : NO_SET_DOT_CLASSES}`;
   swatch.setAttribute('aria-label', `Colour set for location ${number}: ${set ? set.name : 'none'}`);
   swatch.title = set ? `${set.name} set` : 'No colour set';
@@ -537,8 +517,8 @@ function showAtErrors() {
 
 /** Shows the Start and Finish fields' statuses. */
 function showFieldStatuses() {
-  showDescription(startStatus, describeRouteLocationResult(routeLocationOfText(state.event.startText, START_KEY, state.searchResults), { canPin: false }));
-  showDescription(finishStatus, describeRouteLocationResult(routeLocationOfText(state.event.finishText, FINISH_KEY, state.searchResults), { canPin: false }));
+  showDescription(startStatus, describeRouteLocationResult(routeLocationOfText(state.event.startText, START_KEY, state.searchResults)));
+  showDescription(finishStatus, describeRouteLocationResult(routeLocationOfText(state.event.finishText, FINISH_KEY, state.searchResults)));
 }
 
 /**
@@ -642,12 +622,10 @@ function retryLookups() {
  * the result to screen readers when it's in.
  *
  * @param {import('./locations.js').RouteLocationResult} routeLocationResult Where the row is, from the saved search results.
- * @param {object} [options] What can be done about it.
- * @param {boolean} [options.canPin=true] Whether it can be pinned on the map, which rows can but the Start and Finish fields can't.
  */
-function lookUpFinished(routeLocationResult, { canPin = true } = {}) {
+function lookUpFinished(routeLocationResult) {
   if (routeLocationResult.status === 'unknown') {
-    announcedLookups.set(searchKey(routeLocationResult.query), { label: routeLocationResult.label, canPin });
+    announcedLookups.set(searchKey(routeLocationResult.query), routeLocationResult.label);
     lookUp(routeLocationResult.query);
     showRows();
   }
@@ -661,13 +639,12 @@ function lookUpFinished(routeLocationResult, { canPin = true } = {}) {
  * @param {string} key The search key that was looked up.
  */
 function announceLookup(key) {
-  const announced = announcedLookups.get(key);
-  if (!announced) {
+  const label = announcedLookups.get(key);
+  if (label === undefined) {
     return;
   }
   announcedLookups.delete(key);
-  const { label, canPin } = announced;
-  locationAnnouncement.textContent = `${label}: ${describeRouteLocationResult(routeLocationOfText(label, '', state.searchResults), { canPin }).text}`;
+  locationAnnouncement.textContent = `${label}: ${describeRouteLocationResult(routeLocationOfText(label, '', state.searchResults)).text}`;
 }
 
 /**
@@ -831,8 +808,6 @@ locationRows.addEventListener('input', (event) => {
     setupLocation = { id: newLocationId(), text: '' };
     state.setupLocations.push(setupLocation);
     row.item.dataset.id = setupLocation.id;
-    row.item.querySelector('[data-action="remove"]').classList.remove('invisible');
-    /** @type {HTMLButtonElement} */ (row.item.querySelector('[data-action="more"]')).hidden = false;
     locationRows.append(rowItem(null));
     showRow(/** @type {HTMLLIElement} */ (locationRows.lastElementChild), state.setupLocations.length + 1);
   }
@@ -925,9 +900,7 @@ locationRows.addEventListener('click', (event) => {
   }
   const { item, setupLocation } = row;
   const number = [...locationRows.children].indexOf(item) + 1;
-  if (button.dataset.action === 'pin') {
-    startPinning(setupLocation?.id ?? null, rowLabel(setupLocation?.text ?? '', number));
-  } else if (button.dataset.action === 'remove' && setupLocation) {
+  if (button.dataset.action === 'remove' && setupLocation) {
     removeRow(item, setupLocation);
   } else if (button.dataset.action === 'set' && setupLocation) {
     openSetDialog(setupLocation, number);
@@ -936,12 +909,6 @@ locationRows.addEventListener('click', (event) => {
       openRows.add(setupLocation.id);
     }
     showRow(item, number);
-  } else if (button.dataset.action === 'clear-pin' && setupLocation) {
-    delete setupLocation.pin;
-    saveState(state);
-    item.querySelector('input').focus();
-    showRows();
-    lookUpFinished(routeLocationOf(setupLocation, number, state.searchResults));
   }
 });
 
@@ -1016,7 +983,7 @@ for (const [field, key] of /** @type {const} */ ([
   [startField, START_KEY],
   [finishField, FINISH_KEY],
 ])) {
-  field.addEventListener('change', () => lookUpFinished(routeLocationOfText(field.value, key, state.searchResults), { canPin: false }));
+  field.addEventListener('change', () => lookUpFinished(routeLocationOfText(field.value, key, state.searchResults)));
 }
 
 /**
@@ -1480,19 +1447,8 @@ function planResultText(setupResult) {
     const labels = setupResult.leftOut.map((routeLocationResult) => routeLocationResult.label);
     parts.push(`Left out because ${setupResult.leftOut.length === 1 ? "it wasn't" : "they weren't"} found: ${labels.join(', ')}.`);
   }
-  parts.push(...planWarnings(setupResult.plan), ...setNotes(setupResult));
+  parts.push(...planWarnings(setupResult.plan), ...setupResult.mismatchedSets.map(mismatchedSetText));
   return parts.join(' ');
-}
-
-/**
- * Notes the colour sets that can't earn their bonus: those with the wrong
- * number of locations, and those with locations that couldn't be found.
- *
- * @param {Pick<import('./setup.js').SetupResult, 'mismatchedSets' | 'unfoundSets'>} setupResult The result of planning.
- * @returns {string[]} The notes, if any.
- */
-function setNotes({ mismatchedSets, unfoundSets }) {
-  return [...mismatchedSets.map(mismatchedSetText), ...unfoundSets.map(unfoundSetText)];
 }
 
 /**
@@ -1618,7 +1574,7 @@ async function replanAndReport(position, successMessage) {
       showReplanStatus(error, true);
     } else {
       const warnings = planWarnings(plan);
-      showReplanStatus([successMessage(), ...warnings, ...setNotes(setupResult)].join(' '), warnings.length > 0);
+      showReplanStatus([successMessage(), ...warnings, ...setupResult.mismatchedSets.map(mismatchedSetText)].join(' '), warnings.length > 0);
     }
   } catch {
     showReplanStatus("Re-planning didn't work. Try again.", true);
@@ -1772,7 +1728,7 @@ function updateMap() {
   // Locations in a set show a dot in its colour while set bonuses are on.
   const sets = activeSets();
   // A stop, skipped location or + can be moved from its popup, which pins
-  // its row there, as 📍 does, so it keeps its text and ticked-off state.
+  // its row there, so it keeps its text and ticked-off state.
   // Its row is looked up when the popup opens and when Move is pressed,
   // not now, as it can be renamed, removed or ticked off in the list
   // without the map being redrawn.
@@ -1786,7 +1742,7 @@ function updateMap() {
     marker.onMove = () => {
       const current = target();
       if (current) {
-        startPinning(current.id, current.label, { isMove: true });
+        startPinning(current.id, current.label);
       }
     };
   }
@@ -1826,22 +1782,20 @@ function openPinDialog(latLng) {
 }
 
 /**
- * Starts pinning a row of the location list on the map: shows the map with
- * a banner saying what to tap, and waits for a tap.
+ * Starts moving a row of the location list on the map, after its marker's
+ * Move: shows the map with a banner saying what to tap, and waits for a tap.
  *
- * @param {string | null} id The row's id, or `null` for the empty row at the end.
+ * @param {string} id The row's id.
  * @param {string} label What the row is called, for the banner.
- * @param {object} [options] How it was started.
- * @param {boolean} [options.isMove=false] Whether it's being moved with a marker's Move, rather than pinned with 📍.
  */
-function startPinning(id, label, { isMove = false } = {}) {
+function startPinning(id, label) {
   showView('map');
   if (!routeMap) {
     // The map couldn't load, and says so under it.
     mapContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
-  pinTarget = { id, isMove };
+  pinTarget = id;
   pinBannerText.textContent = `Tap where ${label} is.`;
   pinBanner.classList.replace('hidden', 'flex');
   mapContainer.classList.add('is-pinning');
@@ -1854,7 +1808,7 @@ function startPinning(id, label, { isMove = false } = {}) {
  * Move was pressed, so the banner doesn't ask for a tap that can't move it.
  */
 function stopMovingIfUnmovable() {
-  if (pinTarget?.isMove && !movableRow(state.setupLocations, pinTarget.id)) {
+  if (pinTarget && !movableRow(state.setupLocations, pinTarget)) {
     stopPinning();
   }
 }
@@ -1867,13 +1821,13 @@ function stopPinning() {
 }
 
 /**
- * Pins the row being pinned where the map was tapped.
+ * Pins the row being moved where the map was tapped.
  *
  * @param {import('./planner.js').LatLng} latLng Where the map was tapped.
  */
 function placePin(latLng) {
-  const { id, isMove } = pinTarget;
-  if (isMove && !movableRow(state.setupLocations, id)) {
+  const id = pinTarget;
+  if (!movableRow(state.setupLocations, id)) {
     // Its row was removed or ticked off while it was being moved, so
     // there's nothing to move.
     stopPinning();
@@ -1882,10 +1836,7 @@ function placePin(latLng) {
   const location = pinRow(id, '', latLng);
   stopPinning();
   const action = state.plan ? 'Re-plan from here' : 'Plan route';
-  showPinStatus(
-    isMove ? `Moved ${location.label}. Press ${action} to update the route.` : `Pinned ${location.label}. Press ${action} to use the pin in the route.`,
-    location.key,
-  );
+  showPinStatus(`Moved ${location.label}. Press ${action} to update the route.`, location.key);
 }
 
 pinBannerCancel.addEventListener('click', stopPinning);

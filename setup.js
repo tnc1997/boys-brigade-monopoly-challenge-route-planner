@@ -1,4 +1,4 @@
-import { FINISH_KEY, START_KEY, isTime, pointsById, routeLocationOfText, routeLocationsOf, rowLabel, usableRouteLocations, visitedKeys } from './locations.js';
+import { FINISH_KEY, START_KEY, isTime, pointsById, routeLocationOfText, routeLocationsOf, usableRouteLocations, visitedKeys } from './locations.js';
 import { plan } from './planner.js';
 import { completableSets, mismatchedSets } from './sets.js';
 import { SPEED_RANGE } from './settings.js';
@@ -29,7 +29,6 @@ import { SPEED_RANGE } from './settings.js';
  * @property {string | null} error What stops planning, or `null` if a plan was made.
  * @property {Extract<import('./locations.js').RouteLocationResult, { status: 'notFound' | 'unknown' }>[]} leftOut The results for setup locations with text that couldn't be found or hasn't been looked up, so were left out. They don't stop planning.
  * @property {import('./sets.js').MismatchedSet[]} mismatchedSets The colour sets with more or fewer locations than they have on the board, which can't earn their bonus, while set bonuses are on. Empty if no plan was made.
- * @property {import('./sets.js').UnfoundSet[]} unfoundSets The colour sets with as many locations as they have on the board, but with locations still to visit that couldn't be found or haven't been looked up, so can't earn their bonus, while set bonuses are on. Empty if no plan was made.
  */
 
 /**
@@ -104,7 +103,7 @@ export function timeToday(time, now) {
  */
 export function planFromSetup({ event, setupLocations, settings, now, from = null, searchResults = {} }) {
   const leftOut = routeLocationsOf(setupLocations, searchResults).filter(({ status }) => status === 'notFound' || status === 'unknown');
-  const failure = (error) => ({ plan: null, error, leftOut, mismatchedSets: [], unfoundSets: [] });
+  const failure = (error) => ({ plan: null, error, leftOut, mismatchedSets: [] });
 
   const usable = usableRouteLocations(setupLocations, searchResults);
   if (usable.length === 0) {
@@ -161,19 +160,9 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
   // with the wrong number of locations, or one that can't be planned, such
   // as one that wasn't found, can't be completed, so earns nothing.
   const remainingIndexes = new Map(remaining.map(({ routeLocation }, index) => [routeLocation.key, index]));
-  const completable = event.pointsPerSet > 0 ? completableSets(setupLocations) : [];
-  const isPlannable = (id) => done.has(id) || remainingIndexes.has(id);
-  const sets = completable
-    .filter(({ ids }) => ids.every(isPlannable))
+  const sets = (event.pointsPerSet > 0 ? completableSets(setupLocations) : [])
+    .filter(({ ids }) => ids.every((id) => done.has(id) || remainingIndexes.has(id)))
     .map(({ ids }) => ({ locations: ids.filter((id) => !done.has(id)).map((id) => remainingIndexes.get(id)), points: event.pointsPerSet }));
-  // Name the locations that stop a set being completed, as the route does.
-  const labelOf = (id) => {
-    const index = setupLocations.findIndex((setupLocation) => setupLocation.id === id);
-    return rowLabel(setupLocations[index].text, index + 1);
-  };
-  const unfoundSets = completable
-    .filter(({ ids }) => !ids.every(isPlannable))
-    .map(({ set, ids }) => ({ set, labels: ids.filter((id) => !isPlannable(id)).map(labelOf) }));
   const planned = plan({
     start: start.routeLocation,
     locations: remaining.map(({ routeLocation }) => routeLocation),
@@ -205,7 +194,6 @@ export function planFromSetup({ event, setupLocations, settings, now, from = nul
     error: null,
     leftOut,
     mismatchedSets: event.pointsPerSet > 0 ? mismatchedSets(setupLocations) : [],
-    unfoundSets,
   };
 }
 
