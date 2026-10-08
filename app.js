@@ -93,7 +93,7 @@ let addedPinKey = null;
  *
  * @type {string | null}
  */
-let pinTarget = null;
+let movingId = null;
 
 /** Ids of the rows whose More options are open, so they stay open when the rows are rebuilt. */
 const openRows = new Set();
@@ -336,7 +336,7 @@ function rowItem(setupLocation) {
   line.append(field, swatch, remove);
   const id = Math.random().toString(36).slice(2);
   const footer = element('div', 'flex items-start gap-2');
-  const status = element('p', 'flex min-w-0 flex-1 flex-wrap items-center gap-x-2 self-center text-xs break-words');
+  const status = element('p', 'min-w-0 flex-1 self-center text-xs break-words');
   status.id = `location-status-${id}`;
   status.dataset.status = '';
   field.setAttribute('aria-describedby', status.id);
@@ -411,7 +411,7 @@ function showRow(item, number) {
   const field = item.querySelector('[data-field="text"]');
   const status = /** @type {HTMLParagraphElement} */ (item.querySelector('[data-status]'));
   const routeLocationResult = setupLocation ? routeLocationOf(setupLocation, number, state.searchResults) : { status: 'empty' };
-  const isFound = ['found', 'coordinates', 'pinned'].includes(routeLocationResult.status);
+  const isFound = 'routeLocation' in routeLocationResult;
   field.setAttribute('aria-label', `Location ${number}`);
   const remove = item.querySelector('[data-action="remove"]');
   remove.setAttribute('aria-label', `Remove location ${number}`);
@@ -648,8 +648,8 @@ function announceLookup(key) {
 }
 
 /**
- * Saves a pin for a row of the location list. Pinning the empty row at the
- * end, or a row that's been removed since, adds a new row.
+ * Saves a pin for a row of the location list: one being moved, or a new
+ * row for a pin dropped on the map.
  *
  * @param {string | null} id The row's id, or `null` for a new row.
  * @param {string} text The text for a new row.
@@ -1653,8 +1653,8 @@ function showMap() {
   routeMap = createMap(mapContainer, {
     onTilesFailed: () => mapTilesStatus.classList.remove('hidden'),
     onTilesLoaded: () => mapTilesStatus.classList.add('hidden'),
-    onLongPress: (latLng) => (pinTarget ? placePin(latLng) : openPinDialog(latLng)),
-    onTap: (latLng) => pinTarget && placePin(latLng),
+    onLongPress: (latLng) => (movingId ? moveRowTo(latLng) : openPinDialog(latLng)),
+    onTap: (latLng) => movingId && moveRowTo(latLng),
   });
   showMapStatus(routeMap ? null : "The map couldn't load, which usually means there's no signal. The List tab still works.");
   // Without a map, there's nowhere to drop a pin.
@@ -1742,7 +1742,7 @@ function updateMap() {
     marker.onMove = () => {
       const current = target();
       if (current) {
-        startPinning(current.id, current.label);
+        startMoving(current.id, current.label);
       }
     };
   }
@@ -1788,17 +1788,17 @@ function openPinDialog(latLng) {
  * @param {string} id The row's id.
  * @param {string} label What the row is called, for the banner.
  */
-function startPinning(id, label) {
+function startMoving(id, label) {
   showView('map');
   if (!routeMap) {
     // The map couldn't load, and says so under it.
     mapContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return;
   }
-  pinTarget = id;
+  movingId = id;
   pinBannerText.textContent = `Tap where ${label} is.`;
   pinBanner.classList.replace('hidden', 'flex');
-  mapContainer.classList.add('is-pinning');
+  mapContainer.classList.add('is-moving');
   pinBanner.scrollIntoView({ behavior: 'smooth', block: 'start' });
   pinBannerCancel.focus({ preventScroll: true });
 }
@@ -1808,16 +1808,16 @@ function startPinning(id, label) {
  * Move was pressed, so the banner doesn't ask for a tap that can't move it.
  */
 function stopMovingIfUnmovable() {
-  if (pinTarget && !movableRow(state.setupLocations, pinTarget)) {
-    stopPinning();
+  if (movingId && !movableRow(state.setupLocations, movingId)) {
+    stopMoving();
   }
 }
 
-/** Stops pinning a row on the map, and hides the banner. */
-function stopPinning() {
-  pinTarget = null;
+/** Stops moving a row on the map, and hides the banner. */
+function stopMoving() {
+  movingId = null;
   pinBanner.classList.replace('flex', 'hidden');
-  mapContainer.classList.remove('is-pinning');
+  mapContainer.classList.remove('is-moving');
 }
 
 /**
@@ -1825,24 +1825,24 @@ function stopPinning() {
  *
  * @param {import('./planner.js').LatLng} latLng Where the map was tapped.
  */
-function placePin(latLng) {
-  const id = pinTarget;
+function moveRowTo(latLng) {
+  const id = movingId;
   if (!movableRow(state.setupLocations, id)) {
     // Its row was removed or ticked off while it was being moved, so
     // there's nothing to move.
-    stopPinning();
+    stopMoving();
     return;
   }
   const location = pinRow(id, '', latLng);
-  stopPinning();
+  stopMoving();
   const action = state.plan ? 'Re-plan from here' : 'Plan route';
   showPinStatus(`Moved ${location.label}. Press ${action} to update the route.`, location.key);
 }
 
-pinBannerCancel.addEventListener('click', stopPinning);
+pinBannerCancel.addEventListener('click', stopMoving);
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && pinTarget) {
-    stopPinning();
+  if (event.key === 'Escape' && movingId) {
+    stopMoving();
   }
 });
 
@@ -1880,12 +1880,12 @@ form.addEventListener('submit', (event) => {
 /**
  * Shows a new location list, after starting a new challenge or opening a
  * shared setup: stops anything still going for the old list, such as
- * pinning, planning or the message to re-plan for new points, and shows
- * the new list without a plan.
+ * moving a row, planning or the message to re-plan for new points, and
+ * shows the new list without a plan.
  */
 function showNewList() {
   listGeneration++;
-  stopPinning();
+  stopMoving();
   openRows.clear();
   clearTimeout(pointsTimer);
   isReplanForPointsNeeded = false;
