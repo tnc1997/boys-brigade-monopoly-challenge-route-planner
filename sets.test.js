@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { SETS, completableSets, isSetId, mismatchedSetText, mismatchedSets, setBonus, setOf } from '../sets.js';
+import { SETS, completableSets, isSetId, mismatchedSetText, mismatchedSets, setBonus, setOf } from './sets.js';
 
 describe('SETS', () => {
   test("has the board's eight colour sets, with two brown and dark blue properties and three of each other colour", () => {

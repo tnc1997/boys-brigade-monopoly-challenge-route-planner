@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isLatLng, isPoints, isTime, movableRow, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, rowLabel, usableRouteLocations, visitedKeys } from '../locations.js';
-import { searchKey } from '../search.js';
+import { FINISH_KEY, START_KEY, atError, cleanSetupLocations, hasOwnPoints, isLatLng, isPoints, isTime, movableRow, newLocationId, parsePoints, pointsById, pointsOf, routeLocationOf, routeLocationOfText, routeLocationsOf, rowLabel, usableRouteLocations, visitedKeys } from './locations.js';
+import { searchKey } from './search.js';
 
 const queenSquare = { isFound: true, lat: 51.4504, lng: -2.5947, name: 'Queen Square, City Centre, Bristol' };
 

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { searchKey } from '../search.js';
-import { LEGACY_STORAGE_KEYS, SCHEMA_VERSION, STORAGE_KEY, cleanState, clearState, defaultState, isOutOfDate, loadState, resetChallenge, saveState } from '../storage.js';
+import { searchKey } from './search.js';
+import { LEGACY_STORAGE_KEYS, SCHEMA_VERSION, STORAGE_KEY, cleanState, clearState, defaultState, isOutOfDate, loadState, resetChallenge, saveState } from './storage.js';
 
 /** An in-memory stand-in for localStorage. */
 const memoryStorage = (initial = {}) => {

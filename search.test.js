@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { BRISTOL_VIEWBOX, REQUEST_INTERVAL_MS, SEARCH_URL, createSearchQueue, searchKey, searchPlace } from '../search.js';
+import { BRISTOL_VIEWBOX, REQUEST_INTERVAL_MS, SEARCH_URL, createSearchQueue, searchKey, searchPlace } from './search.js';
 
 /** A fake fetch that returns the given JSON (or throws), and records the URLs it was called with. */
 const fakeFetch = (respond) => {

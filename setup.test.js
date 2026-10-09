@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { START_KEY } from '../locations.js';
-import { searchKey } from '../search.js';
-import { planFromSetup, replanStartingPoint, searchesNeeded, startTimeToday, timeToday } from '../setup.js';
-import { defaultState } from '../storage.js';
+import { START_KEY } from './locations.js';
+import { searchKey } from './search.js';
+import { planFromSetup, replanStartingPoint, searchesNeeded, startTimeToday, timeToday } from './setup.js';
+import { defaultState } from './storage.js';
 
 const now = new Date(2026, 9, 3, 11, 0).getTime();
 
