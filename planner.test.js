@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { evaluateRoute, greedyInsertion, haversineMetres, improveWithTwoOpt, plan, walkSeconds } from '../planner.js';
+import { evaluateRoute, greedyInsertion, haversineMetres, improveWithTwoOpt, plan, walkSeconds } from './planner.js';
 
 const castlePark = { lat: 51.4556, lng: -2.5894 };
 const cliftonSuspensionBridge = { lat: 51.4549, lng: -2.6278 };

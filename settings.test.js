@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, defaultDwellSeconds, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from '../settings.js';
-import { defaultState } from '../storage.js';
+import { SPEED_PRESETS, SPEED_RANGE, checkInFormUrl, defaultDwellSeconds, dwellSecondsForCheckInForm, settingsSummary, speedPreset } from './settings.js';
+import { defaultState } from './storage.js';
 
 describe('speedPreset', () => {
   test('matches each preset', () => {

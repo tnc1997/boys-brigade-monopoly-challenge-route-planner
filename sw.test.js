@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import vm from 'node:vm';
 
-const root = new URL('../', import.meta.url);
+const root = new URL('./', import.meta.url);
 const sw = readFileSync(new URL('sw.js', root), 'utf8');
 const index = readFileSync(new URL('index.html', root), 'utf8');
 
@@ -16,7 +16,7 @@ const listIn = (name) => {
 
 describe('service worker', () => {
   test('saves every top-level module, except itself', () => {
-    const modules = readdirSync(root).filter((file) => file.endsWith('.js') && file !== 'sw.js');
+    const modules = readdirSync(root).filter((file) => file.endsWith('.js') && !file.endsWith('.test.js') && file !== 'sw.js');
     const appFiles = listIn('APP_FILES');
     for (const module of modules) {
       assert.ok(appFiles.includes(module), `${module} is missing from APP_FILES in sw.js`);

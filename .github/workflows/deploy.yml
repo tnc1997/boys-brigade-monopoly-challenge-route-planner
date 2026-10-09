@@ -35,7 +35,7 @@ jobs:
       - name: Collect site files
         run: |
           mkdir _site
-          cp index.html *.js styles.css _site/
+          cp app.js index.html locations.js map.js planner.js route.js search.js sets.js settings.js setup.js share.js storage.js styles.css sw.js _site/
           # Name the deploy after its files, so a new sw.js saves a complete new set
           # whenever they change, but a push that doesn't change them (such as to
           # the README or tests) doesn't ask teams to update.

@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import { describe, test } from 'node:test';
 
-import { OPTIONAL_SETUP_LOCATION_FIELDS } from '../locations.js';
-import { searchKey } from '../search.js';
-import { SHARE_PREFIX, canCompress, preparedShareFragment, readShareFragment, shareFragment, sharedSetupOf } from '../share.js';
-import { SCHEMA_VERSION, cleanState, defaultState } from '../storage.js';
+import { OPTIONAL_SETUP_LOCATION_FIELDS } from './locations.js';
+import { searchKey } from './search.js';
+import { SHARE_PREFIX, canCompress, preparedShareFragment, readShareFragment, shareFragment, sharedSetupOf } from './share.js';
+import { SCHEMA_VERSION, cleanState, defaultState } from './storage.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 

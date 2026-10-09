@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, movableSetupLocation, newLocationMarkers, plural, progress, timeWarning } from '../route.js';
-import { visitedKeys } from '../locations.js';
-import { planFromSetup } from '../setup.js';
-import { defaultState } from '../storage.js';
+import { appleMapsDirectionsUrl, countdownText, describeRoute, formatDuration, googleMapsDirectionsUrl, isAppleDevice, isPlanForToday, mapRoute, movableSetupLocation, newLocationMarkers, plural, progress, timeWarning } from './route.js';
+import { visitedKeys } from './locations.js';
+import { planFromSetup } from './setup.js';
+import { defaultState } from './storage.js';
 
 const now = new Date(2026, 9, 3, 11, 0).getTime();
 
